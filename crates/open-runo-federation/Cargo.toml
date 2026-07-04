@@ -1,0 +1,19 @@
+[package]
+name = "open-runo-federation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-runo Federation Engine: schema composition, conflict detection, and query planning across backend services"
+
+[lints]
+workspace = true
+
+[dependencies]
+open-runo-core = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }

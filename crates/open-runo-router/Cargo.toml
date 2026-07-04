@@ -1,0 +1,45 @@
+[package]
+name = "open-runo-router"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-runo Gateway Router: Poem-based HTTP entrypoint, health checks, and middleware pipeline"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "open-runo-router"
+path = "src/main.rs"
+
+[dependencies]
+open-runo-core             = { workspace = true }
+open-runo-observability    = { workspace = true }
+open-runo-security         = { workspace = true }
+open-runo-federation       = { workspace = true }
+open-runo-schema-registry  = { workspace = true }
+open-runo-ai-routing       = { workspace = true }
+open-runo-history          = { workspace = true }
+open-runo-persisted-queries = { workspace = true }
+open-runo-scim             = { workspace = true }
+open-runo-cache            = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+open-runo-db               = { workspace = true }
+poem = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+futures = { workspace = true }
+jsonschema = { workspace = true }
+once_cell = { workspace = true }
+
+[dev-dependencies]
+jsonwebtoken = { workspace = true }
+poem = { workspace = true, features = ["test"] }

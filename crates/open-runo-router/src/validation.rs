@@ -1,0 +1,88 @@
+//! JSON Schema validation for request bodies.
+//!
+//! Wraps the `jsonschema` crate so handlers can validate an incoming
+//! `serde_json::Value` against a compiled schema and turn failures into a
+//! `422 Unprocessable Entity` with a readable list of violations, instead of
+//! either trusting the body blindly or hand-rolling field checks per
+//! handler.
+
+use jsonschema::Validator;
+use once_cell::sync::Lazy;
+use poem::{http::StatusCode, Error};
+use serde_json::Value;
+
+/// Compile a JSON Schema (as a `serde_json::Value`) into a reusable
+/// [`Validator`]. Panics at startup (via `Lazy`) if the embedded schema
+/// itself is malformed — a programmer error, not a runtime condition.
+fn compile(schema: Value) -> Validator {
+    jsonschema::validator_for(&schema).expect("embedded JSON schema is valid")
+}
+
+/// Schema for `POST /api/schemas` request bodies.
+pub static REGISTER_SCHEMA_REQUEST: Lazy<Validator> = Lazy::new(|| {
+    compile(serde_json::json!({
+        "type": "object",
+        "required": ["service_name", "sdl"],
+        "properties": {
+            "service_name": { "type": "string", "minLength": 1 },
+            "sdl": { "type": "string", "minLength": 1 },
+            "stage": { "type": "string" }
+        }
+    }))
+});
+
+/// Schema for `PUT /api/db/:table/:key` request bodies.
+pub static DB_UPSERT_REQUEST: Lazy<Validator> = Lazy::new(|| {
+    compile(serde_json::json!({
+        "type": "object",
+        "required": ["value"]
+    }))
+});
+
+/// Validate `body` against `validator`, returning a `422` [`poem::Error`]
+/// listing every violation when it fails.
+pub fn validate(validator: &Validator, body: &Value) -> Result<(), Error> {
+    let errors: Vec<String> = validator
+        .iter_errors(body)
+        .map(|e| format!("{} (at {})", e, e.instance_path))
+        .collect();
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::from_string(
+            format!("request body failed validation: {}", errors.join("; ")),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn register_schema_request_accepts_valid_body() {
+        let body = json!({ "service_name": "users", "sdl": "type User { id: ID! }" });
+        assert!(validate(&REGISTER_SCHEMA_REQUEST, &body).is_ok());
+    }
+
+    #[test]
+    fn register_schema_request_rejects_missing_sdl() {
+        let body = json!({ "service_name": "users" });
+        assert!(validate(&REGISTER_SCHEMA_REQUEST, &body).is_err());
+    }
+
+    #[test]
+    fn register_schema_request_rejects_empty_service_name() {
+        let body = json!({ "service_name": "", "sdl": "type User { id: ID! }" });
+        assert!(validate(&REGISTER_SCHEMA_REQUEST, &body).is_err());
+    }
+
+    #[test]
+    fn db_upsert_request_requires_value_field() {
+        assert!(validate(&DB_UPSERT_REQUEST, &json!({})).is_err());
+        assert!(validate(&DB_UPSERT_REQUEST, &json!({ "value": 42 })).is_ok());
+    }
+}

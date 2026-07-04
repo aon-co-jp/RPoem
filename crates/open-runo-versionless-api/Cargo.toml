@@ -1,0 +1,15 @@
+[package]
+name = "open-runo-versionless-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-runo VersionlessAPI Engine: backward-compatible schema evolution without /v1, /v2 sprawl"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { workspace = true }

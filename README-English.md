@@ -1,29 +1,75 @@
-# OpenCosmo
+# open-runo
 
-## Rust + Poem NewVersion of WunderGraph Cosmo-Inspired Graph Federation Platform
+## Beyond WunderGraph Cosmo — Rust + Poem Graph Federation Platform
 
-OpenCosmo is an open-source next-generation Graph Federation, API orchestration, and AI-native gateway platform built with **Rust + Poem**.
+open-runo is a next-generation Graph Federation, API orchestration, and AI-native gateway platform built with **Rust + Poem**.
 
-WunderGraph Cosmo is currently implemented mainly in Go. OpenCosmo is a new experimental Rust-native architecture that aims to provide a high-performance, memory-safe, AI-ready, and quality-gated alternative for modern distributed application development.
+---
 
-OpenCosmo is designed for developers who want to build web applications, desktop applications, mobile applications, AI agents, internal tools, and enterprise systems with fewer bugs, stronger validation, and better long-term maintainability.
+## Why open-runo Exists
+
+### The REST API Problem
+
+As microservices grow, REST APIs multiply and cause serious problems:
+
+- **BFF hell** — every UI change requires a new backend API to be written, deployed, and maintained
+- **Overfetching / N+1** — clients receive more data than needed, or must make many round-trips to assemble one view
+- **Documentation rot** — Swagger/OpenAPI specs drift from reality; nobody trusts them
+- **Endpoint sprawl** — authentication, security, and rate limiting become impossible to manage consistently
+- **Version explosion** — `/v1`, `/v2`, `/v3` accumulate forever and cannot be retired
+
+### What WunderGraph Cosmo (Go) Solves
+
+WunderGraph Cosmo is an excellent platform that solves these problems via **GraphQL Federation**: it unifies multiple REST APIs, gRPC services, and GraphQL services into a single endpoint, eliminating BFF development.
+
+**But Go has fundamental limitations:**
+
+| Problem | Detail |
+|---------|--------|
+| Garbage collection | Causes unpredictable latency spikes in production |
+| Memory safety | Not guaranteed at compile time; runtime bugs remain possible |
+| No AI-native routing | No concept of LLM routing or AI Gateway |
+| No VersionlessAPI | The root cause of version explosion is not addressed |
+| No DUAL DATABASE | No distributed DB strategy or aruaru-db integration |
+| No Desktop App | Management UI is web-only |
+
+### REST API vs Cosmo vs open-runo — Feature Comparison
+
+| Problem / Feature | REST API only | Cosmo (Go) | **open-runo (Rust)** |
+|---|:---:|:---:|:---:|
+| BFF development required | ❌ Every time | ✅ Eliminated | ✅ Eliminated |
+| Overfetching / N+1 | ❌ Occurs | ✅ Resolved | ✅ Resolved |
+| Documentation rot | ❌ Swagger drifts | ✅ Schema managed | ✅ Schema + Git history |
+| Endpoint sprawl | ❌ Fragmented | ✅ Single endpoint | ✅ Single endpoint |
+| Unified auth & security | ❌ Per-service | ✅ Gateway-level | ✅ Gateway-level |
+| Version explosion (/v1 /v2…) | ❌ Accumulates forever | ⚠️ Not solved | ✅ **VersionlessAPI** |
+| GC latency spikes | ⚠️ Depends | ❌ Go GC causes spikes | ✅ **No GC** |
+| Compile-time memory safety | ⚠️ Depends | ❌ Runtime risk remains | ✅ **Rust static guarantee** |
+| AI-native LLM routing | ❌ None | ❌ None | ✅ **Auto-select provider** |
+| DUAL DATABASE (PG + aruaru-db) | ❌ None | ❌ None | ✅ **Supported** |
+| Git-like schema / DB history | ❌ None | ❌ None | ✅ **Commit / Rollback** |
+| Distributed auto-backup | ❌ None | ❌ None | ✅ **S3 / VPS / Peer** |
+| Tauri Desktop App | ❌ None | ❌ None | ✅ **TS + Bootstrap 5** |
+
+See [`docs/why-open-runo.md`](docs/why-open-runo.md) for the full analysis.
 
 ---
 
 ## Project Vision
 
-OpenCosmo aims to become a next-generation infrastructure layer that combines the strengths of:
+open-runo aims to become a next-generation infrastructure layer combining:
 
-- Graph Federation Gateway
-- API Gateway
-- Schema Registry
-- AI Gateway
-- Distributed Database Coordination
-- VersionlessAPI Platform
-- Observability Platform
-- Quality Gate System
+- Graph Federation Gateway (Cosmo-equivalent, Rust-speed)
+- API Gateway (unified auth, rate limiting, security)
+- Schema Registry (Git-like history, stage promotion)
+- AI Gateway (Cloud LLM + Local LLM automatic routing)
+- Distributed DUAL Database (PostgreSQL + aruaru-db)
+- VersionlessAPI Platform (long-term compatibility without versioning)
+- Observability Platform (OpenTelemetry / Prometheus / Grafana)
+- Quality Gate System (Rust compile-time validation + CI gates)
+- Tauri Desktop App (TypeScript + HTML5 + Bootstrap 5)
 
-The goal is not only to replace a router, but to build a full AI-native development and operation platform.
+The goal is not merely to replace a router, but to **fundamentally solve the REST API problem** with a full AI-native development and operation platform.
 
 ---
 
@@ -45,7 +91,7 @@ The goal is not only to replace a router, but to build a full AI-native developm
 ## Main Architecture
 
 ```text
-OpenCosmo
+open-runo
 ├── Gateway Router
 ├── Federation Engine
 ├── Schema Registry
@@ -63,7 +109,7 @@ OpenCosmo
 
 ## 1. Gateway Router
 
-The Gateway Router is the high-performance entry point of OpenCosmo.
+The Gateway Router is the high-performance entry point of open-runo.
 
 Responsibilities:
 
@@ -139,9 +185,9 @@ Example environments:
 
 ## 4. VersionlessAPI Engine
 
-OpenCosmo includes a VersionlessAPI design to reduce API version fragmentation.
+open-runo includes a VersionlessAPI design to reduce API version fragmentation.
 
-Instead of constantly creating `/v1`, `/v2`, `/v3` endpoints, OpenCosmo aims to support API evolution through:
+Instead of constantly creating `/v1`, `/v2`, `/v3` endpoints, open-runo aims to support API evolution through:
 
 - Backward-compatible schema changes
 - Compatibility mapping
@@ -157,7 +203,7 @@ The purpose is to reduce API maintenance cost and prevent unnecessary breaking c
 
 ## 5. AI Routing Engine
 
-OpenCosmo is designed as an AI-native platform.
+open-runo is designed as an AI-native platform.
 
 The AI Routing Engine can route requests to the most suitable AI provider or local model.
 
@@ -195,7 +241,7 @@ Example use cases:
 
 ## 6. Database Coordination Layer
 
-OpenCosmo is not designed as a simple database wrapper. It is designed to coordinate multiple database strategies.
+open-runo is not designed as a simple database wrapper. It is designed to coordinate multiple database strategies.
 
 Supported database concepts:
 
@@ -220,14 +266,14 @@ Planned database targets:
 
 ## 7. Distributed Automatic Backup
 
-OpenCosmo includes a distributed backup strategy for application data, schema data, configuration data, and metadata.
+open-runo includes a distributed backup strategy for application data, schema data, configuration data, and metadata.
 
 Backup targets:
 
 - Local storage
 - Remote VPS
 - S3-compatible object storage
-- Another OpenCosmo node
+- Another open-runo node
 - Git-compatible archive repository
 
 Features:
@@ -245,7 +291,7 @@ Features:
 
 ## 8. Git-like Database and Schema History
 
-OpenCosmo aims to provide Git-like history management for schemas, database changes, and configuration.
+open-runo aims to provide Git-like history management for schemas, database changes, and configuration.
 
 Features:
 
@@ -263,7 +309,7 @@ This helps reduce accidental production changes and makes debugging easier.
 
 ## 9. Observability System
 
-OpenCosmo includes production-grade observability from the beginning.
+open-runo includes production-grade observability from the beginning.
 
 Features:
 
@@ -307,7 +353,7 @@ Features:
 
 ## 11. Quality Gate Pipeline
 
-OpenCosmo emphasizes fewer small mistakes, fewer bugs, and stronger release gates.
+open-runo emphasizes fewer small mistakes, fewer bugs, and stronger release gates.
 
 Quality gates:
 
@@ -339,21 +385,21 @@ The goal is to prevent fragile AI-generated code from entering production withou
 ## Recommended Repository Structure
 
 ```text
-opencosmo/
+open-runo/
 ├── README-English.md
 ├── README-Japan.md
 ├── Cargo.toml
 ├── crates/
-│   ├── opencosmo-router/
-│   ├── opencosmo-federation/
-│   ├── opencosmo-schema-registry/
-│   ├── opencosmo-ai-routing/
-│   ├── opencosmo-versionless-api/
-│   ├── opencosmo-db/
-│   ├── opencosmo-backup/
-│   ├── opencosmo-history/
-│   ├── opencosmo-observability/
-│   └── opencosmo-security/
+│   ├── open-runo-router/
+│   ├── open-runo-federation/
+│   ├── open-runo-schema-registry/
+│   ├── open-runo-ai-routing/
+│   ├── open-runo-versionless-api/
+│   ├── open-runo-db/
+│   ├── open-runo-backup/
+│   ├── open-runo-history/
+│   ├── open-runo-observability/
+│   └── open-runo-security/
 ├── docs/
 │   ├── architecture.md
 │   ├── api-spec.md
@@ -373,7 +419,7 @@ opencosmo/
 
 ## Technology Stack
 
-Core:
+Backend (Gateway):
 
 - Rust
 - Poem
@@ -381,10 +427,17 @@ Core:
 - Serde
 - SQLx
 
-Database:
+Desktop App (Tauri):
 
-- PostgreSQL
-- aruaru-db
+- Tauri 2.x (Rust backend + WebView frontend)
+- TypeScript (type-safe UI & API client)
+- HTML5 + CSS3 + Bootstrap 5 (pure TS SPA, no JS framework)
+- Vite (build tooling)
+
+Database (DUAL):
+
+- PostgreSQL (primary DB)
+- aruaru-db (custom-designed DB)
 - SQLite for local development
 - Redis-compatible cache
 
@@ -489,7 +542,7 @@ Together, Rust + Poem are suitable for a high-performance gateway that must be s
 
 ## Project Status
 
-OpenCosmo is currently in the design and early development stage.
+open-runo is currently in the design and early development stage.
 
 The first goal is to build a minimal but high-quality Rust + Poem gateway foundation, then gradually add federation, VersionlessAPI, AI routing, database history, distributed backup, and quality gates.
 
@@ -509,4 +562,4 @@ Final license decision is TBD.
 
 ## Disclaimer
 
-OpenCosmo is an independent experimental project inspired by modern graph federation and API gateway architecture. It is not an official WunderGraph Cosmo project.
+open-runo is an independent experimental project inspired by modern graph federation and API gateway architecture. It is not an official WunderGraph Cosmo project.

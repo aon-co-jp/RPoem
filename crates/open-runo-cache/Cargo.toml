@@ -1,0 +1,29 @@
+[package]
+name = "open-runo-cache"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-runo cache layer: TTL response/entity cache with in-memory and Redis backends (Cosmo paid-tier cache-control parity)"
+
+[lints]
+workspace = true
+
+[dependencies]
+open-runo-core = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+chrono      = { workspace = true }
+
+# Redis / KeyDB / DragonflyDB backend
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
+
+[features]
+default = []
+redis-backend = ["dep:redis"]
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }

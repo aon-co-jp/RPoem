@@ -1,0 +1,21 @@
+[package]
+name = "open-runo-security"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-runo Security Layer: authentication, authorization, API key handling, and rate limiting"
+
+[lints]
+workspace = true
+
+[dependencies]
+open-runo-core = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }
+jsonwebtoken = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]

@@ -1,0 +1,14 @@
+# open-runo clippy configuration.
+# Lint *levels* (warn/deny) live in the workspace [lints] table in Cargo.toml;
+# this file only tunes clippy's configurable thresholds.
+
+# Keep functions small; large gateway/routing functions are a sign a crate
+# needs to be split, which matters for a system built from many
+# single-responsibility microservice crates.
+too-many-arguments-threshold = 6
+type-complexity-threshold = 250
+cognitive-complexity-threshold = 30
+
+# MSRV should match [workspace.package].rust-version in Cargo.toml so clippy
+# doesn't suggest APIs newer than what open-runo supports.
+msrv = "1.75"

@@ -1,0 +1,47 @@
+# Local development stack: PostgreSQL + the open-runo-router gateway.
+#
+#   docker compose up --build
+#
+# The router itself does not require Postgres to start (see
+# crates/open-runo-db's default in-memory backend), but this compose file
+# gives every contributor the same local Postgres instance referenced in
+# DEVELOPMENT.md §5 and .env.example's DATABASE_URL.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: open-runo
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - open-runo-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  router:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      OPEN_RUNO_ENV: development
+      OPEN_RUNO_BIND_ADDR: 0.0.0.0:8080
+      OPEN_RUNO_LOG_LEVEL: info
+      DATABASE_URL: postgres://postgres:open-runo@postgres:5432/postgres
+      OPEN_RUNO_RATE_LIMIT_MAX_REQUESTS: "120"
+      OPEN_RUNO_RATE_LIMIT_WINDOW_SECS: "60"
+
+volumes:
+  open-runo-postgres-data:

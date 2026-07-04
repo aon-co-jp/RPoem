@@ -1,0 +1,24 @@
+[package]
+name = "open-runo-persisted-queries"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-runo Persisted Queries / Trusted Documents: Cosmo paid-tier parity, stored on the DUAL DATABASE layer"
+
+[lints]
+workspace = true
+
+[dependencies]
+open-runo-core = { workspace = true }
+open-runo-db   = { workspace = true }
+serde         = { workspace = true }
+serde_json    = { workspace = true }
+chrono        = { workspace = true }
+sha2          = { workspace = true }
+hex           = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "open-runo-ai-routing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-runo AI Routing Engine: routes requests to Cloud/Local LLM providers by cost, latency, capability, and privacy policy"
+
+[lints]
+workspace = true
+
+[dependencies]
+open-runo-core = { workspace = true }
+serde = { workspace = true }

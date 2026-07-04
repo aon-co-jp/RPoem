@@ -1,0 +1,36 @@
+[package]
+name = "open-runo-gateway"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-runo GraphQL Gateway: exposes the Schema Registry and Federation Engine through a single POST /graphql endpoint"
+
+[lints]
+workspace = true
+
+[dependencies]
+open-runo-core             = { workspace = true }
+open-runo-router            = { workspace = true }
+open-runo-schema-registry   = { workspace = true }
+open-runo-federation        = { workspace = true }
+open-runo-persisted-queries = { workspace = true }
+open-runo-cache            = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+open-runo-observability     = { workspace = true }
+tracing = { workspace = true }
+poem = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+async-graphql = { workspace = true }
+async-graphql-poem = { workspace = true }
+
+[dev-dependencies]
+poem = { workspace = true, features = ["test"] }

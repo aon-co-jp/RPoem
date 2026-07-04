@@ -1,0 +1,17 @@
+[package]
+name = "open-runo-backup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-runo Distributed Backup Engine: scheduled/incremental backup planning for app, schema, and config data"
+
+[lints]
+workspace = true
+
+[dependencies]
+open-runo-core = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }

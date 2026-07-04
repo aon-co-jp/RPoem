@@ -1,0 +1,52 @@
+# Configuration for `cargo deny` (https://embarkstudios.github.io/cargo-deny/).
+# Run via `make deny` / CI quality gate. Install with:
+#   cargo install cargo-deny --locked
+
+[graph]
+targets = []
+all-features = true
+
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Deny any crate with a known security advisory. Unmaintained crates warn
+# rather than deny so they don't silently block CI on a transitive dep we
+# don't control yet; promote to "deny" once the dependency tree is audited.
+yanked = "deny"
+unmaintained = "warn"
+notice = "warn"
+ignore = []
+
+[licenses]
+version = 2
+# open-runo is dual-licensed Apache-2.0 / MIT; only allow dependency licenses
+# compatible with that policy.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+    # No crate in the workspace should reach for OpenSSL directly; use
+    # rustls-based TLS (see sqlx's `runtime-tokio-rustls` feature) so
+    # deployment doesn't depend on the host's system OpenSSL.
+    { name = "openssl-sys" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

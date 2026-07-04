@@ -1,0 +1,23 @@
+[package]
+name = "open-runo-scim"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-runo SCIM 2.0 (RFC 7643/7644) user provisioning core, stored on the DUAL DATABASE layer"
+
+[lints]
+workspace = true
+
+[dependencies]
+open-runo-core = { workspace = true }
+open-runo-db   = { workspace = true }
+serde         = { workspace = true }
+serde_json    = { workspace = true }
+chrono        = { workspace = true }
+uuid          = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

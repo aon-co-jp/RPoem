@@ -1,0 +1,68 @@
+[package]
+name = "open-runo-db"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-aruaru Database Layer: DbBackend trait over PostgreSQL, MySQL, SQLite, aruaru-db, CockroachDB, Redis, MongoDB, ClickHouse"
+
+[lints]
+workspace = true
+
+[dependencies]
+open-runo-core = { workspace = true }
+async-trait   = { workspace = true }
+serde         = { workspace = true }
+serde_json    = { workspace = true }
+tracing       = { workspace = true }
+uuid          = { workspace = true }
+chrono        = { workspace = true }
+
+# ── リレーショナル / SQL ──────────────────────────────────────────────────────
+# PostgreSQL / MySQL / SQLite / aruaru-db(pgwire) / CockroachDB(pgwire) を sqlx で統一
+sqlx = { workspace = true, optional = true }
+
+# ── NoSQL ────────────────────────────────────────────────────────────────────
+mongodb   = { version = "3",  optional = true }
+surrealdb = { version = "2",  optional = true }
+
+# ── キャッシュ / KV ───────────────────────────────────────────────────────────
+redis          = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
+deadpool-redis = { version = "0.18", optional = true }
+
+# ── 列指向 / 分析 ─────────────────────────────────────────────────────────────
+clickhouse = { version = "0.13", optional = true }
+
+[features]
+default = []
+
+# ── 個別バックエンド ──────────────────────────────────────────────────────────
+postgres   = ["dep:sqlx", "sqlx/postgres"]  # PostgreSQL :5432
+mysql      = ["dep:sqlx", "sqlx/mysql"]     # MySQL 8 / MariaDB 11 :3306
+sqlite     = ["dep:sqlx", "sqlx/sqlite"]    # SQLite (file or :memory:)
+aruaru     = ["dep:sqlx", "sqlx/postgres"]  # aruaru-db :5433 (pgwire)
+cockroach  = ["dep:sqlx", "sqlx/postgres"]  # CockroachDB (pgwire 互換)
+yugabyte   = ["dep:sqlx", "sqlx/postgres"]  # YugabyteDB (pgwire 互換)
+mongodb    = ["dep:mongodb"]                # MongoDB :27017
+surrealdb  = ["dep:surrealdb"]             # SurrealDB (Rust ネイティブ)
+redis      = ["dep:redis", "dep:deadpool-redis"]  # Redis / KeyDB / DragonflyDB
+clickhouse = ["dep:clickhouse"]            # ClickHouse 列指向分析
+
+# ── 複合プリセット ─────────────────────────────────────────────────────────────
+# open-aruaru 標準 DUAL DATABASE
+dual       = ["postgres", "aruaru"]
+# シングル PostgreSQL のみ
+single-pg  = ["postgres"]
+# シングル MySQL のみ (OpenWordPress / OpenRedmine)
+single-my  = ["mysql"]
+# ローカル開発 / CI
+dev        = ["sqlite"]
+# 本番フルスタック (DUAL + Redis + ClickHouse)
+full       = ["dual", "redis", "clickhouse"]
+# 分散クラスタ (CockroachDB + aruaru-db)
+cluster    = ["cockroach", "aruaru"]
+
+[dev-dependencies]
+tokio = { workspace = true }

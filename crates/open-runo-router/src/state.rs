@@ -1,0 +1,75 @@
+//! Shared in-memory state passed to every handler via [`poem::web::Data`].
+//!
+//! Each field wraps a domain struct from the relevant crate behind an
+//! `Arc<Mutex<_>>` so handlers can share it safely across async tasks.
+//!
+//! The `db` field exposes the DUAL DATABASE backend so `/api/db/*`
+//! handlers can persist and retrieve records across PostgreSQL and aruaru-db.
+
+use open_runo_db::{DbBackend, InMemoryBackend};
+use open_runo_federation::ComposedSchema;
+use open_runo_history::History;
+use open_runo_schema_registry::SchemaRegistry;
+use std::sync::{Arc, Mutex};
+use tokio::sync::broadcast;
+
+/// A change event published on the in-process broker
+/// (consumed by GraphQL Subscriptions and, later, the SSE stream).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SchemaEvent {
+    pub service_name: String,
+    pub stage: String,
+    pub at: String,
+}
+
+/// Broker capacity: slow subscribers older than this many events lag-skip.
+const EVENT_CAPACITY: usize = 256;
+
+/// Global shared state for the open-runo gateway.
+#[derive(Debug, Clone)]
+pub struct AppState {
+    pub schema_registry: Arc<Mutex<SchemaRegistry>>,
+    pub federation_schema: Arc<Mutex<ComposedSchema>>,
+    pub history: Arc<Mutex<History>>,
+    /// DUAL DATABASE backend: PostgreSQL + aruaru-db (or InMemory in tests).
+    pub db: Arc<dyn DbBackend>,
+    /// In-process event broker for realtime consumers (GraphQL Subscriptions).
+    pub events: broadcast::Sender<SchemaEvent>,
+}
+
+impl AppState {
+    /// Build with all in-memory defaults (suitable for tests and local dev).
+    pub fn new() -> Self {
+        Self {
+            schema_registry: Arc::new(Mutex::new(SchemaRegistry::new())),
+            federation_schema: Arc::new(Mutex::new(ComposedSchema::default())),
+            history: Arc::new(Mutex::new(History::new())),
+            db: Arc::new(InMemoryBackend::new()),
+            events: broadcast::channel(EVENT_CAPACITY).0,
+        }
+    }
+
+    /// Build with a pre-configured [`DbBackend`] (production use: `DualBackend`).
+    pub fn with_db(db: Arc<dyn DbBackend>) -> Self {
+        Self {
+            schema_registry: Arc::new(Mutex::new(SchemaRegistry::new())),
+            federation_schema: Arc::new(Mutex::new(ComposedSchema::default())),
+            history: Arc::new(Mutex::new(History::new())),
+            db,
+            events: broadcast::channel(EVENT_CAPACITY).0,
+        }
+    }
+
+    /// Build for a single-DB deployment: wraps `backend` in
+    /// [`open_runo_db::dual::DualBackend::single`] so the routing code path is
+    /// identical to DUAL DATABASE deployments.
+    pub fn with_single_db(backend: Arc<dyn DbBackend>) -> Self {
+        Self::with_db(Arc::new(open_runo_db::dual::DualBackend::single(backend)))
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
+}

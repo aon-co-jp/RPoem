@@ -1,0 +1,101 @@
+[workspace]
+members = [
+    "crates/open-runo-core",
+    "crates/open-runo-router",
+    "crates/open-runo-federation",
+    "crates/open-runo-schema-registry",
+    "crates/open-runo-ai-routing",
+    "crates/open-runo-versionless-api",
+    "crates/open-runo-db",
+    "crates/open-runo-backup",
+    "crates/open-runo-history",
+    "crates/open-runo-observability",
+    "crates/open-runo-security",
+    "crates/open-runo-gateway",
+    "crates/open-runo-persisted-queries",
+    "crates/open-runo-scim",
+    "crates/open-runo-cache",
+]
+
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["open-runo Contributors"]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/aon-co-jp/open-runo"
+
+[workspace.dependencies]
+tokio = { version = "1.40", features = ["full"] }
+poem = { version = "3.1", features = ["sse"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+async-trait = "0.1"
+lazy_static = "1.4"
+regex = "1.10"
+opentelemetry = { version = "0.22", features = ["rt-tokio"] }
+opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"] }
+jsonwebtoken = "9.3"
+jsonschema = "0.26"
+once_cell = "1.20"
+async-graphql = "7.0"
+async-graphql-poem = "7.0"
+sha2 = "0.10"
+hex = "0.4"
+
+# open-runo crates (path deps, shared across workspace members)
+open-runo-core = { path = "crates/open-runo-core" }
+open-runo-router = { path = "crates/open-runo-router" }
+open-runo-federation = { path = "crates/open-runo-federation" }
+open-runo-schema-registry = { path = "crates/open-runo-schema-registry" }
+open-runo-ai-routing = { path = "crates/open-runo-ai-routing" }
+open-runo-versionless-api = { path = "crates/open-runo-versionless-api" }
+open-runo-db = { path = "crates/open-runo-db" }
+open-runo-backup = { path = "crates/open-runo-backup" }
+open-runo-history = { path = "crates/open-runo-history" }
+open-runo-observability = { path = "crates/open-runo-observability" }
+open-runo-security = { path = "crates/open-runo-security" }
+open-runo-gateway = { path = "crates/open-runo-gateway" }
+open-runo-persisted-queries = { path = "crates/open-runo-persisted-queries" }
+open-runo-scim = { path = "crates/open-runo-scim" }
+open-runo-cache = { path = "crates/open-runo-cache" }
+
+# Quality Gate: workspace-wide lint policy.
+# Individual crates opt in via `[lints] workspace = true`.
+[workspace.lints.rust]
+unsafe_code = "deny"
+unused_must_use = "warn"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+todo = "warn"
+dbg_macro = "warn"
+
+# `pedantic` is deliberately NOT enabled workspace-wide: with the CI gate
+# running `-D warnings`, pedantic's stylistic nits would fail builds for
+# non-functional reasons. Individual crates may opt in locally with
+# `#![warn(clippy::pedantic)]` if desired.
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.dev]
+debug = 1
+
+[profile.test]
+opt-level = 1

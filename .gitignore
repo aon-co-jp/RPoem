@@ -1,0 +1,43 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+# Cargo.lock はコミットする（バージョン固定・PORTING.md 参照）
+
+# Node (Tauri desktop)
+node_modules/
+
+# open-runo 実行時出力
+backups/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+dump.sql
+
+# Test coverage
+*.profdata
+tarpaulin-report.html
+
+# Performance
+perf.data
+perf.data.old
+flamegraph.svg

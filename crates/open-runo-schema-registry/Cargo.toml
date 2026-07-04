@@ -1,0 +1,18 @@
+[package]
+name = "open-runo-schema-registry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "open-runo Schema Registry: schema registration, versioning, diffing, and environment promotion"
+
+[lints]
+workspace = true
+
+[dependencies]
+open-runo-core = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
