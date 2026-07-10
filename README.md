@@ -1,18 +1,19 @@
 # poem-cosmo-tauri
 
-**Rust + Poem 製 GraphQL Federation プラットフォーム / Tauri フロントエンド**
+**Rust 製 GraphQL Federation プラットフォーム(Poem/Tauri/Cosmoは非依存・互換自前実装)**
 — WunderGraph Cosmo の有料版機能を OSS・Pure Rust で(Cosmo自体は着想元のみで実装非依存)。独自の自己学習 AI 搭載（外部 LLM 契約不要）。
 
 > poem-cosmo-tauri は [open-runo](https://github.com/aon-co-jp/open-runo) を正本として
-> 分岐した poem-runo をさらにリネーム・統合した後継リポジトリです。REST API の乱立と
-> WunderGraph Cosmo 有料版への依存を断つという open-runo の目的を、Poem(バックエンド)+
-> Tauri(フロントエンド)+ Cosmo(着想元・非依存)の統合をリポジトリ名として明示する
-> 形で引き継ぎ、今後はこちらを主軸に開発します。
+> 分岐した poem-runo をさらにリネーム・統合した後継リポジトリです。名称は歴史的
+> 経緯によるもので、現在の実体は Poem・Tauri・WunderGraph Cosmo のいずれにも
+> パッケージとして直接依存せず、それぞれの機能・API 形状には互換性を保ちつつ
+> Rust 標準ライブラリ + tokio/hyper + WebAssembly で自前実装しています。
+> open-runo と本リポジトリを同時並行で開発しています。
 
 [![CI](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
 ![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)
-![Tests](https://img.shields.io/badge/tests-176%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-192%20passed-brightgreen)
 
 📖 詳細: [日本語 README](README-Japan.md) / [English README](README-English.md) /
 [中文](README-Chinese.md) / [한국어](README-Korea.md) / [Español](README-Spain.md) /
@@ -82,8 +83,8 @@ tokio/hyper で自前実装しています。
 ```bash
 git clone https://github.com/aon-co-jp/poem-cosmo-tauri
 cd poem-cosmo-tauri
-cargo test --workspace          # 176 テスト
-cargo run -p open-runo-gateway  # REST + GraphQL 統合サーバー起動
+cargo test --workspace          # 192 テスト
+cargo run -p open-runo-gateway  # REST + GraphQL 統合サーバー起動(poem-free)
 ```
 
 ```bash
@@ -97,6 +98,24 @@ curl -X POST http://localhost:8080/api/schemas \
      -H 'x-api-key: dev-key' \
      -d '{"service_name":"users","sdl":"type User { id: ID! }"}'
 ```
+
+### 管理UI(WASM フロントエンド)を使う
+
+`cargo run`だけでは`open-runo-router`/`open-runo-gateway`がAPIサーバーとして
+起動しますが、`GET /`で配信される管理UI(`apps/desktop-wasm`)本体は
+別途ビルドが必要です(初回・コード変更時のみ):
+
+```bash
+rustup target add wasm32-unknown-unknown        # 初回のみ
+cargo install wasm-bindgen-cli --version 0.2.126 # 初回のみ(Cargo.lockのバージョンと一致させること)
+make wasm-frontend                              # apps/desktop-wasm/www/pkg を生成
+cargo run -p open-runo-gateway                  # ビルド済みUIも同じポートで配信される
+```
+
+ブラウザで `http://localhost:8080/` を開くと、Dashboard / Schema Registry /
+Federation / AI Routing / DUAL DATABASE / SCIM / Persisted Queries /
+Cache & Backup の8ページ管理UIが使えます(Tauri・Node.js・TypeScript
+不使用、Rust→WebAssembly)。
 
 AI HTML キャッシュを有効化して自分のアプリに載せる例・全環境変数・
 全エンドポイントは **[PORTING.md](PORTING.md)** を参照してください。
