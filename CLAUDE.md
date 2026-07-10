@@ -89,6 +89,89 @@ GitHub リポジトリも `https://github.com/aon-co-jp/poem-cosmo-tauri` に
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-10 open-runo-router poem→tokio/hyper 移行: 調査完了・未着手
+  (安全のため着手を見送り)**: `crates/open-runo-router` を poem 依存ゼロで
+  tokio+hyper 直書きへ移行するタスクを受けたが、調査の結果 poem への依存が
+  非常に深いことが判明したため、ワークスペースを red にするリスクを避け、
+  **コード変更は一切行わず**現状の green な状態を維持したまま計画のみを
+  ここに残す。次回、十分な作業時間がある session で以下の手順を実行する
+  こと。
+
+  **依存の実態(調査結果)**:
+  - `src/lib.rs`(759行): `Route`/`get`/`post`/`Endpoint`/`EndpointExt`/
+    `#[handler]`/`Json` で全ルート定義。テストは `poem::test::TestClient`
+    を30個弱のテストで多用(`assert_status_is_ok`, `assert_json`,
+    `assert_header`, `.body_json()` 等)。
+  - `src/auth.rs`(545行): `ApiKeyAuth` が `poem::Middleware<E>` +
+    `Endpoint<Output=E::Output>` を自前実装(RBAC/OIDC/SCIM token/
+    KeyGuardian 統合)。`req.extensions_mut().insert::<Claims>()` で
+    後続ハンドラに認証情報を渡す。ここが一番複雑。
+  - `src/rate_limit.rs`: 同様に `Middleware`/`Endpoint` 自前実装(単純、
+    移行は比較的容易)。
+  - `src/middleware/cors.rs`: `poem::middleware::Cors` をラップしているだけ
+    → 自前 CORS ヘッダ付与ロジックに置き換えが必要。
+  - `src/middleware/html_cache.rs`(747行、最複雑): singleflight ロック・
+    stale-while-revalidate バックグラウンド再レンダリング・
+    `CachePredictor` AI 予測を `Endpoint`/`Middleware` trait 上に実装。
+    `Response::builder()`, `resp.into_body().into_string()`,
+    `poem::http::Uri` 等を多用。
+  - `src/handlers/*.rs`(9ファイル: ai_routing, cache, db, events,
+    federation, maintenance, persisted_queries, scim, schemas):
+    すべて `#[handler]` マクロ + `Data<&Arc<AppState>>` / `Path` / `Query` /
+    `Json` エクストラクタ。`events.rs` は `poem::web::sse::{Event, SSE}` で
+    SSE 実装。
+  - `crates/open-runo-gateway/src/main.rs` と
+    `crates/open-runo-router/src/main.rs`: `Route::new().nest("/", build_app(...))`
+    で this crate の `build_app()` の戻り値(`impl Endpoint`)を
+    gateway 側の GraphQL ルートと合成している。gateway 側も
+    `async-graphql-poem`, `poem::web::Data`, `IntoResponse` 等に依存。
+
+  **推奨移行方針(次回セッション向け設計)**:
+  1. `build_app()` の戻り値型を `impl Endpoint`(poem)から、
+     `tower::Service<hyper::Request<Incoming>, Response=hyper::Response<...>>`
+     相当の自前トレイト、または単純に
+     `Arc<dyn Fn(Request<Incoming>) -> BoxFuture<Response<Full<Bytes>>>>`
+     的な単一関数ディスパッチャに置き換える。ミドルウェア(auth/cors/
+     rate_limit/html_cache/tracing)は「関数を受け取り関数を返す」
+     コンビネータとして再実装すれば trait 地獄を避けられる
+     (poem の `Middleware<E>` パターンを模倣する必要はない)。
+  2. 自前の軽量ルータ(path + method → handler fn の `HashMap` か
+     `matchit`/手書き match)を用意し、`:param` 動的セグメントを
+     手動パースする(`matchit` crate 追加が最も安全。workspace 未使用
+     なので追加要検討 — ただし「フレームワーク直接依存禁止」は
+     Tauri/Poem/Cosmo に限定される方針なので matchit 等の薄いルータ
+     crate は許容範囲と解釈できる。迷う場合は手書き match でも可)。
+  3. `#[handler]` マクロ相当は不要 — 各ハンドラを
+     `async fn(Arc<AppState>, hyper::Request<Incoming>) -> Result<Response<...>, ...>`
+     形式の素の async fn に書き換える。`Data<&Arc<AppState>>` は
+     クロージャで `Arc<AppState>` を capture するだけで代替可能。
+  4. テストは `poem::test::TestClient` の代わりに、hyper 1.x の
+     `hyper::server::conn::http1` + `tokio::net::TcpListener` で
+     実際に127.0.0.1:0にbindしてreqwestかhyper Clientで叩く
+     小さなテストハーネス(`fn spawn_test_server(app) -> (addr, JoinHandle)`)
+     を書くのが一番安全(assert_status_is_ok 等のアサーションヘルパーは
+     手動で書き直す必要あり、30テスト全部の書き直しが必要)。
+  5. gateway 側(`open-runo-gateway`)は async-graphql-poem に依存したままで
+     良い(このタスクのスコープ外)。router 側が生の
+     `hyper::service::Service` を返すようになったら、gateway の
+     `main.rs`/`lib.rs` 側で「path prefix で振り分ける」小さな
+     アダプタ関数を書いて両方を束ねる(poem 経由の合成 `.nest()` は
+     使えなくなるので、生 hyper で最上位ディスパッチを書く必要がある)。
+  6. 作業順序の推奨: (a) `handlers/schemas.rs` のような依存の少ない
+     ハンドラ群から先に素の hyper 関数へ書き換えてコンパイルを保つ
+     (poem は残したまま、新旧ハンドラを共存させる形でインクリメンタルに
+     進める)、(b) auth.rs の `ApiKeyAuth` を関数コンビネータに書き換える、
+     (c) middleware 群(cors/rate_limit/html_cache)を順に置き換える、
+     (d) lib.rs の `build_app` を新ルータに切り替える、(e) 全テストを
+     新ハーネスに移行、(f) Cargo.toml から poem を削除、(g) gateway 側を
+     追従、(h) `cargo check --workspace` / `cargo test --workspace --no-run`
+     で確認。
+
+  **今回変更したファイル**: なし(調査のみ)。ワークスペースは調査前と
+  同じ green 状態。次回セッションはこの計画に従い、上記手順(a)から着手
+  すること。1ハンドラ群ごとに `cargo test -p open-runo-router` を回して
+  グリーンを確認しながら進める運用ルールは既存の WORKFLOW 指示通り継続。
+
 - **2026-07-10 方針転換・正本確定**: ユーザーから複数回の確認を経て最終確定:
   (1) Tauri・Poem・WunderGraph Cosmo(有料版含む)はパッケージとして直接
   依存させない、(2) ただし各機能・API形状には互換性を保ちつつRust標準+
