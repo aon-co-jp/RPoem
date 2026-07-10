@@ -1,14 +1,16 @@
-# 【廃止】このリポジトリは open-runo に統合されました(2026-07-10)
+# 技術スタック・開発ルール(poem-cosmo-tauri)
 
-ユーザー指示により、Tauri・Poem・WunderGraph Cosmo(有料版含む)はいずれも
-不要という方針に転換したため、このリポジトリ(poem-cosmo-tauri)は廃止し、
-今後の開発は https://github.com/aon-co-jp/open-runo に一本化します。
-**このリポジトリへは今後コミットしません。** 以降は open-runo の
-`CLAUDE.md` を参照してください。
+**このリポジトリが正本(一本化先)です。** `open-runo`は2026-07-10付けで
+このリポジトリに統合され、今後更新しません(詳細は下記「方針転換」参照)。
 
----
-
-# 技術スタック・開発ルール(poem-cosmo-tauri、旧内容・参考用)
+ユーザー指示により、**Tauri・Poem・WunderGraph Cosmo(有料版含む)を
+ライブラリ/パッケージとして直接依存させることはしない**方針に転換した。
+ただし各ツールが提供する**機能・API形状・コンセプトには互換性を保ちつつ
+引き続き活用**する(例: TauriのデスクトップUI体験・`invoke()`的な
+コマンド呼び出し、Poemの薄いHTTPルーティング設計、Cosmoの GraphQL
+Federation/VersionlessAPIという考え方)。それらを Rust 標準ライブラリ
++ tokio/hyper で自前実装し、外部パッケージへの直接依存を持たない形に
+置き換える。
 
 このリポジトリ、および関連プロジェクト(`open-runo`/`open-web-server`/
 `aruaru-db`/`aruaru-web`/`open-raid-z`)で開発・保守を行う際は、以下を基本方針とする。
@@ -31,30 +33,36 @@ GitHub リポジトリも `https://github.com/aon-co-jp/poem-cosmo-tauri` に
 
 ## フロントエンド
 
-- **Tauri**(メインフレームワーク): https://v2.tauri.app/ | https://github.com/tauri-apps/tauri
-- HTML5 / CSS3
-- **TypeScript**: 必要最低限・最小限の範囲に留める(ロジックはRust側に置き、
-  TypeScript側はDOM操作・`invoke()`呼び出し等の薄い配線のみとする方針)
+- Tauriパッケージには直接依存しない。ただしTauriのデスクトップUI体験・
+  `invoke()`的なコマンド呼び出しインターフェースとは互換性を保った形で
+  HTML5/CSS3 + 必要最低限のTypeScriptで自前実装する(ロジックはRust側、
+  TypeScript側は薄い配線のみという方針は維持)。
 - **Bootstrap**
 
 ## バックエンド・コア
 
-- **Rust**(メイン言語): https://www.rust-lang.org/ja/ | https://github.com/rust-lang/rust
-- **Poem**(Webフレームワーク): https://docs.rs/poem/latest/poem/ | https://github.com/poem-web/poem
+- **Rust**(メイン言語、標準ライブラリ中心): https://www.rust-lang.org/ja/ | https://github.com/rust-lang/rust
+- **tokio** + **hyper**(Webフレームワークなしで直接HTTPサーバを自前実装):
+  https://tokio.rs/ | https://docs.rs/hyper/latest/hyper/
+- Poemパッケージには直接依存しないが、Poemのルーティング/ハンドラAPI形状
+  とは互換性のあるインターフェースを維持しながら移行する(既存ハンドラの
+  シグネチャ・レスポンス形式は極力変えない)。
 
 ## API設計思想(参考・概念のみ)
 
 - **VersionLess API**という考え方を参考にする(WunderGraphのブログ/podcast参照)。
-- **WunderGraph Cosmo**: あくまで**参考・着想元としてのみ**参照する。
-  **実装には絶対に使用しない**。https://github.com/wundergraph/cosmo
+- **WunderGraph Cosmo**: **有料版を含めパッケージとしては直接依存させない**。
+  GraphQL Federation / VersionlessAPI というAPI形状・コンセプトのみ参考に
+  し、Rust標準+tokio/hyperで互換性を保ちつつ自前実装する。
+  https://github.com/wundergraph/cosmo
 
 ## 関連プロジェクト
 
-- **poem-cosmo-tauri**(このリポジトリ。open-runo/poem-runo の後継。
-  Poem + Tauri + Cosmo着想の統合。GraphQL Federation / API Gateway /
-  AI-native routing platform): https://github.com/aon-co-jp/poem-cosmo-tauri
-- **open-runo**(分岐元。引き続き独自にメンテナンスされる場合がある):
-  https://github.com/aon-co-jp/open-runo
+- **poem-cosmo-tauri**(このリポジトリ。正本・一本化先。open-runo/poem-runo
+  の後継。Poem/Tauri/Cosmoの機能を自前実装で統合したGraphQL Federation /
+  API Gateway / AI-native routing platform): https://github.com/aon-co-jp/poem-cosmo-tauri
+- **open-runo**(分岐元。2026-07-10付けでこのリポジトリに統合され、今後は
+  更新しない): https://github.com/aon-co-jp/open-runo
 - **open-web-server**: https://github.com/aon-co-jp/open-web-server
 - **aruaru-db**: https://github.com/aon-co-jp/aruaru-db
 - **aruaru-web**: https://github.com/aon-co-jp/aruaru-web
@@ -80,6 +88,21 @@ GitHub リポジトリも `https://github.com/aon-co-jp/poem-cosmo-tauri` に
   アラビア語の10言語が揃っている。
 
 ## HANDOFF(直近の自動実行パス)
+
+- **2026-07-10 方針転換・正本確定**: ユーザーから複数回の確認を経て最終確定:
+  (1) Tauri・Poem・WunderGraph Cosmo(有料版含む)はパッケージとして直接
+  依存させない、(2) ただし各機能・API形状には互換性を保ちつつRust標準+
+  tokio/hyperで自前実装して使う、(3) 正本(一本化先)リポジトリは
+  **poem-cosmo-tauri**(open-runoではない)、open-runoはこちらに統合され
+  今後更新しない。README作成・push後、2026-07-11 12:00まで確認不要で
+  無人自動開発/デバッグを継続する指示。次回パスがすべきこと:
+  (1) README.md / README-Japan.md / README-English.md をpoem-cosmo-tauri
+  正本・新方針(no Tauri/Poem/Cosmo依存、tokio/hyper自前実装)に合わせて
+  更新、(2) 開発ルールをCLAUDE.mdとして保存(このファイル自体が該当、
+  内容の同期を確認)、(3) 他プロジェクトへ移植可能なporting用ファイル
+  (PORTING.md相当)を作成、(4) commit & push、(5) open-runo-router を
+  Poemからtokio/hyperへAPI互換を保ちつつ移行開始、(6) cargo check/testで
+  健全性確認、(7) 12:00まで各パスでHANDOFFを上書きしループ継続。
 
 - **2026-07-10 poem-cosmo-tauri へリネーム**: ユーザーから
   poem-cosmo-tauri (https://github.com/aon-co-jp/poem-cosmo-tauri) への

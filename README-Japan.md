@@ -1,9 +1,10 @@
-# open-runo
+# poem-cosmo-tauri
 
-**Rust + Poem 製 GraphQL Federation プラットフォーム / Web フレームワーク**
+**Rust 製 GraphQL Federation プラットフォーム(Poem/Tauri/Cosmoは非依存・互換自前実装)**
 — WunderGraph Cosmo の有料版機能を OSS で。独自の自己学習 AI 搭載（外部 LLM 契約不要）。
+旧 open-runo / poem-runo の後継・統合先です。
 
-[![CI](https://github.com/aon-co-jp/open-runo/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/open-runo/actions/workflows/ci.yml)
+[![CI](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
 ![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)
 ![Tests](https://img.shields.io/badge/tests-176%20passed-brightgreen)

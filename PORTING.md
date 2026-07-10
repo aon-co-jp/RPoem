@@ -1,6 +1,6 @@
-# PORTING.md — open-runo お引越しファイル
+# PORTING.md — poem-cosmo-tauri お引越しファイル
 
-> このファイル 1 枚で、**どのプロジェクトでも open-runo を導入・移設**できます。
+> このファイル 1 枚で、**どのプロジェクトでも poem-cosmo-tauri を導入・移設**できます。
 > open-e-gov / OpenRedmine / OpenWordPress など新プロジェクトのリポジトリに
 > このファイルをコピーして、上から順に進めてください。
 >
