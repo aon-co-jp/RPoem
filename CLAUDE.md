@@ -89,6 +89,29 @@ GitHub リポジトリも `https://github.com/aon-co-jp/poem-cosmo-tauri` に
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-10 open-runo-router poem→tokio/hyper 移行: 認証不要GET2本を移植**:
+  新規 `crates/open-runo-router/src/handlers_hyper.rs` に
+  `federation_status_handler`(GET /api/federation/status、poem版と同一
+  JSON形状)と `db_status_handler`(GET /api/db/status、test-modeの
+  in-memoryバックエンド応答を再現)を追加。各々 `hyper_compat::serve` で
+  実ポートにbindしreqwestで叩く統合テストを追加、2件ともgreen。
+  `cargo test -p open-runo-router` 全体・`cargo test --workspace --no-run`
+  ともgreen。**まだ認証(X-Api-Key)を通していない**点に注意 — 本番の
+  `/api/federation/status`・`/api/db/status`はauth必須だが、
+  hyper_compat版はまだ認証層がないため未認証状態のロジックのみを
+  移植している(認証はauth.rs抽出後に追加予定)。poemのbuild_appは
+  相変わらず唯一の実バイナリ経路。
+  次回パスがすべきこと: (1) `auth.rs`から「X-Api-Keyヘッダを見てOK/NGを
+  判定する」部分だけを`poem::Middleware`実装から独立した素の関数
+  (例: `fn check_api_key(headers: &HeaderMap, guardian: &KeyGuardian) ->
+  Result<Claims, StatusCode>`)として`handlers_hyper.rs`か新規
+  `auth_hyper.rs`に切り出す、(2) それを使ってfederation_status/db_statusの
+  hyper_compat版に認証チェックを追加し、「キー無し→401」テストを足す、
+  (3) 次に他のGET系ハンドラ(db_routing, get_schema等)を同様に移植、
+  (4) 引き続き1つ増やすごとにcargo test → commit → push、(5) 全て揃ったら
+  lib.rsのbuild_appをhyper_compat版に切替・main.rsをserve()起動に変更・
+  Cargo.tomlからpoem削除・open-runo-gateway側の統合更新。
+
 - **2026-07-10 open-runo-router poem→tokio/hyper 移行: health エンドポイント
   実サーバー動作確認まで完了**: `hyper_compat.rs` に `health_handler()`
   (poem版 `health` と同一JSON形状: status/service/version)と `serve()`
