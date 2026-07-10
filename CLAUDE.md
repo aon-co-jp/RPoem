@@ -49,6 +49,25 @@
 
 - `cargo check --workspace` / `cargo test --workspace --no-run` は成功する
   (15クレート構成、テストコンパイル済み)。todo!()/unimplemented!()マーカーなし。
-- README多言語版を `README/README-<言語>.md` 形式で整備中(日本語・英語に加え、
-  中国語簡体字・韓国語・スペイン語・フランス語・ドイツ語・イタリア語・
-  ロシア語・アラビア語を追加)。
+- README多言語版は `README-<言語>.md` 形式で日本語・英語・中国語簡体字・
+  韓国語・スペイン語・フランス語・ドイツ語・イタリア語・ロシア語・
+  アラビア語の10言語が揃っている。
+
+## HANDOFF(直近の自動実行パス)
+
+- **2026-07-10**: 定時の自律メンテナンスパス。`cargo check --workspace` /
+  `cargo test --workspace --no-run` は変更前から成功済みを確認(ビルド破損なし)。
+  `todo!()`/`unimplemented!()`/フェイクデータを返すスタブ関数は見つからず
+  (実装は本当に完了している)。README-Japan.md と README-English.md が
+  Phase A 以前の古い「ビジョン文書」のまま放置されており、実際の実装
+  (15クレート・176テスト・自己学習AI・KeyGuardian・DUAL DATABASE・
+  VersionlessAPI 等)と矛盾していた(例: 英語版は「設計・開発初期段階」
+  「License TBD」「外部LLMプロバイダへのルーティング」と記載)ため、
+  ルートの `README.md`(正しい最新情報)を基準に両ファイルを修正した:
+  README-Japan.md はルート README.md の内容をそのまま反映、
+  README-English.md は他8言語版と同じ構成(機能比較表・open-runo限定機能・
+  クイックスタート・15クレート構成)の正確な英語版に書き換えた。
+  他8言語版(中/韓/西/仏/独/伊/露/アラビア語)は内容確認済みで正確、変更不要。
+  次回パスへの引き継ぎ: 特に緊急の課題は残っていない。次点候補は
+  `docs/HANDOFF.md` の「次セッション候補」(Google Drive API 直接統合、
+  FederatedBackend の TOML 設定化など)。
