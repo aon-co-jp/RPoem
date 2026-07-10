@@ -1,4 +1,4 @@
-# 技術スタック・開発ルール(poem-runo)
+# 技術スタック・開発ルール(poem-cosmo-tauri)
 
 このリポジトリ、および関連プロジェクト(`open-runo`/`open-web-server`/
 `aruaru-db`/`aruaru-web`/`open-raid-z`)で開発・保守を行う際は、以下を基本方針とする。
@@ -6,13 +6,18 @@
 この節は [`open-raid-z`](https://github.com/aon-co-jp/open-raid-z) の
 `CLAUDE.md` を正本とし、各プロジェクトへコピーして同期する。
 
-**poem-runo とは**: `open-runo`(Rust + Poem 製 GraphQL Federation
-プラットフォーム)を正本として `F:\open-runo\open-runo` から `git clone` した
-後継リポジトリ(https://github.com/aon-co-jp/poem-runo)。REST API の乱立と
-WunderGraph Cosmo 有料版への依存を断つという open-runo の目的を、Poem
-フレームワークとの統合をリポジトリ名として明示する形で引き継ぎ、発展させる。
-履歴は open-runo のものをそのまま保持しているため、両リポジトリのコミット
-ログは 2026-07-10 の分岐点まで共通。今後の開発は poem-runo 側を主軸に進める。
+**poem-cosmo-tauri とは**: `open-runo`(Rust + Poem 製 GraphQL Federation
+プラットフォーム)を正本として分岐した `poem-runo` を、2026-07-10 に
+`F:\open-runo\poem-runo` → `F:\open-runo\poem-cosmo-tauri` へリネームし、
+GitHub リポジトリも `https://github.com/aon-co-jp/poem-cosmo-tauri` に
+移行した最新の後継リポジトリ。REST API の乱立と WunderGraph Cosmo 有料版
+への依存を断つという open-runo の目的を、Poem(バックエンド)+ Cosmo
+(着想元・非依存)+ Tauri(フロントエンド)の統合をリポジトリ名として明示
+する形で引き継ぐ。**WunderGraph Cosmo は今後もあくまで参考・着想元のみで
+あり、実装に依存として組み込むことはしない**(2026-07-10 ユーザー確認済み)。
+履歴は open-runo / poem-runo のものをそのまま保持しているため、コミット
+ログは 2026-07-10 の分岐点まで共通。今後の開発は poem-cosmo-tauri 側を
+主軸に進める。
 
 ## フロントエンド
 
@@ -35,8 +40,9 @@ WunderGraph Cosmo 有料版への依存を断つという open-runo の目的を
 
 ## 関連プロジェクト
 
-- **poem-runo**(このリポジトリ。open-runo の後継。GraphQL Federation /
-  API Gateway / AI-native routing platform): https://github.com/aon-co-jp/poem-runo
+- **poem-cosmo-tauri**(このリポジトリ。open-runo/poem-runo の後継。
+  Poem + Tauri + Cosmo着想の統合。GraphQL Federation / API Gateway /
+  AI-native routing platform): https://github.com/aon-co-jp/poem-cosmo-tauri
 - **open-runo**(分岐元。引き続き独自にメンテナンスされる場合がある):
   https://github.com/aon-co-jp/open-runo
 - **open-web-server**: https://github.com/aon-co-jp/open-web-server
@@ -64,6 +70,22 @@ WunderGraph Cosmo 有料版への依存を断つという open-runo の目的を
   アラビア語の10言語が揃っている。
 
 ## HANDOFF(直近の自動実行パス)
+
+- **2026-07-10 poem-cosmo-tauri へリネーム**: ユーザーから
+  poem-cosmo-tauri (https://github.com/aon-co-jp/poem-cosmo-tauri) への
+  統合を指示された。同名の空リポジトリが既に存在したため `gh repo rename`
+  は使わず、`poem-runo` ディレクトリを `poem-cosmo-tauri` にローカル
+  リネームし、git remote を張り替えて `git push -u origin main` で移行。
+  ユーザーは「Cosmo は参考のみ・Pure Rust 再実装」の従来方針を明示的に
+  再確認(有料版を依存として組み込む案は却下)。2026-07-11 12:00 まで
+  確認不要で無人自動開発/自動デバッグを継続する指示を受けた。次回パスが
+  すべきこと: (1) CLAUDE.md の内容が正しく反映されているか確認、
+  (2) README.md 冒頭を poem-cosmo-tauri 名義に更新、(3) 全 README-*.md の
+  タイトル/バッジURLの poem-runo 表記を確認し必要に応じて更新、
+  (4) `cargo check --workspace` / `cargo test --workspace --no-run` で
+  ビルド健全性を確認、(5) `docs/HANDOFF.md` の次点候補から実装を1つ進める、
+  (6) 作業ごとに commit して `git push origin main`、(7) 12:00 まで
+  この HANDOFF を毎回上書きしてループを継続。
 
 - **2026-07-10 20:30 poem-runo 発足**: `open-runo` を正本として
   `F:\open-runo\open-runo` から `git clone` し、リモートを

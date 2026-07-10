@@ -1,14 +1,15 @@
-# poem-runo
+# poem-cosmo-tauri
 
-**Rust + Poem 製 GraphQL Federation プラットフォーム / Web フレームワーク**
-— WunderGraph Cosmo の有料版機能を OSS で。独自の自己学習 AI 搭載（外部 LLM 契約不要）。
+**Rust + Poem 製 GraphQL Federation プラットフォーム / Tauri フロントエンド**
+— WunderGraph Cosmo の有料版機能を OSS・Pure Rust で(Cosmo自体は着想元のみで実装非依存)。独自の自己学習 AI 搭載（外部 LLM 契約不要）。
 
-> poem-runo は [open-runo](https://github.com/aon-co-jp/open-runo) を正本として
-> 分岐した後継リポジトリです。REST API の乱立と WunderGraph Cosmo 有料版への
-> 依存を断つという open-runo の目的を、Poem フレームワークとの統合を
-> リポジトリ名として明示する形で引き継ぎ、今後はこちらを主軸に開発します。
+> poem-cosmo-tauri は [open-runo](https://github.com/aon-co-jp/open-runo) を正本として
+> 分岐した poem-runo をさらにリネーム・統合した後継リポジトリです。REST API の乱立と
+> WunderGraph Cosmo 有料版への依存を断つという open-runo の目的を、Poem(バックエンド)+
+> Tauri(フロントエンド)+ Cosmo(着想元・非依存)の統合をリポジトリ名として明示する
+> 形で引き継ぎ、今後はこちらを主軸に開発します。
 
-[![CI](https://github.com/aon-co-jp/poem-runo/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/poem-runo/actions/workflows/ci.yml)
+[![CI](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
 ![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)
 ![Tests](https://img.shields.io/badge/tests-176%20passed-brightgreen)
