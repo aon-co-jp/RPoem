@@ -96,6 +96,27 @@ GitHub リポジトリも `https://github.com/aon-co-jp/poem-cosmo-tauri` に
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-10 open-runo-router poem→tokio/hyper 移行: db_status修正 +
+  db_routing移植**: `db_status_handler`が固定文字列"in-memory"を返して
+  いたのを`state.db.backend_name()`(実際のbackend trait呼び出し、
+  テストモードでは同じく"in-memory"を返すので挙動は変わらないが本番でも
+  正しいbackend名を返すよう修正)に変更。新規`db_routing_handler`
+  (GET /api/db/routing、静的ルーティングテーブルを返す、認証必須)を
+  `handlers_hyper.rs`に追加、テスト2本(200/401)追加。
+  `cargo test -p open-runo-router hyper` で14テスト全green。
+  `cargo check --workspace` / `cargo test --workspace --no-run` もgreen。
+  **このパスから「20〜30分おきのスケジュール待ちにせず1パス内で連続して
+  進める」運用ルールを追加**(ユーザー指示、CLAUDE.md運用ルール節参照)。
+  次回パスがすべきこと: (1) `get_schema`/`get_schema_history`/
+  `get_persisted_query`(認証必須GET、Path paramあり)を同パターンで移植、
+  (2) POST/PUT/DELETE系(register_schema, compose_schemas, db_put/
+  db_delete等)を`read_json_body`ヘルパー併用で移植、(3) 1つずつ増やす
+  たびに`cargo test -p open-runo-router`→`cargo test --workspace
+  --no-run`→commit→push、(4) 全ハンドラ移行後にlib.rsのbuild_appを
+  hyper_compat版Routerに切替・main.rsを`hyper_compat::serve`起動に変更、
+  (5) Cargo.tomlからpoem削除・open-runo-gateway側の`Route::nest`合成
+  コードを追従。
+
 - **2026-07-10 open-runo-router poem→tokio/hyper 移行: X-Api-Key認証を移植・
   2ハンドラに適用**: 新規 `crates/open-runo-router/src/auth_hyper.rs` に
   `check_api_key(headers, guardian) -> Result<(), StatusCode>` を追加 —
