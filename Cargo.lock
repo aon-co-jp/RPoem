@@ -3319,6 +3319,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "open-runo-api-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "open-runo-backup"
 version = "0.1.0"
 dependencies = [
@@ -3346,6 +3354,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "open-runo-api-types",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -3468,6 +3477,7 @@ dependencies = [
  "jsonwebtoken",
  "once_cell",
  "open-runo-ai-routing",
+ "open-runo-api-types",
  "open-runo-cache",
  "open-runo-core",
  "open-runo-db",
