@@ -89,8 +89,33 @@ GitHub リポジトリも `https://github.com/aon-co-jp/poem-cosmo-tauri` に
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-10 open-runo-router poem→tokio/hyper 移行: 着手(基盤モジュール
+  作成)**: 前回パスが残した計画に従い、`crates/open-runo-router/src/
+  hyper_compat.rs` を新規作成。内容: `Router`(method+path→handlerの手書き
+  ディスパッチャ、`:param`動的セグメント対応)、`Params`、`json_response`/
+  `empty_status`/`read_json_body` レスポンスヘルパー、`Handler` 型
+  (`Arc<dyn Fn(Request, Params) -> BoxFuture<Response>>`)。4つのユニット
+  テスト全て green。`Cargo.toml` に `hyper`(1.10, full)・`hyper-util`・
+  `http-body-util`・`bytes` を追加(dev-dependenciesに`reqwest`も追加、
+  次回のhyperベーステストハーネスで使用予定)。**poem はまだ削除していない
+  **— 既存の poem ベース `build_app`/ハンドラ群はそのまま並存させており、
+  `lib.rs` に `pub mod hyper_compat;` を追加しただけ。`cargo check
+  --workspace` / `cargo test --workspace --no-run` とも green を確認済み。
+  次回パスがすべきこと: (1) `handlers/schemas.rs` を手本に、1ハンドラ
+  (例: `health`)を `hyper_compat::Handler` 形式で書き直し、hyperベースの
+  テストハーネス(`tokio::net::TcpListener` + `hyper::server::conn::http1`
+  + `reqwest`)を1本書いて動作確認、(2) 確認できたら残りのハンドラを
+  auth.rs → 各handlers/*.rs → middleware群 → lib.rsのbuild_app本体の順で
+  段階的に置き換え、(3) 置き換えが終わった範囲から `poem::test::TestClient`
+  ベースの旧テストを新ハーネスに移行、(4) 全ハンドラ移行後に
+  `Cargo.toml` から `poem` を削除、(5) `open-runo-gateway` 側の
+  `Route::nest` 合成コードも追従、(6) 各段階で `cargo test -p
+  open-runo-router` → `cargo test --workspace --no-run` の順に確認して
+  commit+push。旧パスが残した詳細設計(関数コンビネータ方式のミドルウェア
+  等)は下記の前エントリを参照。
+
 - **2026-07-10 open-runo-router poem→tokio/hyper 移行: 調査完了・未着手
-  (安全のため着手を見送り)**: `crates/open-runo-router` を poem 依存ゼロで
+  (安全のため着手を見送り、旧エントリ)**: `crates/open-runo-router` を poem 依存ゼロで
   tokio+hyper 直書きへ移行するタスクを受けたが、調査の結果 poem への依存が
   非常に深いことが判明したため、ワークスペースを red にするリスクを避け、
   **コード変更は一切行わず**現状の green な状態を維持したまま計画のみを

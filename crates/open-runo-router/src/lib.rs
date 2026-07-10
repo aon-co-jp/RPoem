@@ -27,6 +27,7 @@
 pub mod audit;
 pub mod auth;
 pub mod handlers;
+pub mod hyper_compat;
 pub mod keyring;
 pub mod maintenance;
 pub mod middleware;
