@@ -1,7 +1,10 @@
 # 技術スタック・開発ルール(poem-cosmo-tauri)
 
-**このリポジトリが正本(一本化先)です。** `open-runo`は2026-07-10付けで
-このリポジトリに統合され、今後更新しません(詳細は下記「方針転換」参照)。
+**このリポジトリは `open-runo` と同時並行で開発します**(2026-07-10、
+再確定。一本化・統合ではありません)。実装(例: Poem→tokio/hyper移行)は
+このリポジトリで先行させ、動作確認できたファイルを open-runo へミラー
+する運用とする。両リポジトリともTauri/Poemを直接依存に含めない
+(詳細は下記「方針転換」参照)。
 
 ユーザー指示により、**Tauri・Poem・WunderGraph Cosmo(有料版含む)を
 ライブラリ/パッケージとして直接依存させることはしない**方針に転換した。
@@ -22,14 +25,17 @@ Federation/VersionlessAPIという考え方)。それらを Rust 標準ライブ
 プラットフォーム)を正本として分岐した `poem-runo` を、2026-07-10 に
 `F:\open-runo\poem-runo` → `F:\open-runo\poem-cosmo-tauri` へリネームし、
 GitHub リポジトリも `https://github.com/aon-co-jp/poem-cosmo-tauri` に
-移行した最新の後継リポジトリ。REST API の乱立と WunderGraph Cosmo 有料版
-への依存を断つという open-runo の目的を、Poem(バックエンド)+ Cosmo
-(着想元・非依存)+ Tauri(フロントエンド)の統合をリポジトリ名として明示
-する形で引き継ぐ。**WunderGraph Cosmo は今後もあくまで参考・着想元のみで
-あり、実装に依存として組み込むことはしない**(2026-07-10 ユーザー確認済み)。
-履歴は open-runo / poem-runo のものをそのまま保持しているため、コミット
-ログは 2026-07-10 の分岐点まで共通。今後の開発は poem-cosmo-tauri 側を
-主軸に進める。
+移行したリポジトリ。REST API の乱立と WunderGraph Cosmo 有料版への依存を
+断つという open-runo の目的を、Poem(バックエンド)+ Cosmo(着想元・
+非依存)+ Tauri(フロントエンド)の統合をリポジトリ名として明示する形で
+引き継ぐ(名称は歴史的経緯によるもので、実体はTauri/Poem非依存)。
+**WunderGraph Cosmo は今後もあくまで参考・着想元のみであり、実装に依存
+として組み込むことはしない**(2026-07-10 ユーザー確認済み)。履歴は
+open-runo / poem-runo のものをそのまま保持しているため、コミットログは
+2026-07-10 の分岐点まで共通。**2026-07-10、ユーザー指示により「統合」
+方針を撤回し、open-runoと本リポジトリを同時並行で開発する方針に
+再確定**。実装はこちらで先行させ、動作確認済みのファイルをopen-runoへ
+ミラーする。
 
 ## フロントエンド
 
@@ -58,11 +64,11 @@ GitHub リポジトリも `https://github.com/aon-co-jp/poem-cosmo-tauri` に
 
 ## 関連プロジェクト
 
-- **poem-cosmo-tauri**(このリポジトリ。正本・一本化先。open-runo/poem-runo
-  の後継。Poem/Tauri/Cosmoの機能を自前実装で統合したGraphQL Federation /
+- **poem-cosmo-tauri**(このリポジトリ。open-runoと同時並行開発。実装の
+  先行地点。Poem/Tauri/Cosmoの機能を自前実装で統合したGraphQL Federation /
   API Gateway / AI-native routing platform): https://github.com/aon-co-jp/poem-cosmo-tauri
-- **open-runo**(分岐元。2026-07-10付けでこのリポジトリに統合され、今後は
-  更新しない): https://github.com/aon-co-jp/open-runo
+- **open-runo**(分岐元。poem-cosmo-tauriと同時並行開発。2026-07-10付けで
+  開発再開): https://github.com/aon-co-jp/open-runo
 - **open-web-server**: https://github.com/aon-co-jp/open-web-server
 - **aruaru-db**: https://github.com/aon-co-jp/aruaru-db
 - **aruaru-web**: https://github.com/aon-co-jp/aruaru-web
