@@ -1,4 +1,14 @@
-# 技術スタック・開発ルール(poem-cosmo-tauri)
+# 【廃止】このリポジトリは open-runo に統合されました(2026-07-10)
+
+ユーザー指示により、Tauri・Poem・WunderGraph Cosmo(有料版含む)はいずれも
+不要という方針に転換したため、このリポジトリ(poem-cosmo-tauri)は廃止し、
+今後の開発は https://github.com/aon-co-jp/open-runo に一本化します。
+**このリポジトリへは今後コミットしません。** 以降は open-runo の
+`CLAUDE.md` を参照してください。
+
+---
+
+# 技術スタック・開発ルール(poem-cosmo-tauri、旧内容・参考用)
 
 このリポジトリ、および関連プロジェクト(`open-runo`/`open-web-server`/
 `aruaru-db`/`aruaru-web`/`open-raid-z`)で開発・保守を行う際は、以下を基本方針とする。
