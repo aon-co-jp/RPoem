@@ -4,7 +4,9 @@
 //! returns a `hyper_compat::Handler` closing over whatever state it needs,
 //! matching the JSON shape/status codes of its poem counterpart exactly.
 
-use crate::hyper_compat::{json_response, Handler};
+use crate::auth_hyper::check_api_key;
+use crate::hyper_compat::{empty_status, json_response, Handler};
+use crate::keyring::KeyGuardian;
 use crate::state::AppState;
 use hyper::StatusCode;
 use serde::Serialize;
@@ -18,13 +20,16 @@ struct FederationStatusResponse {
 }
 
 /// GET /api/federation/status — poem-free port of
-/// `handlers::federation::federation_status`. Auth is not yet wired at this
-/// layer (see CLAUDE.md HANDOFF); it currently mirrors the *unauthenticated*
-/// body of the handler only.
-pub fn federation_status_handler(state: Arc<AppState>) -> Handler {
-    Arc::new(move |_req, _params| {
+/// `handlers::federation::federation_status`, now with the same
+/// `X-Api-Key` gate as the poem route (see `auth_hyper::check_api_key`).
+pub fn federation_status_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
+    Arc::new(move |req, _params| {
         let state = Arc::clone(&state);
+        let guardian = Arc::clone(&guardian);
         Box::pin(async move {
+            if let Err(status) = check_api_key(req.headers(), &guardian).await {
+                return empty_status(status);
+            }
             let schema = state
                 .federation_schema
                 .lock()
@@ -49,12 +54,17 @@ struct DbStatus {
     status: &'static str,
 }
 
-/// GET /api/db/status — poem-free port of `handlers::db::db_status`.
-/// Test-mode (`AppState::new()`) always runs the in-memory backend, so the
-/// response is a fixed shape identical to the poem handler's test-mode path.
-pub fn db_status_handler(_state: Arc<AppState>) -> Handler {
-    Arc::new(move |_req, _params| {
+/// GET /api/db/status — poem-free port of `handlers::db::db_status`, gated
+/// by the same `X-Api-Key` check as the poem route. Test-mode
+/// (`AppState::new()`) always runs the in-memory backend, so the response
+/// is a fixed shape identical to the poem handler's test-mode path.
+pub fn db_status_handler(_state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
+    Arc::new(move |req, _params| {
+        let guardian = Arc::clone(&guardian);
         Box::pin(async move {
+            if let Err(status) = check_api_key(req.headers(), &guardian).await {
+                return empty_status(status);
+            }
             json_response(
                 StatusCode::OK,
                 &DbStatus {
@@ -70,15 +80,21 @@ pub fn db_status_handler(_state: Arc<AppState>) -> Handler {
 mod tests {
     use super::*;
     use crate::hyper_compat::{serve, Router};
+    use crate::keyring::GuardianConfig;
     use hyper::Method;
+
+    fn guardian(state: &Arc<AppState>) -> Arc<KeyGuardian> {
+        Arc::new(KeyGuardian::new(Arc::clone(&state.db), GuardianConfig::from_env()))
+    }
 
     #[tokio::test]
     async fn federation_status_reflects_composed_schema() {
         let state = Arc::new(AppState::new());
+        let guardian = guardian(&state);
         let router = Router::new().route(
             Method::GET,
             "/api/federation/status",
-            federation_status_handler(Arc::clone(&state)),
+            federation_status_handler(Arc::clone(&state), guardian),
         );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
@@ -86,6 +102,7 @@ mod tests {
 
         let resp = reqwest::Client::new()
             .get(format!("http://{addr}/api/federation/status"))
+            .header("x-api-key", "test-key")
             .send()
             .await
             .expect("request should succeed");
@@ -97,12 +114,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn federation_status_requires_api_key() {
+        let state = Arc::new(AppState::new());
+        let guardian = guardian(&state);
+        let router = Router::new().route(
+            Method::GET,
+            "/api/federation/status",
+            federation_status_handler(Arc::clone(&state), guardian),
+        );
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
+
+        let resp = reqwest::Client::new()
+            .get(format!("http://{addr}/api/federation/status"))
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn db_status_reports_in_memory_backend() {
         let state = Arc::new(AppState::new());
+        let guardian = guardian(&state);
         let router = Router::new().route(
             Method::GET,
             "/api/db/status",
-            db_status_handler(Arc::clone(&state)),
+            db_status_handler(Arc::clone(&state), guardian),
+        );
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
+
+        let resp = reqwest::Client::new()
+            .get(format!("http://{addr}/api/db/status"))
+            .header("x-api-key", "test-key")
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = resp.json().await.expect("valid json body");
+        assert_eq!(body["backend"], "in-memory");
+        assert_eq!(body["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn db_status_requires_api_key() {
+        let state = Arc::new(AppState::new());
+        let guardian = guardian(&state);
+        let router = Router::new().route(
+            Method::GET,
+            "/api/db/status",
+            db_status_handler(Arc::clone(&state), guardian),
         );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
@@ -113,9 +177,6 @@ mod tests {
             .send()
             .await
             .expect("request should succeed");
-        assert_eq!(resp.status(), reqwest::StatusCode::OK);
-        let body: serde_json::Value = resp.json().await.expect("valid json body");
-        assert_eq!(body["backend"], "in-memory");
-        assert_eq!(body["status"], "ok");
+        assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
     }
 }

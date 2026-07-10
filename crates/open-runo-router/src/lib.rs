@@ -26,6 +26,7 @@
 
 pub mod audit;
 pub mod auth;
+pub mod auth_hyper;
 pub mod handlers;
 pub mod handlers_hyper;
 pub mod hyper_compat;

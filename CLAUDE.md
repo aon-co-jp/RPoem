@@ -89,6 +89,33 @@ GitHub リポジトリも `https://github.com/aon-co-jp/poem-cosmo-tauri` に
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-10 open-runo-router poem→tokio/hyper 移行: X-Api-Key認証を移植・
+  2ハンドラに適用**: 新規 `crates/open-runo-router/src/auth_hyper.rs` に
+  `check_api_key(headers, guardian) -> Result<(), StatusCode>` を追加 —
+  `auth.rs`の`ApiKeyAuthEndpoint`(poem Middleware)からX-Api-Keyチェック
+  部分のみを抜き出した素の関数(KeyGuardian.verify()呼び出し、
+  RegistryEmpty/Ok→通過、Rejected/Suspended→401)。**JWT/OIDC/SCIM固定
+  トークン/RBACは意図的に未移植**(必要になった時点で追加、それまでは
+  該当ルートはpoem側に残す)。`handlers_hyper.rs`の
+  `federation_status_handler`/`db_status_handler`をこの関数で保護するよう
+  更新(シグネチャに`Arc<KeyGuardian>`追加)、「キー無し→401」テストを
+  2本追加。`cargo test -p open-runo-router` で12テスト全green(前回の
+  5+2に加えauth_hyper 3件・401テスト2件)。`cargo check --workspace` /
+  `cargo test --workspace --no-run` もgreen。poemのbuild_appは引き続き
+  唯一の実バイナリ経路(未切替)。
+  次回パスがすべきこと: (1) 他の認証必須GET(db_routing, get_schema,
+  get_schema_history, get_persisted_query)をfederation_status/db_statusと
+  同じパターン(check_api_key呼び出し)で移植、(2) POST/PUT/DELETE系
+  (register_schema, compose_schemas, db_put/db_delete等)は
+  `read_json_body`ヘルパーを使ってリクエストボディも扱う形で移植、
+  (3) 1つずつ増やすたびに`cargo test -p open-runo-router` →
+  `cargo test --workspace --no-run`→commit→push、(4) 全ハンドラ移行後に
+  lib.rsのbuild_appをhyper_compat版Routerに切替・main.rsを
+  `hyper_compat::serve`起動に変更、(5) その時点でJWT/OIDC/RBAC/SCIM
+  トークンが必要なルートが残っていればそれらも移植するか、必要性を
+  再評価、(6) 最後にCargo.tomlからpoem削除・open-runo-gateway側の
+  `Route::nest`合成コードを追従。
+
 - **2026-07-10 open-runo-router poem→tokio/hyper 移行: 認証不要GET2本を移植**:
   新規 `crates/open-runo-router/src/handlers_hyper.rs` に
   `federation_status_handler`(GET /api/federation/status、poem版と同一
