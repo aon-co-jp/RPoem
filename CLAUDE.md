@@ -1,10 +1,18 @@
-# 技術スタック・開発ルール(open-runo)
+# 技術スタック・開発ルール(poem-runo)
 
-このリポジトリ、および関連プロジェクト(`open-web-server`/`aruaru-db`/
-`aruaru-web`/`open-raid-z`)で開発・保守を行う際は、以下を基本方針とする。
+このリポジトリ、および関連プロジェクト(`open-runo`/`open-web-server`/
+`aruaru-db`/`aruaru-web`/`open-raid-z`)で開発・保守を行う際は、以下を基本方針とする。
 作業ドライブは `F:\open-runo`(E:ドライブは2026-07-10に消失、以後Fが実体)。
 この節は [`open-raid-z`](https://github.com/aon-co-jp/open-raid-z) の
 `CLAUDE.md` を正本とし、各プロジェクトへコピーして同期する。
+
+**poem-runo とは**: `open-runo`(Rust + Poem 製 GraphQL Federation
+プラットフォーム)を正本として `F:\open-runo\open-runo` から `git clone` した
+後継リポジトリ(https://github.com/aon-co-jp/poem-runo)。REST API の乱立と
+WunderGraph Cosmo 有料版への依存を断つという open-runo の目的を、Poem
+フレームワークとの統合をリポジトリ名として明示する形で引き継ぎ、発展させる。
+履歴は open-runo のものをそのまま保持しているため、両リポジトリのコミット
+ログは 2026-07-10 の分岐点まで共通。今後の開発は poem-runo 側を主軸に進める。
 
 ## フロントエンド
 
@@ -27,8 +35,10 @@
 
 ## 関連プロジェクト
 
-- **open-runo**(このリポジトリ。GraphQL Federation / API Gateway /
-  AI-native routing platform): https://github.com/aon-co-jp/open-runo
+- **poem-runo**(このリポジトリ。open-runo の後継。GraphQL Federation /
+  API Gateway / AI-native routing platform): https://github.com/aon-co-jp/poem-runo
+- **open-runo**(分岐元。引き続き独自にメンテナンスされる場合がある):
+  https://github.com/aon-co-jp/open-runo
 - **open-web-server**: https://github.com/aon-co-jp/open-web-server
 - **aruaru-db**: https://github.com/aon-co-jp/aruaru-db
 - **aruaru-web**: https://github.com/aon-co-jp/aruaru-web
@@ -55,7 +65,22 @@
 
 ## HANDOFF(直近の自動実行パス)
 
-- **2026-07-10**: 定時の自律メンテナンスパス。`cargo check --workspace` /
+- **2026-07-10 20:30 poem-runo 発足**: `open-runo` を正本として
+  `F:\open-runo\open-runo` から `git clone` し、リモートを
+  `https://github.com/aon-co-jp/poem-runo.git` に付け替えて push、
+  `poem-runo` リポジトリを発足させた(履歴は open-runo と共通)。
+  無人自動開発を 2026-07-11 12:00 まで継続する運用中。21:30 に安全のため
+  push、21:40 前後で利用制限のリセットが想定されるが、回復後は
+  scheduled task 経由でこの CLAUDE.md の HANDOFF を読み、続きから開発を
+  再開すること。次回パスがまず行うべきこと: (1) このリポジトリ固有の
+  README.md 冒頭を poem-runo 向けに書き換え(open-runo からの fork/継承
+  である旨を明記)、(2) `cargo check --workspace` で現状ビルドが壊れて
+  いないことを確認、(3) `docs/HANDOFF.md` の次点候補から実装を1つ進める、
+  (4) 作業ごとに commit して `git push origin main` する。
+  次回パス実行時は毎回この項目を上書き更新し、進捗と次にやることを
+  明記すること(セッションを跨いで記憶が引き継がれないため)。
+
+- **2026-07-10 (open-runo 側)**: 定時の自律メンテナンスパス。`cargo check --workspace` /
   `cargo test --workspace --no-run` は変更前から成功済みを確認(ビルド破損なし)。
   `todo!()`/`unimplemented!()`/フェイクデータを返すスタブ関数は見つからず
   (実装は本当に完了している)。README-Japan.md と README-English.md が
