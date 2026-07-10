@@ -53,6 +53,52 @@ pub fn empty_status(status: StatusCode) -> Response {
         .expect("building a response from a fixed set of valid headers cannot fail")
 }
 
+/// Parse the request's `?a=1&b=2` query string into a lookup map. Minimal
+/// percent-decoding (`%XX`, `+` → space) — no external query-string crate
+/// needed at this scale.
+pub fn query_params(req: &Request) -> HashMap<String, String> {
+    let mut params = HashMap::new();
+    let Some(query) = req.uri().query() else {
+        return params;
+    };
+    for pair in query.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        params.insert(percent_decode(key), percent_decode(value));
+    }
+    params
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => {
+                if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                    out.push(byte);
+                    i += 3;
+                } else {
+                    out.push(bytes[i]);
+                    i += 1;
+                }
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 pub async fn read_json_body<T: serde::de::DeserializeOwned>(
     req: Request,
 ) -> Result<T, Response> {
@@ -235,6 +281,13 @@ mod tests {
 
     fn h(status: StatusCode) -> Handler {
         Arc::new(move |_req, _params| Box::pin(async move { empty_status(status) }))
+    }
+
+    #[test]
+    fn percent_decode_handles_plus_and_hex_escapes() {
+        assert_eq!(percent_decode("hello+world"), "hello world");
+        assert_eq!(percent_decode("a%2Fb%20c"), "a/b c");
+        assert_eq!(percent_decode("plain"), "plain");
     }
 
     #[test]
