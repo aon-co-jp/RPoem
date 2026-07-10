@@ -73,6 +73,64 @@ pub async fn read_json_body<T: serde::de::DeserializeOwned>(
     })
 }
 
+/// `GET /health` and `GET /healthz` — poem-free equivalent of the handler
+/// in `lib.rs`. Kept in lockstep with that JSON shape until the poem
+/// version is retired.
+pub fn health_handler() -> Handler {
+    #[derive(serde::Serialize)]
+    struct Health {
+        status: &'static str,
+        service: &'static str,
+        version: &'static str,
+    }
+
+    Arc::new(move |_req, _params| {
+        Box::pin(async move {
+            json_response(
+                StatusCode::OK,
+                &Health {
+                    status: "ok",
+                    service: "open-runo-router",
+                    version: env!("CARGO_PKG_VERSION"),
+                },
+            )
+        })
+    })
+}
+
+/// Serve `router` over a real TCP listener; returns the bound address and a
+/// task handle. Used by tests (and, eventually, `main.rs`) to run the
+/// poem-free stack end to end.
+pub async fn serve(router: Router, addr: std::net::SocketAddr) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    use hyper::server::conn::http1;
+    use hyper_util::rt::TokioIo;
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind(addr).await?;
+    let bound_addr = listener.local_addr()?;
+    let router = Arc::new(router);
+
+    let handle = tokio::spawn(async move {
+        loop {
+            let (stream, _) = match listener.accept().await {
+                Ok(pair) => pair,
+                Err(_) => continue,
+            };
+            let io = TokioIo::new(stream);
+            let router = Arc::clone(&router);
+            let service = hyper::service::service_fn(move |req: Request| {
+                let router = Arc::clone(&router);
+                async move { Ok::<_, std::convert::Infallible>(router.dispatch(req).await) }
+            });
+            tokio::spawn(async move {
+                let _ = http1::Builder::new().serve_connection(io, service).await;
+            });
+        }
+    });
+
+    Ok((bound_addr, handle))
+}
+
 /// A single registered route: method + path pattern (`:name` segments) + handler.
 struct Route {
     method: Method,
@@ -220,5 +278,45 @@ mod tests {
         let route = &router.routes[0];
         assert!(router.match_path(route, "/api/db/users").is_none());
         assert!(router.match_path(route, "/api/db/users/42/extra").is_none());
+    }
+
+    /// End-to-end: real TCP listener, real hyper connection, real HTTP
+    /// client — proves the poem-free stack actually serves traffic, not
+    /// just that in-process function calls type-check.
+    #[tokio::test]
+    async fn health_endpoint_serves_over_real_http() {
+        let router = Router::new()
+            .route(Method::GET, "/health", health_handler())
+            .route(Method::GET, "/healthz", health_handler());
+
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
+
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!("http://{addr}/health"))
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = resp.json().await.expect("valid json body");
+        assert_eq!(body["status"], "ok");
+        assert_eq!(body["service"], "open-runo-router");
+
+        let resp = client
+            .get(format!("http://{addr}/healthz"))
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+
+        let resp = client
+            .get(format!("http://{addr}/nonexistent"))
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::NOT_FOUND);
     }
 }

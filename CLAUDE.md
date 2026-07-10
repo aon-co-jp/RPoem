@@ -89,6 +89,30 @@ GitHub リポジトリも `https://github.com/aon-co-jp/poem-cosmo-tauri` に
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-10 open-runo-router poem→tokio/hyper 移行: health エンドポイント
+  実サーバー動作確認まで完了**: `hyper_compat.rs` に `health_handler()`
+  (poem版 `health` と同一JSON形状: status/service/version)と `serve()`
+  (実TCPリスナー上でhyperのhttp1コネクションを捌く汎用サーバー起動関数)を
+  追加。新規テスト `health_endpoint_serves_over_real_http` は
+  `serve()`で実ポートにbindし、`reqwest`で `/health`・`/healthz`・
+  存在しないパス(404確認)を実際にHTTP経由で叩いて検証 — 型チェックだけ
+  でなく実通信で動作確認済み。`cargo test -p open-runo-router hyper_compat`
+  で5テスト全green、`cargo check --workspace` / `cargo test --workspace
+  --no-run` も green。**poem は引き続き削除しておらず既存の poem
+  ベース `build_app` と並存**(まだどこからも `hyper_compat::serve` は
+  呼ばれておらず、実際のバイナリは相変わらず poem 版で起動する)。
+  次回パスがすべきこと: (1) 次に単純なハンドラ1〜2個
+  (例: `handlers/federation.rs` の `federation_status`、または
+  `handlers/db.rs` の `db_status` — 認証なしで動くGETから)を
+  `hyper_compat::Handler` へ移植、(2) 認証(`auth.rs`のAPIキー検証ロジック
+  本体、poemの`Middleware`実装部分は避けて「ヘッダを見て許可/拒否を返す
+  関数」だけを先に関数として切り出す)を hyper_compat 用に用意し、
+  保護されたハンドラのテストも書く、(3) 1つずつ増やすたびに
+  `cargo test -p open-runo-router` → `cargo test --workspace --no-run`
+  で確認してcommit+push、(4) 全ハンドラ移行後にlib.rsのbuild_app全体を
+  新ルータに切り替え、main.rsを`hyper_compat::serve`起動に変更、
+  (5) 最後にCargo.tomlからpoemを削除、open-runo-gateway側の統合を追従。
+
 - **2026-07-10 open-runo-router poem→tokio/hyper 移行: 着手(基盤モジュール
   作成)**: 前回パスが残した計画に従い、`crates/open-runo-router/src/
   hyper_compat.rs` を新規作成。内容: `Router`(method+path→handlerの手書き
