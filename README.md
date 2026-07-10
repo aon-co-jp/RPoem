@@ -9,6 +9,9 @@
 ![Tests](https://img.shields.io/badge/tests-176%20passed-brightgreen)
 
 📖 詳細: [日本語 README](README-Japan.md) / [English README](README-English.md) /
+[中文](README-Chinese.md) / [한국어](README-Korea.md) / [Español](README-Spain.md) /
+[Français](README-France.md) / [Deutsch](README-Germany.md) / [Italiano](README-Italy.md) /
+[Русский](README-Russia.md) / [العربية](README-Arabic.md) —
 他プロジェクトへの導入は **[PORTING.md](PORTING.md)** 1 枚で完結します。
 
 ---
