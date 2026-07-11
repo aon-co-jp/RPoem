@@ -9,10 +9,35 @@
 
 ---
 
-## 1. open-runo とは（30 秒版）
+## 1. poem-cosmo-tauri とは（30 秒版）
 
-Rust + Poem 製の **GraphQL Federation プラットフォーム / Web フレームワーク**。
-WunderGraph Cosmo の有料版（Launch / Scale / Enterprise）機能を OSS で提供し、
+**poem-cosmo-tauri** は、以下の3要素をすべて外部パッケージに依存せず
+自前で一から開発・再現し、その連携をスムーズに行うことで WEB サイト/
+WEB アプリ開発を効率的に行えるようにする**フレームワーク/ミドルウェア**
+です(2026-07-11、ユーザーによる最終定義)。
+
+1. **cosmo部分**（open-runo と共通のコア）: WunderGraph Cosmo 有料版
+   （Launch/Scale/Enterprise）の機能を、Cosmo自体には依存せず
+   Rust + tokio/hyper で自前再実装した OSS 版。**REST API不要**
+   （VersionlessAPI/GraphQL Federation）・**契約不要**（商用ライセンス
+   なしで同等機能）・**独自AI搭載のWeb高速化**（`CachePredictor`の
+   自己学習型HTMLキャッシュ）・Tauri互換のフロントエンド体験、を含む。
+2. **poem部分**（バックエンド、本リポジトリ固有）: Rust の Poem
+   フレームワークの**全機能を完全互換で一から自作・再現**（`poem`
+   パッケージへの直接依存なし。到達度は `docs/poem-parity.md` 参照）。
+3. **tauri部分**（フロントエンド、本リポジトリ固有）: Tauri の**全機能を
+   完全互換で一から自作・再現**（`tauri`パッケージへの直接依存なし、
+   現状 Rust→WASM 実装。到達度は `docs/tauri-parity.md` 参照）。
+
+この3要素（Tauri再現フロントエンド + open-runo/cosmoコア + Poem再現
+バックエンド）がスムーズに連携し合うこと自体が価値であり、フロントエンド
+開発・バックエンド開発・Web中心的な開発の連携を円滑にすることが本
+フレームワークの目的です。「連携」とはいえ、各部分は外部フレームワーク
+との統合ではなく、そのフレームワーク自体の完全な自前再実装である点に
+注意してください。
+
+以下、実装本体である Rust + tokio/hyper 製 **GraphQL Federation
+プラットフォーム / Web フレームワーク**部分（cosmo部分）の詳細です。
 さらに独自の自己学習 AI（外部 LLM 契約不要）を搭載します。
 
 | 分類 | 提供機能 |
