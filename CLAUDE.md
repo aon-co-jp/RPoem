@@ -128,8 +128,14 @@ Federation Gateway/バックエンド側として関与する。
 - Tauri機能パリティ調査(2026-07-11、参照: https://v2.tauri.app/ |
   https://github.com/tauri-apps/tauri)の結果は`docs/tauri-parity.md`
   を正とする。IPC/クロスプラットフォームはfetch()+PWA manifestで
-  実用上同等の体験を実現済み。システムトレイ等はブラウザ実行という
-  設計上の制約で意図的に非対応。
+  実用上同等の体験を実現済み。
+- **システムトレイ・ネイティブ通知・ネイティブインストーラーは
+  `apps/desktop-tray`(2026-07-12新設)で対応**。「ブラウザ実行という
+  設計上の制約で意図的に非対応」という従来方針はユーザー指示により撤回
+  済み——`apps/desktop-wasm`(ブラウザ実行のメインUI)はそのまま維持し、
+  `tauri`パッケージには依存しない別の軽量ネイティブバイナリ
+  (`tray-icon`+`tao`+`notify-rust`)でOSネイティブ機能を補う方針。詳細は
+  `apps/desktop-tray/README.md`・`docs/tauri-parity.md`参照。
 
 ## バックエンド・コア
 
@@ -238,6 +244,67 @@ Federation Gateway/バックエンド側として関与する。
   アラビア語の10言語が揃っている。
 
 ## HANDOFF(直近の自動実行パス)
+
+- **2026-07-12 Poem/Tauriパリティの残ギャップを一括解消(Multipart・
+  Cookie/セッション+CSRF・TLS・ネイティブ通知・システムトレイ・
+  ネイティブインストーラー、いずれも実バイナリ+実環境で検証済み)**:
+  ユーザーから「未着手・意図的に先送りという記述があっても確認を求めず
+  実装を進める」という運用ルールの明文化指示を受け(全関連リポジトリの
+  CLAUDE.mdに転記済み)、`docs/poem-parity.md`/`docs/tauri-parity.md`に
+  残っていたギャップを順に着手・実装した。
+  **(1) Multipart(RFC 7578手書きパーサー)**: `hyper_compat::
+  read_multipart_body` + `POST /api/schemas/upload`。WASM管理UIに
+  `<input type="file">`アップロードUIを追加、実バイナリ+実ブラウザで
+  ファイル選択→アップロード→Schema Historyへの反映を確認。
+  **(2) Cookie/セッション + CSRF**: 新規`session.rs`(`SessionStore`、
+  `X-Api-Key`に追加する認証経路であり置き換えではない)。
+  `POST /api/session/login`(既存キー→HttpOnly+SameSite=Strict Cookie+
+  CSRFトークン)・`POST /api/session/logout`。
+  `auth_hyper::authenticate_with_session`が状態変更リクエスト
+  (POST/PUT/PATCH/DELETE)にCSRF二重送信トークンを要求(403)。
+  `register_schema_handler`/`register_schema_upload_handler`を実例として
+  対応済み(他ハンドラは今後段階的に対応、self-issue-keyと同じ導入パターン)。
+  実バイナリ+curlで自己発行キー→ログイン→CSRF無し403→CSRF有り200→
+  logout→post-logout 401の一連を確認。
+  **(3) TLS終端(rustls)**: `hyper_compat::tls`(`load_tls_config`+
+  `serve_tls`)、`tls` Cargo feature(既定オフ)。自己署名証明書での実TLS
+  ハンドシェイクテスト+平文HTTPクライアント拒否テストで確認。ACME
+  (自動証明書発行)は継続タスク(HTTP-01検証に公開インターネット到達性が
+  必要でこの開発環境では実運用Let's Encryptに対する最終確認ができない
+  ため、モックCAサーバーでの検証に切り替えて次回着手)。
+  **(4) ネイティブ通知(Web Notifications API)**: `apps/desktop-wasm/src/
+  notifications.rs`。バックアップ完了・整合性チェック完了・キャッシュ全
+  パージ完了(成功/失敗いずれも)で発火。権限未許可時はページ内表示のみに
+  フォールバックし失敗しない。
+  **(5) システムトレイ + ネイティブ通知 + ネイティブインストーラー
+  (`apps/desktop-tray`、新規)**: 「ブラウザ実行という制約で対応不可」と
+  していた従来の結論をユーザー指示により撤回し、`tauri`パッケージには
+  依存しない別バイナリ(`tray-icon`+`tao`+`notify-rust`)で実現。
+  実Windows環境で: トレイアイコン表示(手書き32x32 RGBA)をスクリーン
+  ショットで視覚確認、左クリックで既定ブラウザ(Firefox)が
+  `-url http://localhost:8080/`付きで起動することをプロセスコマンドライン
+  で確認、右クリックメニュー(Open/Quit)表示、Quitでプロセス正常終了、を
+  すべて確認。ネイティブインストーラーは Inno Setup を使用(WiX
+  Toolset v7+は商用「Open Source Maintenance Fee」EULAへの同意が必要で、
+  ユーザーの代わりに同意すべきでないため不採用)。実際に
+  `/VERYSILENT`インストール→`%LOCALAPPDATA%\Programs\open-runo-tray\`への
+  配置→`HKCU`アンインストールエントリ登録(名前/バージョン/発行者/
+  アンインストール文字列すべて正しい)→アンインストーラーでの完全削除、
+  まで実機確認済み(検証後は元の状態にクリーンアップ済み)。
+  macOS(.dmg)/Linux(.deb/.AppImage)パッケージングは未着手(この開発環境が
+  Windows専用のため次回以降の課題)。
+  **全体**: `cargo test --workspace --all-features`(poem-cosmo-tauri/
+  open-runo両方)は全てgreen(open-runo-routerが118→121テスト、
+  `--all-features`込みで283テスト)。10ヶ国語READMEの古いテスト数表記
+  (192のまま長期間放置されていた)を280/283へ修正、PORTING.mdへ新規
+  エンドポイント(`/api/session/login`/`logout`、`/api/schemas/upload`)・
+  `tls` feature・`apps/desktop-tray`を追記。両リポジトリともcommit・
+  push済み。
+  次回パスがすべきこと: (1) ACMEクライアント(RFC 8555、モックCAサーバー
+  でのテスト戦略)、(2) gRPC(poem-grpc相当)、(3) MCP Server
+  (poem-mcpserver相当)、(4) `apps/desktop-tray`のmacOS/Linuxパッケージング
+  (この開発環境では検証不可)、(5) Cookie/セッション認証を他のハンドラにも
+  段階的に拡大。
 
 - **2026-07-11 Federation v1互換ギャップを解消(docs/cosmo-parity.md 4a節、
   ★☆☆) — SDLパーサー新設、実バイナリでv1+v2部分グラフの同時合成を検証済み**:

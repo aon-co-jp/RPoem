@@ -13,7 +13,7 @@
 [![CI](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
 ![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)
-![Tests](https://img.shields.io/badge/tests-256%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-283%20passed-brightgreen)
 
 📖 詳細: [日本語 README](README-Japan.md) / [English README](README-English.md) /
 [中文](README-Chinese.md) / [한국어](README-Korea.md) / [Español](README-Spain.md) /
@@ -83,15 +83,24 @@ tokio/hyper で自前実装しています。
   `/api/ws-events`、Subscriptions 以外の用途にも対応）
 - 🧩 **Federation v1/v2 SDL パーサー** — 生の GraphQL SDL を渡すだけで
   v1（暗黙ディレクティブ）/ v2（`@link`）を自動判別・合成
+- 📎 **Multipart ファイルアップロード** — 手書き RFC 7578 パーサー、
+  `POST /api/schemas/upload` でSDLファイルを直接アップロード
+- 🍪 **Cookie/セッション + CSRF** — `X-Api-Key` に追加する認証経路、
+  `POST /api/session/login`/`logout`、CSRF二重送信トークン検証
+- 🔒 **TLS終端**（`tls` feature、rustls） — リバースプロキシ不要で
+  直接HTTPS配信可能
 - 🖥️ **デスクトップ管理アプリ**(Tauri非依存・互換UI、Rust → WebAssembly、
   TypeScript/Node.js 不使用)
+- 🔔 **システムトレイ + ネイティブ通知 + ネイティブインストーラー**
+  (`apps/desktop-tray`、tauriパッケージ非依存。`tray-icon`+`tao`+
+  `notify-rust`、Windows向け実.exeインストーラー付き)
 
 ## クイックスタート
 
 ```bash
 git clone https://github.com/aon-co-jp/poem-cosmo-tauri
 cd poem-cosmo-tauri
-cargo test --workspace          # 256 テスト
+cargo test --workspace          # 280 テスト(--all-features で283、tls feature込み)
 cargo run -p open-runo-gateway  # REST + GraphQL 統合サーバー起動(poem-free)
 ```
 
@@ -127,6 +136,18 @@ Cache & Backup の8ページ管理UIが使えます(Tauri・Node.js・TypeScript
 
 AI HTML キャッシュを有効化して自分のアプリに載せる例・全環境変数・
 全エンドポイントは **[PORTING.md](PORTING.md)** を参照してください。
+
+### システムトレイ常駐アプリを使う(任意、Windows)
+
+管理UIをブラウザタブとしてではなく、システムトレイアイコン経由で開きたい
+場合は `apps/desktop-tray`(tauriパッケージ非依存)を使えます:
+
+```bash
+make tray   # apps/desktop-tray/target/release/open-runo-tray(.exe) を生成
+```
+
+詳細・Windowsインストーラーのビルド手順は
+[apps/desktop-tray/README.md](apps/desktop-tray/README.md) を参照。
 
 ## ワークスペース構成（18 クレート）
 
