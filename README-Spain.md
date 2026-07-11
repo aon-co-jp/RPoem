@@ -52,6 +52,18 @@ Compuesto por `open-runo-router` (gateway REST/auth/auditoría),
 `open-runo-gateway` (endpoint GraphQL), `open-runo-federation` (composición de esquemas),
 `open-runo-db` (abstracción multi-motor), etc. Ver [docs/architecture.md](docs/architecture.md).
 
+## Proyectos relacionados
+
+Existe una arquitectura objetivo que combina `open-web-server` con este
+repositorio, `open-runo`, PostgreSQL, `aruaru-db` y `open-raid-z`, diseñada
+para evitar la pérdida en red de artículos de pago y datos financieros/
+bursátiles en juegos 3D online (transporte cuádruple-redundante y
+escritura de BD cuádruple-redundante, revisado el 2026-07-11).
+poem-cosmo-tauri puede participar como Federation Gateway/backend dentro
+de esa arquitectura (ver el `README.md`/`CLAUDE.md` de
+[open-web-server](https://github.com/aon-co-jp/open-web-server) para el
+panorama completo).
+
 ## Licencia
 
 Apache-2.0 OR MIT (a elección). Para contribuir, ver [CONTRIBUTING.md](CONTRIBUTING.md).

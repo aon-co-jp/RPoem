@@ -50,6 +50,15 @@ cargo run -p open-runo-gateway  # 启动 REST + GraphQL 服务
 `open-runo-federation`（模式合成）、`open-runo-db`（多引擎数据库抽象）等模块组成，
 详见 [docs/architecture.md](docs/architecture.md)。
 
+## 相关项目
+
+存在一个将 `open-web-server` 与本仓库、`open-runo`、PostgreSQL、
+`aruaru-db`、`open-raid-z` 组合起来的目标架构,旨在防止 3D 网络游戏的
+付费道具及金融/证券数据在网络上丢失(通信层四重化与数据库写入四重化,
+2026-07-11 修订)。poem-cosmo-tauri 可作为该架构中的 Federation Gateway/
+后端参与(完整内容参见 [open-web-server](https://github.com/aon-co-jp/open-web-server)
+的 `README.md`/`CLAUDE.md`)。
+
 ## License
 
 Apache-2.0 OR MIT（任选其一）。欢迎贡献，参见 [CONTRIBUTING.md](CONTRIBUTING.md)。

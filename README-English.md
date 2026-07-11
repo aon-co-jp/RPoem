@@ -116,6 +116,17 @@ Scale from a minimal single-SQLite setup up to `--features full` (DUAL + Redis +
 ClickHouse) via feature flags. There is no functionality gated behind a
 "managed-only" tier.
 
+## Related Projects
+
+There is a target architecture combining `open-web-server` with this
+repository, `open-runo`, PostgreSQL, `aruaru-db`, and `open-raid-z`,
+designed to prevent network loss of paid-item and financial/securities
+data in 3D online games (quadruple-redundant transport and quadruple-
+redundant DB writes, revised 2026-07-11). poem-cosmo-tauri can participate
+as a Federation Gateway / backend within that architecture (see
+[open-web-server](https://github.com/aon-co-jp/open-web-server)'s
+`README.md`/`CLAUDE.md` for the full picture).
+
 ## License
 
 Apache-2.0 OR MIT (your choice). See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
