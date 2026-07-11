@@ -245,6 +245,47 @@ Federation Gateway/バックエンド側として関与する。
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-12 `docs/poem-parity.md`4a節が列挙していたギャップを全て解消
+  (ACME・gRPC・MCP Server——これで同ドキュメントの未実装項目はゼロに)**:
+  直前のパス(下記2026-07-12エントリ)でMultipart/Cookie-Session+CSRF/
+  TLS/Tauri全ギャップを解消した続き。
+  **(1) ACME(RFC 8555、HTTP-01のみ)**: 新規`crates/open-runo-router/
+  src/acme.rs`、`acme` feature(`tls`を暗黙有効化)。JWS署名は`ring`の
+  ES256(fixed r‖s形式、ASN.1 DERではないことを単体テストで確認)を使用
+  し楕円曲線演算は自前実装しない方針。`ChallengeStore`+
+  `GET /.well-known/acme-challenge/:token`は feature非依存で常時
+  コンパイル。**検証**: 実Let's Encrypt相手の確認はHTTP-01がこの
+  サンドボックス環境から到達不能なCA→自サーバー方向の公開インターネット
+  経由アクセスを要求するため不可能——代わりに本番と同じ
+  `ChallengeStore`/`challenge_response_handler`を実サーバーとして起動し、
+  実際にそこへ実HTTPでフェッチしに行くモックCAサーバーとの2プロセス間
+  ラウンドトリップで全フロー(directory→nonce→account→order→
+  authorization→challenge→finalize→download)を検証。
+  **(2) gRPC**: 新規`crates/open-runo-router/src/grpc.rs`、新規依存無し
+  (hyperの既存`full`featureに`h2`crateが既に含まれている)。
+  `grpc.health.v1.Health/Check`(実在するgRPCヘルスチェック標準)を実
+  HTTP/2(h2c)+この2メッセージ分のみの手書きProtocol Buffersコーデックで
+  実装。専用ポート(`OPEN_RUNO_GRPC_BIND_ADDR`、既定オフ)。`hyper-util`の
+  独立したHTTP/2クライアントでの実ラウンドトリップテスト(trailers経由
+  grpc-status・protobufバイト列が`[0x08,0x01]`という仕様通りの値である
+  ことを含む)+実バイナリでのポート疎通確認(grpcurl等の外部ツールは
+  この環境に無かったため未使用)。
+  **(3) MCP Server**: 新規`crates/open-runo-router/src/mcp.rs`、新規依存
+  無し(既存の`read_json_body`/`json_response`を使うJSON-RPC)。
+  `POST /mcp`でMCP Streamable HTTP transportの単純系(1リクエスト→1
+  レスポンス、SSE無し)、`initialize`/`tools/list`/`tools/call`に対応。
+  実ツール2種(`health_check`・`self_issue_api_key`、いずれも既存の
+  `GET /health`・`POST /api/keys/self-issue`と同じ本番ロジックを共有)。
+  実バイナリ+curlでinitialize→tools/list→tools/call(self_issue_api_key
+  で実際に有効なAPIキーが返る)を確認。
+  **全体**: `cargo test --workspace --all-features`は296→305テスト
+  (poem-cosmo-tauri/open-runo両方)、全てgreen。10ヶ国語READMEのテスト数
+  表記を更新、PORTING.mdへ`/mcp`・`/.well-known/acme-challenge/:token`・
+  `acme`/`grpc`featureの案内を追記。両リポジトリともcommit・push済み。
+  次回パスがすべきこと: 各機能の対応範囲拡大(gRPCの他サービス・
+  ストリーミング、MCPのResources/Prompts、DNS-01/TLS-ALPN-01チャレンジ、
+  Cookie/セッション認証の他ハンドラへの段階的拡大)。急ぎではない。
+
 - **2026-07-12 Poem/Tauriパリティの残ギャップを一括解消(Multipart・
   Cookie/セッション+CSRF・TLS・ネイティブ通知・システムトレイ・
   ネイティブインストーラー、いずれも実バイナリ+実環境で検証済み)**:

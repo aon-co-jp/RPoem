@@ -43,7 +43,7 @@ purem Rust, kostenlos und als OSS** implementiert.
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 280 Tests (283 mit --all-features)
+cargo test --workspace          # 296 Tests (305 mit --all-features)
 cargo run -p open-runo-gateway  # REST + GraphQL Server
 ```
 

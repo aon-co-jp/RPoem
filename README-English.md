@@ -62,7 +62,7 @@ are implemented here in pure Rust — **entirely free, as OSS**.
 ```bash
 git clone https://github.com/aon-co-jp/poem-cosmo-tauri
 cd poem-cosmo-tauri
-cargo test --workspace          # 280 tests (283 with --all-features)
+cargo test --workspace          # 296 tests (305 with --all-features)
 cargo run -p open-runo-gateway  # start the combined REST + GraphQL server (poem-free)
 ```
 
