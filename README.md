@@ -13,7 +13,7 @@
 [![CI](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
 ![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)
-![Tests](https://img.shields.io/badge/tests-192%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-256%20passed-brightgreen)
 
 📖 詳細: [日本語 README](README-Japan.md) / [English README](README-English.md) /
 [中文](README-Chinese.md) / [한국어](README-Korea.md) / [Español](README-Spain.md) /
@@ -76,14 +76,22 @@ tokio/hyper で自前実装しています。
   変換（自動照合つき）、Snowflake 向け SQL/CSV エクスポート、
   FederatedBackend で社内分散 DB を 1 つに統合運用
 - ⚡ **VersionlessAPI** — `/v1 /v2` を作らない互換性ルールエンジン
-- 🖥️ **デスクトップ管理アプリ**(Tauri非依存・互換UI、TypeScript + Bootstrap 5)
+- 🚩 **Feature Flags** — upsert/list/get/delete/evaluate、決定的
+  バケッティングによる canary ロールアウト、WASM 管理画面付き
+- 🗜️ **gzip レスポンス圧縮** — `Accept-Encoding` を見て自動圧縮
+- 🔌 **汎用 WebSocket** — 手書き RFC 6455 実装（`/api/ws-echo` /
+  `/api/ws-events`、Subscriptions 以外の用途にも対応）
+- 🧩 **Federation v1/v2 SDL パーサー** — 生の GraphQL SDL を渡すだけで
+  v1（暗黙ディレクティブ）/ v2（`@link`）を自動判別・合成
+- 🖥️ **デスクトップ管理アプリ**(Tauri非依存・互換UI、Rust → WebAssembly、
+  TypeScript/Node.js 不使用)
 
 ## クイックスタート
 
 ```bash
 git clone https://github.com/aon-co-jp/poem-cosmo-tauri
 cd poem-cosmo-tauri
-cargo test --workspace          # 192 テスト
+cargo test --workspace          # 256 テスト
 cargo run -p open-runo-gateway  # REST + GraphQL 統合サーバー起動(poem-free)
 ```
 
@@ -120,14 +128,14 @@ Cache & Backup の8ページ管理UIが使えます(Tauri・Node.js・TypeScript
 AI HTML キャッシュを有効化して自分のアプリに載せる例・全環境変数・
 全エンドポイントは **[PORTING.md](PORTING.md)** を参照してください。
 
-## ワークスペース構成（15 クレート）
+## ワークスペース構成（18 クレート）
 
 | クレート | 役割 |
 |----------|------|
 | `open-runo-core` | 共通型（AppError / Config / Result） |
-| `open-runo-router` | REST ゲートウェイ・認証(KeyGuardian/RBAC/OIDC/SCIM)・監査・AI HTML キャッシュ・自己保守 |
+| `open-runo-router` | REST ゲートウェイ・認証(KeyGuardian/RBAC/OIDC/SCIM)・監査・AI HTML キャッシュ・gzip 圧縮・汎用 WebSocket・自己保守 |
 | `open-runo-gateway` | GraphQL エンドポイント（Federation / Subscriptions / PQ / レスポンスキャッシュ） |
-| `open-runo-federation` | スキーマ合成・破壊的変更検出 |
+| `open-runo-federation` | スキーマ合成（SDL パーサー、v1/v2 自動判別）・破壊的変更検出 |
 | `open-runo-schema-registry` | バージョン管理・namespace（マルチグラフ） |
 | `open-runo-db` | DbBackend 抽象（9 エンジン）・DUAL・Federated・migrate |
 | `open-runo-cache` | TTL キャッシュ + 自己学習予測器（Redis backend は feature） |
@@ -136,6 +144,9 @@ AI HTML キャッシュを有効化して自分のアプリに載せる例・全
 | `open-runo-scim` | SCIM 2.0 Users / Groups |
 | `open-runo-ai-routing` | AI プロバイダ選択（コスト/レイテンシ/ローカル/プライバシー） |
 | `open-runo-versionless-api` | 互換性ルールエンジン |
+| `open-runo-feature-flags` | Feature Flags（upsert/list/get/delete/evaluate、canary バケッティング） |
+| `open-runo-api-types` | router/CLI/WASM フロントエンド共有の REST 型（drift 防止） |
+| `open-runo-cli` | `open-runo-cli` バイナリ（schema/federation/openapi/login/db サブコマンド） |
 | `open-runo-history` / `-backup` / `-observability` | 変更履歴 / バックアップ / 監視 |
 
 ## デプロイ
