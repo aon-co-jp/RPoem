@@ -432,7 +432,7 @@ pub mod mongo {
     use async_trait::async_trait;
     use mongodb::{
         bson::{doc, Document},
-        options::{ClientOptions, FindOptions, ReplaceOptions},
+        options::ClientOptions,
         Client, Collection,
     };
 
@@ -456,27 +456,30 @@ pub mod mongo {
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
             let id = Self::doc_id(table, key);
             let d = doc! { "_id": &id, "table": table, "key": key, "value": value };
-            self.collection.replace_one(
-                doc! { "_id": &id }, d,
-                ReplaceOptions::builder().upsert(true).build(),
-            ).await.map_err(|e| AppError::Internal(format!("MongoDB put: {e}")))?;
+            self.collection
+                .replace_one(doc! { "_id": &id }, d)
+                .upsert(true)
+                .await
+                .map_err(|e| AppError::Internal(format!("MongoDB put: {e}")))?;
             Ok(())
         }
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
             let id = Self::doc_id(table, key);
-            Ok(self.collection.find_one(doc! { "_id": &id }, None).await
+            Ok(self.collection.find_one(doc! { "_id": &id }).await
                 .map_err(|e| AppError::Internal(format!("MongoDB get: {e}")))?
                 .and_then(|d| d.get_str("value").ok().map(String::from)))
         }
         async fn delete(&self, table: &str, key: &str) -> Result<()> {
             self.collection
-                .delete_one(doc! { "_id": Self::doc_id(table, key) }, None).await
+                .delete_one(doc! { "_id": Self::doc_id(table, key) }).await
                 .map_err(|e| AppError::Internal(format!("MongoDB delete: {e}")))?;
             Ok(())
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
-            let opts = FindOptions::builder().sort(doc! { "key": 1 }).build();
-            let mut cur = self.collection.find(doc! { "table": table }, opts).await
+            let mut cur = self.collection
+                .find(doc! { "table": table })
+                .sort(doc! { "key": 1 })
+                .await
                 .map_err(|e| AppError::Internal(format!("MongoDB list: {e}")))?;
             let mut out = Vec::new();
             while cur.advance().await
@@ -568,8 +571,18 @@ pub mod clickhouse_backend {
     use clickhouse::Client;
     use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, Clone)]
+    #[derive(Clone)]
     pub struct ClickHouseBackend { client: Client }
+
+    // `clickhouse::Client` doesn't implement `Debug`, so it can't be
+    // `#[derive(Debug)]`d directly; a manual impl that just names the type
+    // satisfies the workspace's `missing_debug_implementations` lint
+    // without pretending to expose the client's internals.
+    impl std::fmt::Debug for ClickHouseBackend {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("ClickHouseBackend").finish_non_exhaustive()
+        }
+    }
 
     #[derive(clickhouse::Row, Serialize, Deserialize, Debug)]
     struct KvRow { key: String, value: String }
