@@ -10,7 +10,11 @@ use crate::keyring::KeyGuardian;
 use crate::state::AppState;
 use crate::validation::{DB_UPSERT_REQUEST, REGISTER_SCHEMA_REQUEST};
 use hyper::StatusCode;
-use open_runo_api_types::{FederationStatusResponse, RegisterSchemaRequest, SchemaHistoryResponse, SchemaVersion};
+use open_runo_api_types::{
+    DbDeleteResponse, DbRecordItem, DbRecordListResponse, DbRecordResponse, DbRoutingEntry, DbRoutingInfo,
+    DbStatusResponse, DbUpsertRequest, FederationStatusResponse, RegisterSchemaRequest, SchemaHistoryResponse,
+    SchemaVersion,
+};
 use open_runo_schema_registry::{Stage, DEFAULT_NAMESPACE};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -168,12 +172,6 @@ pub fn compose_schemas_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
     })
 }
 
-#[derive(Serialize)]
-struct DbStatus {
-    backend: &'static str,
-    status: &'static str,
-}
-
 /// GET /api/db/status — poem-free port of `handlers::db::db_status`, gated
 /// by the same `X-Api-Key` check as the poem route.
 pub fn db_status_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
@@ -186,25 +184,13 @@ pub fn db_status_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Ha
             }
             json_response(
                 StatusCode::OK,
-                &DbStatus {
-                    backend: state.db.backend_name(),
-                    status: "ok",
+                &DbStatusResponse {
+                    backend: state.db.backend_name().to_string(),
+                    status: "ok".to_string(),
                 },
             )
         })
     })
-}
-
-#[derive(Serialize)]
-struct RoutingEntry {
-    table: String,
-    target: String,
-}
-
-#[derive(Serialize)]
-struct RoutingInfo {
-    default_target: String,
-    entries: Vec<RoutingEntry>,
 }
 
 /// GET /api/db/routing — poem-free port of `handlers::db::db_routing`.
@@ -218,19 +204,19 @@ pub fn db_routing_handler(guardian: Arc<KeyGuardian>) -> Handler {
                 return empty_status(status);
             }
             let entries = vec![
-                RoutingEntry { table: "sessions".into(), target: "postgresql".into() },
-                RoutingEntry { table: "api_keys".into(), target: "postgresql".into() },
-                RoutingEntry { table: "rate_limits".into(), target: "postgresql".into() },
-                RoutingEntry { table: "schemas".into(), target: "both".into() },
-                RoutingEntry { table: "backup_jobs".into(), target: "both".into() },
-                RoutingEntry { table: "persisted_queries".into(), target: "both".into() },
-                RoutingEntry { table: "schema_history".into(), target: "aruaru-db".into() },
-                RoutingEntry { table: "change_records".into(), target: "aruaru-db".into() },
-                RoutingEntry { table: "audit_log".into(), target: "aruaru-db".into() },
+                DbRoutingEntry { table: "sessions".into(), target: "postgresql".into() },
+                DbRoutingEntry { table: "api_keys".into(), target: "postgresql".into() },
+                DbRoutingEntry { table: "rate_limits".into(), target: "postgresql".into() },
+                DbRoutingEntry { table: "schemas".into(), target: "both".into() },
+                DbRoutingEntry { table: "backup_jobs".into(), target: "both".into() },
+                DbRoutingEntry { table: "persisted_queries".into(), target: "both".into() },
+                DbRoutingEntry { table: "schema_history".into(), target: "aruaru-db".into() },
+                DbRoutingEntry { table: "change_records".into(), target: "aruaru-db".into() },
+                DbRoutingEntry { table: "audit_log".into(), target: "aruaru-db".into() },
             ];
             json_response(
                 StatusCode::OK,
-                &RoutingInfo {
+                &DbRoutingInfo {
                     default_target: "postgresql".into(),
                     entries,
                 },
@@ -241,19 +227,6 @@ pub fn db_routing_handler(guardian: Arc<KeyGuardian>) -> Handler {
 
 fn parse_value(raw: &str) -> serde_json::Value {
     serde_json::from_str(raw).unwrap_or(serde_json::Value::String(raw.to_string()))
-}
-
-#[derive(Serialize)]
-struct RecordItem {
-    key: String,
-    value: serde_json::Value,
-}
-
-#[derive(Serialize)]
-struct RecordListResponse {
-    table: String,
-    count: usize,
-    records: Vec<RecordItem>,
 }
 
 /// GET /api/db/:table — poem-free port of `handlers::db::db_list`.
@@ -275,23 +248,16 @@ pub fn db_list_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Hand
                     )
                 }
             };
-            let items: Vec<RecordItem> = records
+            let items: Vec<DbRecordItem> = records
                 .into_iter()
-                .map(|r| RecordItem { key: r.key, value: parse_value(&r.value) })
+                .map(|r| DbRecordItem { key: r.key, value: parse_value(&r.value) })
                 .collect();
             json_response(
                 StatusCode::OK,
-                &RecordListResponse { count: items.len(), table, records: items },
+                &DbRecordListResponse { count: items.len(), table, records: items },
             )
         })
     })
-}
-
-#[derive(Serialize)]
-struct RecordResponse {
-    table: String,
-    key: String,
-    value: serde_json::Value,
 }
 
 /// GET /api/db/:table/:key — poem-free port of `handlers::db::db_get`.
@@ -308,7 +274,7 @@ pub fn db_get_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
             match state.db.get(&table, &key).await {
                 Ok(Some(raw)) => json_response(
                     StatusCode::OK,
-                    &RecordResponse { table, key, value: parse_value(&raw) },
+                    &DbRecordResponse { table, key, value: parse_value(&raw) },
                 ),
                 Ok(None) => json_response(
                     StatusCode::NOT_FOUND,
@@ -321,11 +287,6 @@ pub fn db_get_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
             }
         })
     })
-}
-
-#[derive(Deserialize)]
-struct UpsertBody {
-    value: serde_json::Value,
 }
 
 /// PUT /api/db/:table/:key — poem-free port of `handlers::db::db_put`.
@@ -359,7 +320,7 @@ pub fn db_put_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
                 );
             }
 
-            let body: UpsertBody = match serde_json::from_value(raw) {
+            let body: DbUpsertRequest = match serde_json::from_value(raw) {
                 Ok(b) => b,
                 Err(e) => {
                     return json_response(
@@ -390,17 +351,10 @@ pub fn db_put_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
 
             json_response(
                 StatusCode::OK,
-                &RecordResponse { table, key, value: body.value },
+                &DbRecordResponse { table, key, value: body.value },
             )
         })
     })
-}
-
-#[derive(Serialize)]
-struct DeleteResponse {
-    table: String,
-    key: String,
-    deleted: bool,
 }
 
 /// DELETE /api/db/:table/:key — poem-free port of `handlers::db::db_delete`.
@@ -427,7 +381,7 @@ pub fn db_delete_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Ha
 
             json_response(
                 StatusCode::OK,
-                &DeleteResponse { table, key, deleted: true },
+                &DbDeleteResponse { table, key, deleted: true },
             )
         })
     })
