@@ -527,11 +527,29 @@ async fn register_schema_and_respond(
     )
     .await;
 
-    let _ = state.events.send(crate::state::SchemaEvent {
+    let event = crate::state::SchemaEvent {
         service_name: body.service_name.clone(),
         stage: body.stage.clone(),
         at: chrono::Utc::now().to_rfc3339(),
-    });
+    };
+    let _ = state.events.send(event.clone());
+
+    // EDFS (docs/cosmo-parity.md §4a): if configured, also publish this
+    // event to Redis so instances *other* than this one (in a
+    // load-balanced deployment) pick it up via their own edfs::spawn_bridge
+    // task and deliver it to their locally-connected subscribers. A
+    // publish failure is deliberately non-fatal here -- see edfs.rs's
+    // `publish` doc comment for why -- and is a no-op entirely when the
+    // `edfs` Cargo feature isn't compiled in.
+    #[cfg(feature = "edfs")]
+    {
+        let target = state.edfs_publish.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        if let Some((redis_url, channel)) = target {
+            if let Err(error) = crate::edfs::publish(&redis_url, &channel, &event).await {
+                tracing::warn!(%error, "EDFS: failed to publish schema event to Redis");
+            }
+        }
+    }
 
     json_response(
         StatusCode::OK,

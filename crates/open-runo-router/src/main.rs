@@ -26,10 +26,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = Arc::new(AppState::new());
     let app = build_hyper_app(
-        state,
+        Arc::clone(&state),
         config.rate_limit_max_requests,
         config.rate_limit_window_secs as i64,
     );
+
+    // EDFS (Event-Driven Federated Subscriptions, docs/cosmo-parity.md
+    // §4a): opt-in via env vars, unset by default so a single-instance
+    // deployment (the existing default assumption) doesn't need Redis at
+    // all. When configured, this instance both publishes its own schema
+    // events to Redis (so other instances see them) and subscribes to
+    // receive events *other* instances published (so this instance's own
+    // GraphQL Subscription clients see them too) -- see edfs.rs's module
+    // doc for the full bridge design.
+    #[cfg(feature = "edfs")]
+    if let Ok(redis_url) = std::env::var("OPEN_RUNO_EDFS_REDIS_URL") {
+        let channel = std::env::var("OPEN_RUNO_EDFS_CHANNEL")
+            .unwrap_or_else(|_| "open-runo:schema-events".to_string());
+        *state.edfs_publish.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((redis_url.clone(), channel.clone()));
+        match open_runo_router::edfs::spawn_bridge(Arc::clone(&state), &redis_url, &channel).await {
+            Ok(_handle) => tracing::info!(channel, "EDFS: subscribed to Redis Pub/Sub bridge"),
+            Err(error) => tracing::warn!(%error, "EDFS: failed to start Redis Pub/Sub bridge; continuing without it"),
+        }
+    }
 
     let addr = config
         .bind_addr

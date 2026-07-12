@@ -18,7 +18,9 @@ use tokio::sync::broadcast;
 
 /// A change event published on the in-process broker
 /// (consumed by GraphQL Subscriptions and, later, the SSE stream).
-#[derive(Debug, Clone, serde::Serialize)]
+/// `Deserialize` is needed alongside `Serialize` so the `edfs` module can
+/// decode this same shape back out of a Redis Pub/Sub message payload.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SchemaEvent {
     pub service_name: String,
     pub stage: String,
@@ -52,6 +54,14 @@ pub struct AppState {
     /// serving this path is cheap and useful even when an external ACME
     /// client (not this crate's own) is the one publishing into it.
     pub acme_challenges: Arc<ChallengeStore>,
+    /// EDFS (Event-Driven Federated Subscriptions, `edfs.rs`) publish
+    /// target: `(redis_url, channel)`, set once at startup if
+    /// `OPEN_RUNO_EDFS_REDIS_URL` is configured. Always present (as
+    /// `None` by default) regardless of the `edfs` Cargo feature being
+    /// enabled, so call sites that check "should I publish?" don't need
+    /// their own `#[cfg(feature = "edfs")]` -- only `edfs.rs`'s actual
+    /// Redis-touching code is feature-gated.
+    pub edfs_publish: Arc<Mutex<Option<(String, String)>>>,
 }
 
 impl AppState {
@@ -66,6 +76,7 @@ impl AppState {
             feature_flags: Arc::new(Mutex::new(FeatureFlagRegistry::new())),
             sessions: Arc::new(SessionStore::new()),
             acme_challenges: Arc::new(ChallengeStore::new()),
+            edfs_publish: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -80,6 +91,7 @@ impl AppState {
             feature_flags: Arc::new(Mutex::new(FeatureFlagRegistry::new())),
             sessions: Arc::new(SessionStore::new()),
             acme_challenges: Arc::new(ChallengeStore::new()),
+            edfs_publish: Arc::new(Mutex::new(None)),
         }
     }
 
