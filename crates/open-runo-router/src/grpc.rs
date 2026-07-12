@@ -1,12 +1,15 @@
 //! gRPC — Poem-parity gap ("gRPC(poem-grpc相当)", `docs/poem-parity.md`).
 //!
 //! A minimal, real gRPC-over-HTTP/2 server: not a general-purpose gRPC
-//! framework (no reflection, no streaming, no code generation from
-//! `.proto` files), but a working implementation of one real, well-known
-//! service -- [`grpc.health.v1.Health`](https://github.com/grpc/grpc/blob/master/doc/health-checking.md)'s
-//! `Check` unary RPC -- proving the transport (HTTP/2 framing, the gRPC
-//! length-prefixed message envelope, trailers-based `grpc-status`) and the
-//! wire format (Protocol Buffers) both work end to end.
+//! framework (no reflection, no code generation from `.proto` files), but
+//! a working implementation of one real, well-known service --
+//! [`grpc.health.v1.Health`](https://github.com/grpc/grpc/blob/master/doc/health-checking.md) --
+//! covering both its unary RPC (`Check`) and its server-streaming RPC
+//! (`Watch`, added 2026-07-12 to close the "no streaming" gap this module
+//! previously called out), proving the transport (HTTP/2 framing, the
+//! gRPC length-prefixed message envelope, trailers-based `grpc-status`)
+//! and the wire format (Protocol Buffers) both work end to end for both
+//! RPC shapes.
 //!
 //! **No new dependencies.** HTTP/2 comes from `hyper`'s existing `full`
 //! feature (already pulls in the `h2` crate transitively; this module is
@@ -210,6 +213,30 @@ fn grpc_response(status: GrpcStatus, message: Option<&[u8]>) -> Response {
         .expect("building a response from a fixed set of valid headers cannot fail")
 }
 
+/// Build a gRPC-framed, trailers-terminated **streaming** response: zero or
+/// more DATA frames (one per entry in `messages`) followed by a TRAILERS
+/// frame carrying `grpc-status`. This generalizes [`grpc_response`] for
+/// server-streaming RPCs (e.g. `Watch`) where more than one message may be
+/// sent before the stream completes -- unary RPCs keep using
+/// `grpc_response` (0-or-1 message) unchanged.
+fn grpc_streaming_response(status: GrpcStatus, messages: &[Bytes]) -> Response {
+    let mut frames: Vec<Result<Frame<Bytes>, Infallible>> = Vec::with_capacity(messages.len() + 1);
+    for message in messages {
+        frames.push(Ok(Frame::data(encode_grpc_frame(message))));
+    }
+    let mut trailers = HeaderMap::new();
+    trailers.insert("grpc-status", (status as i32).to_string().parse().unwrap());
+    trailers.insert("grpc-message", "".parse().unwrap());
+    frames.push(Ok(Frame::trailers(trailers)));
+
+    let body: BoxBody<Bytes, Infallible> = BodyExt::boxed(StreamBody::new(futures::stream::iter(frames)));
+    HyperResponse::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/grpc+proto")
+        .body(body)
+        .expect("building a response from a fixed set of valid headers cannot fail")
+}
+
 /// `POST /grpc.health.v1.Health/Check` -- the one real RPC this module
 /// implements. Always reports `SERVING` (this server has no notion of
 /// per-dependency health beyond "the process is up and answering");
@@ -229,6 +256,32 @@ async fn health_check_handler(req: Request) -> Response {
     }
     let response_bytes = encode_health_check_response(ServingStatus::Serving);
     grpc_response(GrpcStatus::Ok, Some(&response_bytes))
+}
+
+/// `POST /grpc.health.v1.Health/Watch` -- the server-streaming counterpart
+/// to `Check`, closing the "no streaming" gap this module previously
+/// documented. Real `Watch` implementations push a new
+/// `HealthCheckResponse` each time the serving status changes and hold the
+/// stream open indefinitely; this server's status never changes (always
+/// `SERVING`), so the minimal spec-compliant behavior is to send exactly
+/// one message with the current status and then complete the stream --
+/// a real streaming client (`grpcurl`, `grpc-health-probe --watch`, etc.)
+/// gets a well-formed streaming response with real HTTP/2 DATA + TRAILERS
+/// frames, rather than an `UNIMPLEMENTED` error.
+async fn watch_handler(req: Request) -> Response {
+    let collected = match req.into_body().collect().await {
+        Ok(c) => c.to_bytes(),
+        Err(_) => return grpc_response(GrpcStatus::Internal, None),
+    };
+    let message = match decode_grpc_frame(&collected) {
+        Ok(m) => m,
+        Err(status) => return grpc_response(status, None),
+    };
+    if decode_health_check_request(message).is_err() {
+        return grpc_response(GrpcStatus::InvalidArgument, None);
+    }
+    let response_bytes = encode_health_check_response(ServingStatus::Serving);
+    grpc_streaming_response(GrpcStatus::Ok, &[response_bytes])
 }
 
 /// Serve the gRPC health-check service over real HTTP/2 (h2c, prior
@@ -254,6 +307,8 @@ pub async fn serve_grpc(addr: std::net::SocketAddr) -> std::io::Result<(std::net
                     let path = req.uri().path();
                     let resp = if path == "/grpc.health.v1.Health/Check" {
                         health_check_handler(req).await
+                    } else if path == "/grpc.health.v1.Health/Watch" {
+                        watch_handler(req).await
                     } else {
                         grpc_response(GrpcStatus::Unimplemented, None)
                     };
@@ -389,5 +444,49 @@ mod tests {
         let resp2 = client.request(req2).await.expect("HTTP/2 request should succeed");
         let trailers2 = resp2.collect().await.unwrap().trailers().cloned().unwrap_or_default();
         assert_eq!(trailers2.get("grpc-status").and_then(|v| v.to_str().ok()), Some("12")); // UNIMPLEMENTED
+    }
+
+    /// End-to-end test for the server-streaming `Watch` RPC, over the same
+    /// real HTTP/2 transport as the unary `Check` test above. Confirms the
+    /// "no streaming" gap is closed: a real streaming RPC (DATA frame(s)
+    /// followed by TRAILERS) works, not just a same-process function call.
+    #[tokio::test]
+    async fn watch_streams_current_status_over_real_http2() {
+        use http_body_util::{BodyExt, Full};
+        use hyper_util::client::legacy::connect::HttpConnector;
+        use hyper_util::client::legacy::Client;
+        use hyper_util::rt::TokioExecutor;
+
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+
+        let mut connector = HttpConnector::new();
+        connector.enforce_http(false);
+        let client: Client<_, Full<Bytes>> =
+            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+
+        let request_body = encode_grpc_frame(&[]);
+        let req = HyperRequest::builder()
+            .method("POST")
+            .uri(format!("http://{addr}/grpc.health.v1.Health/Watch"))
+            .header("content-type", "application/grpc+proto")
+            .body(Full::new(request_body))
+            .unwrap();
+
+        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let collected = resp.collect().await.expect("collecting body+trailers should succeed");
+        let trailers = collected.trailers().cloned().unwrap_or_default();
+        assert_eq!(
+            trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
+            Some("0"),
+            "grpc-status should be OK (0) even for a streaming RPC, carried as an HTTP/2 trailer"
+        );
+
+        let body_bytes = collected.to_bytes();
+        let message = decode_grpc_frame(&body_bytes)
+            .expect("streamed response should contain at least one valid gRPC-framed message");
+        // Same encoding as the unary Check test: HealthCheckResponse { status: SERVING }.
+        assert_eq!(message, &[0x08, 0x01]);
     }
 }
