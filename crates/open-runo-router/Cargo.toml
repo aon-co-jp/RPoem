@@ -84,6 +84,12 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], opt
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
 acme = ["tls", "dep:ring", "dep:reqwest", "dep:rcgen"]
 edfs = ["dep:redis"]
+# Request-metrics export to ClickHouse (docs/cosmo-parity.md 4a: monthly
+# request-count metering + operations analytics). Off by default -- the
+# in-process aggregates `open_runo_observability::RequestMetrics` still
+# collects and serves via `/api/analytics/*` regardless of this feature;
+# it only gates the buffered `ClickHouseSink` export path.
+clickhouse = ["open-runo-observability/clickhouse"]
 
 [dev-dependencies]
 jsonwebtoken = { workspace = true }
