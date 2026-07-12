@@ -110,11 +110,39 @@ curl -X POST http://localhost:8080/graphql \
      -H 'content-type: application/json' \
      -d '{"query":"{ health }"}'
 
-# スキーマ登録（REST 管理面）
+# スキーマ登録(REST 管理面)
 curl -X POST http://localhost:8080/api/schemas \
      -H 'x-api-key: dev-key' \
      -d '{"service_name":"users","sdl":"type User { id: ID! }"}'
 ```
+
+### poem-cosmo-tauri 独自機能を試す(Poem/Tauri 再現の実例)
+
+`open-runo` には無い、このリポジトリ固有の「Poem を一から再現する」目標
+(§0.5 参照)の成果を実際に動かして確認できます。
+
+```bash
+# gzip 圧縮の確認 (Accept-Encoding を見て自動圧縮される)
+curl -s -H 'Accept-Encoding: gzip' -o /dev/null -D - \
+     http://localhost:8080/api/openapi.json | grep -i content-encoding
+# => content-encoding: gzip が返れば動作確認OK
+
+# 汎用WebSocketエコー (wscat が無い場合は `npm i -g wscat`)
+wscat -c ws://localhost:8080/api/ws-echo
+# 何か入力して送信すると、そのまま同じ内容がエコーで返ってくる
+
+# Multipartでのスキーマファイル直接アップロード (JSON埋め込みではなくファイルとして送信)
+echo 'type User { id: ID! }' > users.graphql
+curl -X POST http://localhost:8080/api/schemas/upload \
+     -H 'x-api-key: dev-key' \
+     -F 'service_name=users' \
+     -F 'sdl_file=@users.graphql'
+```
+
+これらは `docs/poem-parity.md` に記載のギャップ一覧(gzip・汎用WebSocket・
+Multipart等)が実際にどう動くかを最短で体験できる例です。gRPCヘルス
+チェック・MCP Server・ACME(HTTP-01/TLS-ALPN-01)など他の再現機能の
+使い方は同ドキュメントを参照してください。
 
 ### 管理UI(WASM フロントエンド)を使う
 
