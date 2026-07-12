@@ -245,6 +245,34 @@ Federation Gateway/バックエンド側として関与する。
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-12 MCP Server: Prompts対応を追加(Tools/Resources/Prompts
+  全て完了) — ユーザー指示「mac以外を進めて」の一環**: `crates/
+  open-runo-router/src/mcp.rs`に`prompts/list`(1件: `summarize_api`)・
+  `prompts/get`を追加。`initialize`の`capabilities`にも`"prompts": {}`を
+  追加。`summarize_api`はダミーではなく、Resourcesの`openapi://spec`と
+  同じ`openapi::spec()`(実際に現在稼働中のOpenAPIドキュメント)を
+  レンダリングした`GetPromptResult`形状のJSONメッセージを返す——
+  プロンプト定義時点のスナップショットではなく常に最新のAPI仕様を埋め込む。
+  単体テスト3本追加(`prompts_list_advertises_the_real_prompt`・
+  `prompts_get_summarize_api_returns_a_message_containing_the_real_openapi_spec`
+  ——返るメッセージ本文が実際の`openapi::spec()`の出力を包含していることを
+  直接比較で確認、スタブでないことの証明——・
+  `prompts_get_unknown_name_is_a_json_rpc_error`)。実バイナリ+curlで
+  prompts/list→prompts/get(summarize_api、実際のOpenAPIドキュメントが
+  埋め込まれていることを確認)→prompts/get(未知の名前、-32602エラー)を
+  確認済み。`cargo test --workspace --all-features`は
+  poem-cosmo-tauri/open-runo両方で152テスト(open-runo-router単体)、
+  全てgreen。`docs/poem-parity.md`のMCP Server行・4節結論を更新。
+  両リポジトリともcommit・push済み
+  (poem-cosmo-tauri`dc1cf5a`、open-runo`7521a48`)。
+  次回パスがすべきこと(mac関連は引き続き除外): (1) gRPCの他サービス・
+  ストリーミング対応、(2) ACME TLS-ALPN-01チャレンジ(既存の
+  `hyper_compat::tls`機構を再利用できる見込み、DNS-01より着手しやすい)、
+  (3) ACME DNS-01チャレンジ(実DNSプロバイダAPI連携が必要、最も
+  スコープが大きい——着手前にプロバイダ選定の現実性を検討)、(4) 上記が
+  一段落したら10ヶ国語READMEのテスト数表記・PORTING.mdを最新化して
+  最終commit・push。
+
 - **2026-07-12 `docs/poem-parity.md`4a節が列挙していたギャップを全て解消
   (ACME・gRPC・MCP Server——これで同ドキュメントの未実装項目はゼロに)**:
   直前のパス(下記2026-07-12エントリ)でMultipart/Cookie-Session+CSRF/
