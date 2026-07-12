@@ -245,6 +245,48 @@ Federation Gateway/バックエンド側として関与する。
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-13 OpenAPI spec coverage拡大 + 実用性向上パス**: `docs/HANDOFF.md`
+  経由の別バックグラウンドエージェントがQUIC/MPQUIC・PostgreSQL ACID
+  書き込み経路・aruaru-db-commit×ZFSスナップショット連携
+  (`open-web-server`/`aruaru-db`/`open-raid-z`)を担当中のため、それらには
+  一切触れず「フレームワークとしての使いやすさ・実用性・利便性・完成度」
+  軸で調査。`docs/cosmo-parity.md`4a節のMCP Server行が「未実装」のまま
+  古い記述で残っていた(実際は2026-07-12にTools/Resources/Prompts全て完了
+  済み)ため同期・修正。加えて、`docs/api-examples.md`の「Coverage note」が
+  指摘していた実ギャップ(`components.schemas`がDB CRUD・feature flagsを
+  カバーしておらず、feature flagsのRESTパス自体がOpenAPI spec の`paths`に
+  一切存在しない——`open-runo-cli`や`lib.rs`には実装済みのRESTルートなのに
+  ドキュメント化されていなかった)を解消: `crates/open-runo-router/src/openapi.rs`
+  の`components_schemas()`にDB CRUD 8型(`DbRecordItem`/`DbRecordListResponse`/
+  `DbRecordResponse`/`DbUpsertRequest`/`DbDeleteResponse`/`DbStatusResponse`/
+  `DbRoutingEntry`/`DbRoutingInfo`)とFeature Flags 4型(`FeatureFlagRequest`/
+  `FeatureFlagResponse`/`FeatureFlagListResponse`/`FeatureFlagEvaluationResponse`)
+  ——いずれも`open-runo-api-types`に既存だが未使用だった——を追加し、
+  `/api/db/*`の各パスを型付きレスポンス/リクエストボディに書き換え、
+  `/api/feature-flags`・`/api/feature-flags/:name`・
+  `/api/feature-flags/:name/evaluate`の3パスをspecに新規追加(paths自体が
+  丸ごと欠落していた)。新規テスト
+  `openapi::tests::db_and_feature_flag_endpoints_are_typed_and_feature_flags_are_documented`
+  で固定。**検証**: `cargo test -p open-runo-router openapi`で新旧テスト
+  4本全成功、`cargo check --workspace`警告のみ(既存3件、今回変更に起因
+  せず)で成功、`cargo test --workspace`全スイートgreen(router 144テスト
+  含む)。さらに実バイナリ検証として`cargo run -p open-runo-router`を実際に
+  起動し`curl http://127.0.0.1:8080/api/openapi.json`で
+  `DbRecordListResponse`・`FeatureFlagRequest`・
+  `/api/feature-flags/{name}/evaluate`が実レスポンスに含まれることを
+  実HTTP経由で確認(型チェックだけでなく実行時の実データで確認)。
+  `docs/api-examples.md`のCoverage noteを現状に合わせて更新(残る未対応:
+  SCIM・persisted queries・cache/backup・migrate・integrityの各エンドポイントは
+  引き続き`description`のみ)。**今回変更したファイル**: `docs/cosmo-parity.md`
+  (MCP行同期)、`crates/open-runo-router/src/openapi.rs`(型付けスキーマ追加・
+  feature-flagsパス追加・テスト追加)、`docs/api-examples.md`(Coverage note
+  更新)。他レポジトリ(`open-web-server`/`aruaru-db`/`open-raid-z`)は今回
+  未着手(スコープ外の担保のため意図的に見送り)。次回パスへの引き継ぎ:
+  次点候補はSCIM/persisted-queries/cache/backup/migrate/integrityの型付け
+  拡張(このパスと同じ手法で残り約20エンドポイントに適用可能)、または
+  EDFS/Kafka連携・gRPC Connect対応(いずれも★★☆、cosmo-parity.md 4a節に
+  記載の唯一の残ギャップ)。
+
 - **2026-07-12 MCP Server: Prompts対応を追加(Tools/Resources/Prompts
   全て完了) — ユーザー指示「mac以外を進めて」の一環**: `crates/
   open-runo-router/src/mcp.rs`に`prompts/list`(1件: `summarize_api`)・
