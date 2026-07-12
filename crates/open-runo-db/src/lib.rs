@@ -36,6 +36,7 @@
 
 pub mod dual;
 pub mod federated;
+pub mod federated_config;
 pub mod migrate;
 pub mod migration;
 
