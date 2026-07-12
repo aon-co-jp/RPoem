@@ -1,15 +1,21 @@
 //! gRPC — Poem-parity gap ("gRPC(poem-grpc相当)", `docs/poem-parity.md`).
 //!
 //! A minimal, real gRPC-over-HTTP/2 server: not a general-purpose gRPC
-//! framework (no reflection, no code generation from `.proto` files), but
-//! a working implementation of one real, well-known service --
-//! [`grpc.health.v1.Health`](https://github.com/grpc/grpc/blob/master/doc/health-checking.md) --
-//! covering both its unary RPC (`Check`) and its server-streaming RPC
-//! (`Watch`, added 2026-07-12 to close the "no streaming" gap this module
-//! previously called out), proving the transport (HTTP/2 framing, the
-//! gRPC length-prefixed message envelope, trailers-based `grpc-status`)
-//! and the wire format (Protocol Buffers) both work end to end for both
-//! RPC shapes.
+//! framework (no code generation from `.proto` files, no arbitrary
+//! service registration), but a working implementation of two real,
+//! well-known services --
+//! [`grpc.health.v1.Health`](https://github.com/grpc/grpc/blob/master/doc/health-checking.md)
+//! (both its unary `Check` and server-streaming `Watch` RPCs, the latter
+//! added 2026-07-12 to close this module's earlier "no streaming" gap)
+//! and a minimal
+//! [`grpc.reflection.v1.ServerReflection`](https://github.com/grpc/grpc/blob/master/doc/server-reflection.md)
+//! (added 2026-07-12 to close the "no reflection" gap: only the
+//! `list_services` request is handled, which is what service-discovery
+//! tools like `grpcurl <addr> list` actually need) -- proving the
+//! transport (HTTP/2 framing, the gRPC length-prefixed message envelope,
+//! trailers-based `grpc-status`) and the wire format (Protocol Buffers)
+//! both work end to end for unary, server-streaming, and
+//! embedded-message-encoding RPC shapes.
 //!
 //! **No new dependencies.** HTTP/2 comes from `hyper`'s existing `full`
 //! feature (already pulls in the `h2` crate transitively; this module is
@@ -51,6 +57,7 @@ pub enum GrpcStatus {
     Ok = 0,
     Unknown = 2,
     InvalidArgument = 3,
+    NotFound = 5,
     Unimplemented = 12,
     Internal = 13,
 }
@@ -115,12 +122,88 @@ fn decode_varint(buf: &[u8]) -> Option<(u64, &[u8])> {
     None
 }
 
+/// Encode a `string` field (wire type 2, length-delimited).
+fn encode_string_field(field_number: u32, value: &str) -> BytesMut {
+    let mut out = BytesMut::new();
+    encode_varint(((field_number as u64) << 3) | 2, &mut out);
+    encode_varint(value.len() as u64, &mut out);
+    out.extend_from_slice(value.as_bytes());
+    out
+}
+
+/// Encode an embedded (nested) message field (wire type 2,
+/// length-delimited, same framing as a `string`/`bytes` field -- protobuf
+/// doesn't distinguish them at the wire level, only in the generated
+/// code's type).
+fn encode_embedded_message(field_number: u32, submessage: &[u8]) -> BytesMut {
+    let mut out = BytesMut::new();
+    encode_varint(((field_number as u64) << 3) | 2, &mut out);
+    encode_varint(submessage.len() as u64, &mut out);
+    out.extend_from_slice(submessage);
+    out
+}
+
+/// Scan a `ServerReflectionRequest` for which `message_request` oneof
+/// field (3-6) was set, without needing every possible request shape --
+/// this reflection implementation only understands `list_services`
+/// (field 7); returns `true` iff field 7 is present with wire type 2.
+/// Deliberately tolerant of the request's exact string contents (the
+/// spec allows `list_services` to be an arbitrary/empty string -- some
+/// clients send the target host, others send nothing).
+fn request_is_list_services(bytes: &[u8]) -> bool {
+    let mut buf = bytes;
+    while !buf.is_empty() {
+        let Some((tag, rest)) = decode_varint(buf) else {
+            return false;
+        };
+        let field_number = tag >> 3;
+        let wire_type = tag & 0x7;
+        buf = rest;
+        match wire_type {
+            2 => {
+                let Some((len, rest)) = decode_varint(buf) else {
+                    return false;
+                };
+                let len = len as usize;
+                if rest.len() < len {
+                    return false;
+                }
+                if field_number == 7 {
+                    return true;
+                }
+                buf = &rest[len..];
+            }
+            0 => {
+                let Some((_, rest)) = decode_varint(buf) else {
+                    return false;
+                };
+                buf = rest;
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// Build the `ServerReflectionResponse` bytes for a successful
+/// `list_services` request: field 6 (`list_services_response`) wraps a
+/// `ListServiceResponse { repeated ServiceResponse service = 1; }`, and
+/// each `ServiceResponse` is just `{ string name = 1; }`.
+fn encode_list_services_response(service_names: &[&str]) -> Bytes {
+    let mut list_response = BytesMut::new();
+    for name in service_names {
+        let service_response = encode_string_field(1, name);
+        list_response.extend_from_slice(&encode_embedded_message(1, &service_response));
+    }
+    let response = encode_embedded_message(6, &list_response);
+    response.freeze()
+}
+
 /// `grpc.health.v1.HealthCheckRequest { string service = 1; }` -- the
 /// `service` field is optional in real health-check clients (empty string
 /// means "overall server health"); this decoder tolerates a completely
 /// empty message the same way.
 struct HealthCheckRequest {
-    #[allow(dead_code)] // parsed for completeness/interop; not branched on
     service: String,
 }
 
@@ -237,11 +320,24 @@ fn grpc_streaming_response(status: GrpcStatus, messages: &[Bytes]) -> Response {
         .expect("building a response from a fixed set of valid headers cannot fail")
 }
 
-/// `POST /grpc.health.v1.Health/Check` -- the one real RPC this module
-/// implements. Always reports `SERVING` (this server has no notion of
-/// per-dependency health beyond "the process is up and answering");
-/// wiring in real subsystem checks (DB connectivity, etc.) is a natural
-/// follow-up once more of `AppState` needs to be reachable from here.
+/// The full gRPC service names this server actually exposes, per the
+/// `Health` service's contract: an empty `service` name in a
+/// `HealthCheckRequest` means "overall server health" (always answered),
+/// but a *named* service that this server doesn't expose must return
+/// `NOT_FOUND` (5) rather than silently claiming `SERVING` -- otherwise a
+/// health-checking client (a load balancer, `grpc-health-probe`, etc.)
+/// could be told a service is healthy when it doesn't exist at all.
+const KNOWN_SERVICES: &[&str] = &[
+    "grpc.health.v1.Health",
+    "grpc.reflection.v1.ServerReflection",
+];
+
+/// `POST /grpc.health.v1.Health/Check` -- the one real unary RPC this
+/// service implements. Always reports `SERVING` for a known service name
+/// (this server has no notion of per-dependency health beyond "the
+/// process is up and answering"); wiring in real subsystem checks (DB
+/// connectivity, etc.) is a natural follow-up once more of `AppState`
+/// needs to be reachable from here.
 async fn health_check_handler(req: Request) -> Response {
     let collected = match req.into_body().collect().await {
         Ok(c) => c.to_bytes(),
@@ -251,8 +347,12 @@ async fn health_check_handler(req: Request) -> Response {
         Ok(m) => m,
         Err(status) => return grpc_response(status, None),
     };
-    if decode_health_check_request(message).is_err() {
-        return grpc_response(GrpcStatus::InvalidArgument, None);
+    let request = match decode_health_check_request(message) {
+        Ok(r) => r,
+        Err(_) => return grpc_response(GrpcStatus::InvalidArgument, None),
+    };
+    if !request.service.is_empty() && !KNOWN_SERVICES.contains(&request.service.as_str()) {
+        return grpc_response(GrpcStatus::NotFound, None);
     }
     let response_bytes = encode_health_check_response(ServingStatus::Serving);
     grpc_response(GrpcStatus::Ok, Some(&response_bytes))
@@ -263,7 +363,8 @@ async fn health_check_handler(req: Request) -> Response {
 /// documented. Real `Watch` implementations push a new
 /// `HealthCheckResponse` each time the serving status changes and hold the
 /// stream open indefinitely; this server's status never changes (always
-/// `SERVING`), so the minimal spec-compliant behavior is to send exactly
+/// `SERVING` for a known service, `NOT_FOUND` for an unknown one, same as
+/// `Check`), so the minimal spec-compliant behavior is to send exactly
 /// one message with the current status and then complete the stream --
 /// a real streaming client (`grpcurl`, `grpc-health-probe --watch`, etc.)
 /// gets a well-formed streaming response with real HTTP/2 DATA + TRAILERS
@@ -277,10 +378,45 @@ async fn watch_handler(req: Request) -> Response {
         Ok(m) => m,
         Err(status) => return grpc_response(status, None),
     };
-    if decode_health_check_request(message).is_err() {
-        return grpc_response(GrpcStatus::InvalidArgument, None);
+    let request = match decode_health_check_request(message) {
+        Ok(r) => r,
+        Err(_) => return grpc_response(GrpcStatus::InvalidArgument, None),
+    };
+    if !request.service.is_empty() && !KNOWN_SERVICES.contains(&request.service.as_str()) {
+        return grpc_response(GrpcStatus::NotFound, None);
     }
     let response_bytes = encode_health_check_response(ServingStatus::Serving);
+    grpc_streaming_response(GrpcStatus::Ok, &[response_bytes])
+}
+
+/// `POST /grpc.reflection.v1.ServerReflection/ServerReflectionInfo` --
+/// closes the "no reflection" gap this module's doc comment previously
+/// called out. The real spec defines this as a **bidirectional**
+/// streaming RPC (a client can send several requests over one stream --
+/// `list_services`, then `file_containing_symbol`, etc. -- and get a
+/// response for each). This implementation deliberately only handles the
+/// simplest and most common real-world case: exactly one
+/// `list_services` request, answered with exactly one response, then the
+/// stream completes. That's enough for `grpcurl <addr> list` (service
+/// discovery) to work, which is what reflection is used for almost all
+/// of the time in practice; other request kinds
+/// (`file_containing_symbol`, `file_by_filename`, extension queries) are
+/// answered with `UNIMPLEMENTED` rather than silently mishandled.
+async fn reflection_handler(req: Request) -> Response {
+    let collected = match req.into_body().collect().await {
+        Ok(c) => c.to_bytes(),
+        Err(_) => return grpc_response(GrpcStatus::Internal, None),
+    };
+    let message = match decode_grpc_frame(&collected) {
+        Ok(m) => m,
+        Err(status) => return grpc_response(status, None),
+    };
+    if !request_is_list_services(message) {
+        // A real, recognized-but-unsupported reflection request kind
+        // (file_by_filename, file_containing_symbol, extension queries).
+        return grpc_response(GrpcStatus::Unimplemented, None);
+    }
+    let response_bytes = encode_list_services_response(KNOWN_SERVICES);
     grpc_streaming_response(GrpcStatus::Ok, &[response_bytes])
 }
 
@@ -309,6 +445,8 @@ pub async fn serve_grpc(addr: std::net::SocketAddr) -> std::io::Result<(std::net
                         health_check_handler(req).await
                     } else if path == "/grpc.health.v1.Health/Watch" {
                         watch_handler(req).await
+                    } else if path == "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo" {
+                        reflection_handler(req).await
                     } else {
                         grpc_response(GrpcStatus::Unimplemented, None)
                     };
@@ -386,6 +524,42 @@ mod tests {
         bytes.extend_from_slice(b"orders");
         let req = decode_health_check_request(&bytes).unwrap();
         assert_eq!(req.service, "orders");
+    }
+
+    #[test]
+    fn encode_string_field_matches_hand_rolled_expectation() {
+        // string field 1 = "hi": tag 0x0a, len 2, then "hi".
+        let out = encode_string_field(1, "hi");
+        assert_eq!(out.as_ref(), &[0x0a, 2, b'h', b'i']);
+    }
+
+    #[test]
+    fn request_is_list_services_detects_field_7() {
+        // ServerReflectionRequest { list_services: "" } -> field 7, wire
+        // type 2, tag = (7 << 3) | 2 = 0x3a, then a zero-length string.
+        let bytes = [0x3a, 0x00];
+        assert!(request_is_list_services(&bytes));
+    }
+
+    #[test]
+    fn request_is_list_services_rejects_other_oneof_fields() {
+        // ServerReflectionRequest { file_by_filename: "x" } -> field 3,
+        // tag = (3 << 3) | 2 = 0x1a, len 1, "x".
+        let bytes = [0x1a, 1, b'x'];
+        assert!(!request_is_list_services(&bytes));
+    }
+
+    #[test]
+    fn encode_list_services_response_contains_both_service_names() {
+        let bytes = encode_list_services_response(KNOWN_SERVICES);
+        // Sanity check by looking for the raw UTF-8 bytes of both names
+        // in the encoded output -- a full round-trip decoder isn't
+        // implemented here (this module only needs to encode responses,
+        // never decode reflection responses), but this confirms both
+        // names were actually serialized, not silently dropped.
+        let as_str = String::from_utf8_lossy(&bytes);
+        assert!(as_str.contains("grpc.health.v1.Health"));
+        assert!(as_str.contains("grpc.reflection.v1.ServerReflection"));
     }
 
     /// End-to-end: a real HTTP/2 server (h2c, prior knowledge) answering a
@@ -488,5 +662,136 @@ mod tests {
             .expect("streamed response should contain at least one valid gRPC-framed message");
         // Same encoding as the unary Check test: HealthCheckResponse { status: SERVING }.
         assert_eq!(message, &[0x08, 0x01]);
+    }
+
+    /// End-to-end: `Check` against an unrecognized named service must
+    /// return `NOT_FOUND` (5), not silently claim `SERVING`. Real client
+    /// (a load balancer, `grpc-health-probe --service=nonexistent`) over
+    /// a real HTTP/2 connection.
+    #[tokio::test]
+    async fn check_returns_not_found_for_unknown_service() {
+        use http_body_util::{BodyExt, Full};
+        use hyper_util::client::legacy::connect::HttpConnector;
+        use hyper_util::client::legacy::Client;
+        use hyper_util::rt::TokioExecutor;
+
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+
+        let mut connector = HttpConnector::new();
+        connector.enforce_http(false);
+        let client: Client<_, Full<Bytes>> =
+            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+
+        // HealthCheckRequest { service: "nonexistent.Service" }
+        let mut service_field = vec![0x0a, 19]; // tag(field 1, wire 2), len 19
+        service_field.extend_from_slice(b"nonexistent.Service");
+        let request_body = encode_grpc_frame(&service_field);
+
+        let req = HyperRequest::builder()
+            .method("POST")
+            .uri(format!("http://{addr}/grpc.health.v1.Health/Check"))
+            .header("content-type", "application/grpc+proto")
+            .body(Full::new(request_body))
+            .unwrap();
+
+        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        let trailers = resp.collect().await.unwrap().trailers().cloned().unwrap_or_default();
+        assert_eq!(
+            trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
+            Some("5"), // NOT_FOUND
+            "checking an unknown service name must return NOT_FOUND, not SERVING"
+        );
+    }
+
+    /// End-to-end: `grpc.reflection.v1.ServerReflection/ServerReflectionInfo`
+    /// answering a `list_services` request, over a real HTTP/2 connection
+    /// with a real independent client -- confirms the "no reflection" gap
+    /// is closed for the common case (`grpcurl <addr> list`).
+    #[tokio::test]
+    async fn reflection_lists_known_services_over_real_http2() {
+        use http_body_util::{BodyExt, Full};
+        use hyper_util::client::legacy::connect::HttpConnector;
+        use hyper_util::client::legacy::Client;
+        use hyper_util::rt::TokioExecutor;
+
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+
+        let mut connector = HttpConnector::new();
+        connector.enforce_http(false);
+        let client: Client<_, Full<Bytes>> =
+            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+
+        // ServerReflectionRequest { list_services: "" } -> field 7, tag 0x3a, empty string.
+        let request_message = [0x3a, 0x00];
+        let request_body = encode_grpc_frame(&request_message);
+
+        let req = HyperRequest::builder()
+            .method("POST")
+            .uri(format!(
+                "http://{addr}/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"
+            ))
+            .header("content-type", "application/grpc+proto")
+            .body(Full::new(request_body))
+            .unwrap();
+
+        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let collected = resp.collect().await.expect("collecting body+trailers should succeed");
+        let trailers = collected.trailers().cloned().unwrap_or_default();
+        assert_eq!(
+            trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
+            Some("0"),
+            "list_services should succeed"
+        );
+
+        let body_bytes = collected.to_bytes();
+        let message = decode_grpc_frame(&body_bytes)
+            .expect("reflection response should be a valid gRPC-framed message");
+        let as_str = String::from_utf8_lossy(&message);
+        assert!(
+            as_str.contains("grpc.health.v1.Health"),
+            "listed services should include the Health service"
+        );
+        assert!(
+            as_str.contains("grpc.reflection.v1.ServerReflection"),
+            "listed services should include the reflection service itself"
+        );
+    }
+
+    /// End-to-end: a reflection request kind this implementation doesn't
+    /// support (`file_by_filename`) must return `UNIMPLEMENTED`, not be
+    /// silently mishandled as if it were `list_services`.
+    #[tokio::test]
+    async fn reflection_returns_unimplemented_for_unsupported_request_kind() {
+        use http_body_util::{BodyExt, Full};
+        use hyper_util::client::legacy::connect::HttpConnector;
+        use hyper_util::client::legacy::Client;
+        use hyper_util::rt::TokioExecutor;
+
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+
+        let mut connector = HttpConnector::new();
+        connector.enforce_http(false);
+        let client: Client<_, Full<Bytes>> =
+            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+
+        // ServerReflectionRequest { file_by_filename: "x.proto" } -> field 3.
+        let mut request_message = vec![0x1a, 7]; // tag(field 3, wire 2), len 7
+        request_message.extend_from_slice(b"x.proto");
+        let request_body = encode_grpc_frame(&request_message);
+
+        let req = HyperRequest::builder()
+            .method("POST")
+            .uri(format!(
+                "http://{addr}/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"
+            ))
+            .header("content-type", "application/grpc+proto")
+            .body(Full::new(request_body))
+            .unwrap();
+
+        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        let trailers = resp.collect().await.unwrap().trailers().cloned().unwrap_or_default();
+        assert_eq!(trailers.get("grpc-status").and_then(|v| v.to_str().ok()), Some("12")); // UNIMPLEMENTED
     }
 }
