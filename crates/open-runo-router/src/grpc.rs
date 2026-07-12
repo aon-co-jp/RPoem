@@ -270,6 +270,130 @@ fn encode_health_check_response(status: ServingStatus) -> Bytes {
     out.freeze()
 }
 
+/// Client-side counterpart of [`decode_health_check_request`]: encode a
+/// `HealthCheckRequest { string service = 1; }` to send. Only used by
+/// [`check_remote_health`] (this module's server-side handlers receive
+/// already-encoded requests from real clients; they never need to build
+/// one themselves).
+fn encode_health_check_request(service: &str) -> Bytes {
+    if service.is_empty() {
+        return Bytes::new();
+    }
+    encode_string_field_bytes(1, service)
+}
+
+/// Same wire encoding as `grpc.rs`'s `encode_string_field` (module-private
+/// duplication is intentional -- this file has no shared "protobuf
+/// helpers" module yet, and the two encoders serve different call sites:
+/// this one for building a *request* to send, the other for building a
+/// *response*).
+fn encode_string_field_bytes(field_number: u32, value: &str) -> Bytes {
+    let mut out = BytesMut::new();
+    encode_varint(((field_number as u64) << 3) | 2, &mut out);
+    encode_varint(value.len() as u64, &mut out);
+    out.extend_from_slice(value.as_bytes());
+    out.freeze()
+}
+
+/// Client-side counterpart of [`encode_health_check_response`]: decode a
+/// `HealthCheckResponse { ServingStatus status = 1; }` received from a
+/// server. Tolerates a missing `status` field (protobuf's "absent means
+/// default" rule) by defaulting to `Unknown`, same as a real generated
+/// client would.
+fn decode_health_check_response(bytes: &[u8]) -> Result<ServingStatus, String> {
+    let mut status = ServingStatus::Unknown;
+    let mut buf = bytes;
+    while !buf.is_empty() {
+        let Some((tag, rest)) = decode_varint(buf) else {
+            return Err("malformed HealthCheckResponse: bad tag varint".to_string());
+        };
+        let field_number = tag >> 3;
+        let wire_type = tag & 0x7;
+        buf = rest;
+        if field_number == 1 && wire_type == 0 {
+            let Some((value, rest)) = decode_varint(buf) else {
+                return Err("malformed HealthCheckResponse: bad status varint".to_string());
+            };
+            status = match value {
+                1 => ServingStatus::Serving,
+                2 => ServingStatus::NotServing,
+                _ => ServingStatus::Unknown,
+            };
+            buf = rest;
+        } else {
+            return Err(format!(
+                "unsupported field in HealthCheckResponse: field {field_number}, wire type {wire_type}"
+            ));
+        }
+    }
+    Ok(status)
+}
+
+/// Call a `grpc.health.v1.Health/Check` RPC against **any** compliant gRPC
+/// server -- this process's own (via `OPEN_RUNO_GRPC_BIND_ADDR`) or a
+/// genuinely external one -- and return its reported [`ServingStatus`].
+///
+/// This is the "Cosmo Connect" Cosmo-parity gap (`docs/cosmo-parity.md`
+/// §4a, "gRPC対応"): bringing an existing gRPC service into the GraphQL
+/// layer as a queryable field, rather than requiring every consumer to
+/// speak gRPC directly. `open-runo-gateway`'s GraphQL schema exposes this
+/// as the `grpcHealthCheck(endpoint, service)` query field. Scoped
+/// deliberately small: only the one well-known `Health` service, not
+/// Cosmo Connect's full "any `.proto`-described service, dynamically
+/// composed into the schema" generality -- that would require a real
+/// protobuf/reflection-driven schema generator, a substantially larger
+/// undertaking than a single pass can responsibly deliver and verify.
+///
+/// `addr` is a plain `host:port` (h2c, no TLS, matching every other gRPC
+/// endpoint in this module). Returns `Err` for connection failures,
+/// non-OK `grpc-status`, or malformed responses -- never panics.
+pub async fn check_remote_health(addr: &str, service: &str) -> Result<ServingStatus, String> {
+    use http_body_util::Full;
+    use hyper_util::client::legacy::connect::HttpConnector;
+    use hyper_util::client::legacy::Client;
+    use hyper_util::rt::TokioExecutor;
+
+    let mut connector = HttpConnector::new();
+    connector.enforce_http(false);
+    let client: Client<_, Full<Bytes>> =
+        Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+
+    let request_message = encode_health_check_request(service);
+    let request_body = encode_grpc_frame(&request_message);
+
+    let req = HyperRequest::builder()
+        .method("POST")
+        .uri(format!("http://{addr}/grpc.health.v1.Health/Check"))
+        .header("content-type", "application/grpc+proto")
+        .body(Full::new(request_body))
+        .map_err(|e| format!("failed to build gRPC request: {e}"))?;
+
+    let resp = client
+        .request(req)
+        .await
+        .map_err(|e| format!("gRPC connection to {addr} failed: {e}"))?;
+
+    let collected = resp
+        .collect()
+        .await
+        .map_err(|e| format!("failed to read gRPC response body/trailers: {e}"))?;
+
+    let trailers = collected.trailers().cloned().unwrap_or_default();
+    let grpc_status: i32 = trailers
+        .get("grpc-status")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2); // UNKNOWN if the trailer is missing entirely
+    if grpc_status != GrpcStatus::Ok as i32 {
+        return Err(format!("remote service returned grpc-status {grpc_status}"));
+    }
+
+    let body_bytes = collected.to_bytes();
+    let message = decode_grpc_frame(&body_bytes)
+        .map_err(|status| format!("malformed gRPC response frame (status {})", status as i32))?;
+    decode_health_check_response(message)
+}
+
 // ── HTTP/2 <-> gRPC glue ──────────────────────────────────────────────────
 
 /// Build a gRPC-framed, trailers-terminated unary response: one DATA frame
@@ -505,6 +629,31 @@ mod tests {
         // protobuf decoder (protoc, prost, etc.) would produce/expect for
         // `HealthCheckResponse { status: SERVING }`.
         assert_eq!(bytes.as_ref(), &[0x08, 0x01]);
+    }
+
+    #[test]
+    fn client_request_response_codec_round_trips() {
+        // encode_health_check_request / decode_health_check_response are
+        // the client-side counterparts of this module's existing
+        // server-side decode_health_check_request / encode_health_check_response
+        // -- confirm they agree with each other (and, by construction,
+        // with the server side, since both pairs use the same wire
+        // format).
+        let req_bytes = encode_health_check_request("orders");
+        let decoded_req = decode_health_check_request(&req_bytes).unwrap();
+        assert_eq!(decoded_req.service, "orders");
+
+        let resp_bytes = encode_health_check_response(ServingStatus::NotServing);
+        let decoded_resp = decode_health_check_response(&resp_bytes).unwrap();
+        assert_eq!(decoded_resp, ServingStatus::NotServing);
+    }
+
+    #[test]
+    fn encode_health_check_request_empty_service_is_empty_message() {
+        // Per the protobuf "absent means default" rule, an empty service
+        // name should serialize to zero bytes (the field is simply
+        // omitted), matching how a real client's codegen would behave.
+        assert_eq!(encode_health_check_request("").len(), 0);
     }
 
     #[test]
@@ -793,5 +942,37 @@ mod tests {
         let resp = client.request(req).await.expect("HTTP/2 request should succeed");
         let trailers = resp.collect().await.unwrap().trailers().cloned().unwrap_or_default();
         assert_eq!(trailers.get("grpc-status").and_then(|v| v.to_str().ok()), Some("12")); // UNIMPLEMENTED
+    }
+
+    /// End-to-end test of `check_remote_health` -- the "Cosmo Connect"
+    /// gRPC client function -- calling this module's *own* `serve_grpc`
+    /// server as if it were an arbitrary external gRPC service. Proves
+    /// the client codec (request encoding, response decoding, trailer
+    /// parsing) works over a real HTTP/2 connection, not just against
+    /// itself in memory.
+    #[tokio::test]
+    async fn check_remote_health_reports_serving_for_known_service() {
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+
+        let status = check_remote_health(&addr.to_string(), "")
+            .await
+            .expect("health check against our own server should succeed");
+        assert_eq!(status, ServingStatus::Serving);
+    }
+
+    #[tokio::test]
+    async fn check_remote_health_errors_for_unknown_service() {
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+
+        let result = check_remote_health(&addr.to_string(), "nonexistent.Service").await;
+        assert!(result.is_err(), "checking an unknown service name should surface as an error, not SERVING");
+    }
+
+    #[tokio::test]
+    async fn check_remote_health_errors_for_unreachable_address() {
+        // Nothing listening on this port -- the connection itself should
+        // fail cleanly (an Err, not a panic or hang).
+        let result = check_remote_health("127.0.0.1:1", "").await;
+        assert!(result.is_err());
     }
 }

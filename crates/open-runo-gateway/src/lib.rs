@@ -45,6 +45,26 @@ struct FederationStatusGql {
     type_names: Vec<String>,
 }
 
+/// Result of the `grpcHealthCheck` field -- the "Cosmo Connect"
+/// Cosmo-parity gap (`docs/cosmo-parity.md` §4a): bringing an existing
+/// gRPC service (this server's own, or a genuinely external one) into
+/// the GraphQL layer as a queryable field via
+/// `open_runo_router::grpc::check_remote_health`.
+#[derive(SimpleObject)]
+struct GrpcHealthCheckGql {
+    /// The `host:port` that was queried.
+    endpoint: String,
+    /// The gRPC service name that was checked (empty string means
+    /// "overall server health", per the `grpc.health.v1.Health` spec).
+    service: String,
+    /// `true` iff the remote service reported `SERVING`.
+    serving: bool,
+    /// Present (and `serving: false`) if the call failed outright
+    /// (connection refused, malformed response, unknown service, etc.)
+    /// rather than returning a non-SERVING status.
+    error: Option<String>,
+}
+
 fn stage_name(stage: Stage) -> &'static str {
     match stage {
         Stage::Local => "local",
@@ -72,6 +92,33 @@ impl QueryRoot {
     /// endpoint without touching domain data.
     async fn health(&self) -> &'static str {
         "ok"
+    }
+
+    /// "Cosmo Connect" parity field (`docs/cosmo-parity.md` §4a): call
+    /// `grpc.health.v1.Health/Check` against any gRPC service at
+    /// `endpoint` (`host:port`, h2c/no TLS) and surface its status
+    /// through GraphQL, so a client doesn't need to speak gRPC directly
+    /// to bring an existing gRPC service's health into a federated
+    /// query. `service` defaults to the empty string ("overall server
+    /// health"). Connection/protocol failures are reported via `error`
+    /// rather than as a GraphQL-level error, since "the remote service is
+    /// unreachable" is itself meaningful health information, not a query
+    /// execution failure.
+    async fn grpc_health_check(
+        &self,
+        endpoint: String,
+        service: Option<String>,
+    ) -> GrpcHealthCheckGql {
+        let service = service.unwrap_or_default();
+        match open_runo_router::grpc::check_remote_health(&endpoint, &service).await {
+            Ok(status) => GrpcHealthCheckGql {
+                endpoint,
+                service,
+                serving: status == open_runo_router::grpc::ServingStatus::Serving,
+                error: None,
+            },
+            Err(error) => GrpcHealthCheckGql { endpoint, service, serving: false, error: Some(error) },
+        }
     }
 
     /// Latest schema for `service_name` at `stage` (defaults to `local`).
