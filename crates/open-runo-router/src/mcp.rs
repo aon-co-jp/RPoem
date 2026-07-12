@@ -4,22 +4,24 @@
 //! call a server's capabilities as structured "tools" instead of scraping
 //! its REST API by hand.
 //!
-//! Implements the JSON-RPC 2.0 message layer and the `initialize` /
-//! `tools/list` / `tools/call` methods over a single `POST /mcp` endpoint
-//! (the ["Streamable HTTP" transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http)'s
+//! Implements the JSON-RPC 2.0 message layer and all three MCP capability
+//! types -- `tools/list` + `tools/call`, `resources/list` +
+//! `resources/read`, and `prompts/list` + `prompts/get` -- plus
+//! `initialize`, over a single `POST /mcp` endpoint (the
+//! ["Streamable HTTP" transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http)'s
 //! simple case: one JSON-RPC request in, one JSON-RPC response out, no
-//! SSE stream -- sufficient for stateless tool calls, which is all this
-//! server exposes). Resources and prompts (the other two MCP capability
-//! types) aren't implemented; only tools. No new dependencies -- this is
-//! JSON-RPC over the same `read_json_body`/`json_response` machinery
-//! every other handler in this crate already uses.
+//! SSE stream -- sufficient for stateless calls, which is all this server
+//! exposes). No new dependencies -- this is JSON-RPC over the same
+//! `read_json_body`/`json_response` machinery every other handler in this
+//! crate already uses.
 //!
-//! Two real tools are exposed, both backed by production code paths (not
-//! MCP-only stubs): `health_check` (same logic as `GET /health`) and
-//! `self_issue_api_key` (same logic as `POST /api/keys/self-issue`) --
-//! letting an MCP client obtain a working API key for this server's REST
-//! API without a human ever typing one, the same "no human key
-//! management" property `KeyGuardian` already provides over HTTP.
+//! Every capability is backed by a production code path, not an
+//! MCP-only stub: the two tools (`health_check`, `self_issue_api_key`)
+//! reuse the same logic as `GET /health` and `POST /api/keys/self-issue`;
+//! the two resources (`openapi://spec`, `health://status`) serve the same
+//! data as `GET /api/openapi.json` and `GET /health`; the one prompt
+//! (`summarize_api`) is rendered from the same live `openapi::spec()` the
+//! `openapi://spec` resource serves.
 
 use crate::hyper_compat::{empty_status, json_response, read_json_body, Handler};
 use crate::keyring::KeyGuardian;
