@@ -5,7 +5,9 @@ direct dependencies — their functionality is hand-implemented for
 compatibility on tokio+hyper) — WunderGraph Cosmo's paid-plan features,
 delivered as OSS. Ships with its own self-learning AI (no external LLM
 contract required). Successor to / consolidation target for the former
-open-runo and poem-runo repositories.
+open-runo and poem-runo repositories. **Both Poem and Tauri — including
+in-browser execution capability — are developed from scratch and
+reproduced with full compatibility.**
 
 📖 Other languages: [日本語](README-Japan.md) / [中文](README-Chinese.md) /
 [한국어](README-Korea.md) / [Español](README-Spain.md) / [Français](README-France.md) /

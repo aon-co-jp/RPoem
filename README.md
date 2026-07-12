@@ -8,7 +8,8 @@
 > 経緯によるもので、現在の実体は Poem・Tauri・WunderGraph Cosmo のいずれにも
 > パッケージとして直接依存せず、それぞれの機能・API 形状には互換性を保ちつつ
 > Rust 標準ライブラリ + tokio/hyper + WebAssembly で自前実装しています。
-> open-runo と本リポジトリを同時並行で開発しています。
+> **Poemとブラウザ内実行機能搭載も含めたTauri両方共に、一から開発して完全互換で
+> 再現する。** open-runo と本リポジトリを同時並行で開発しています。
 
 [![CI](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
@@ -206,14 +207,14 @@ feature フラグで選択。「マネージド版でしか使えない機能」
 
 ## ドキュメント
 
-[docs/architecture.md](docs/architecture.md) — 全体設計 ·
-[docs/cosmo-parity.md](docs/cosmo-parity.md) — Cosmo 機能対応表 ·
-[docs/poem-parity.md](docs/poem-parity.md) — Poem 機能対応表 ·
-[docs/tauri-parity.md](docs/tauri-parity.md) — Tauri 機能対応表 ·
-[docs/migration.md](docs/migration.md) — お引越し/変換/統合 ·
-[docs/api-spec.md](docs/api-spec.md) — API 仕様 ·
-[docs/security.md](docs/security.md) — セキュリティ ·
-[docs/HANDOFF.md](docs/HANDOFF.md) — 開発履歴
+- [docs/architecture.md](docs/architecture.md) — 全体設計
+- [docs/cosmo-parity.md](docs/cosmo-parity.md) — Cosmo 機能対応表
+- [docs/poem-parity.md](docs/poem-parity.md) — Poem 機能対応表
+- [docs/tauri-parity.md](docs/tauri-parity.md) — Tauri 機能対応表
+- [docs/migration.md](docs/migration.md) — お引越し/変換/統合
+- [docs/api-spec.md](docs/api-spec.md) — API 仕様
+- [docs/security.md](docs/security.md) — セキュリティ
+- [docs/HANDOFF.md](docs/HANDOFF.md) — 開発履歴
 
 ## 関連プロジェクト
 
