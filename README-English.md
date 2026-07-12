@@ -78,6 +78,34 @@ curl -X POST http://localhost:8080/api/schemas \
      -d '{"service_name":"users","sdl":"type User { id: ID! }"}'
 ```
 
+### Trying poem-cosmo-tauri-specific features (the Poem/Tauri reimplementation, in practice)
+
+These are unique to this repo, not `open-runo` (see §0.5 of
+`docs/HYBRID_NETWORK_ARCHITECTURE.md`) -- they're the concrete output of
+this repo's larger mission of reimplementing Poem itself.
+
+```bash
+# Verify gzip compression (auto-compresses based on Accept-Encoding)
+curl -s -H 'Accept-Encoding: gzip' -o /dev/null -D - \
+     http://localhost:8080/api/openapi.json | grep -i content-encoding
+# => a "content-encoding: gzip" line confirms it's working
+
+# Generic WebSocket echo (install wscat first: `npm i -g wscat`)
+wscat -c ws://localhost:8080/api/ws-echo
+# type anything and it's echoed straight back
+
+# Upload a schema as a real multipart file instead of inlining SDL in JSON
+echo 'type User { id: ID! }' > users.graphql
+curl -X POST http://localhost:8080/api/schemas/upload \
+     -H 'x-api-key: dev-key' \
+     -F 'service_name=users' \
+     -F 'sdl_file=@users.graphql'
+```
+
+These are the fastest way to see the gaps listed in `docs/poem-parity.md`
+(gzip, generic WebSocket, multipart, etc.) actually working. See that
+doc for gRPC health checks, MCP Server, and ACME (HTTP-01/TLS-ALPN-01).
+
 ### Using the management UI (WASM frontend)
 
 `cargo run` alone starts the API server; the management UI it serves at
