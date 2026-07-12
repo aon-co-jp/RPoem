@@ -237,9 +237,13 @@ Federation Gateway/バックエンド側として関与する。
 ## 現状(このリポジトリ固有)
 
 - `cargo check --workspace` / `cargo test --workspace` は成功する
-  (18クレート構成。2026-07-11時点で`cargo test --workspace`実測
-  256テストpassed、failed 0)。todo!()/unimplemented!()マーカーなし。
-- 直近パスで追加された機能: Feature Flags REST API + WASM管理画面
+  (18クレート構成。2026-07-13時点で`open-runo-router`単体159テスト・
+  `open-runo-observability`9テスト(+ClickHouse実接続の`#[ignore]`1本)
+  含め全体failed 0)。todo!()/unimplemented!()マーカーなし。
+- 直近パスで追加された機能: 月間リクエスト数計測+Analytics
+  (`open-runo-observability::request_metrics`、`GET /api/analytics/
+  requests-per-month` `/operations`、`apps/desktop-wasm`のAnalytics
+  ページ、詳細はHANDOFF参照)。それ以前: Feature Flags REST API + WASM管理画面
   (`open-runo-feature-flags`)、gzipレスポンス圧縮ミドルウェア、
   汎用WebSocket対応(手書きRFC 6455、`GET /api/ws-echo` /
   `GET /api/ws-events`)、Federation v1/v2 SDLパーサー
@@ -251,6 +255,89 @@ Federation Gateway/バックエンド側として関与する。
   アラビア語の10言語が揃っている。
 
 ## HANDOFF(直近の自動実行パス)
+
+- **2026-07-13 月間リクエスト数計測 + Analytics/Tracing(Cosmo Studio相当)
+  実装 — `docs/cosmo-parity.md`4a節の残り2件(★★☆)を両方解消**:
+  `open-web-server`(`multi_region.rs`関連、別バックグラウンドエージェント
+  作業中)には一切触れず、このリポジトリと`open-runo`のみ対応。
+  **(1) 月間リクエスト数の計測**: 新規
+  `crates/open-runo-observability/src/request_metrics.rs`に
+  `RequestMetrics`(月別カウント`HashMap`+method/pathごとの
+  count/error_count/total_duration_msを同期ロックで集計、`record()`は
+  I/O無し・`.await`無しでホットパスから安全に呼べる)。バッファ
+  (`Vec<RequestMetricRow>`、上限10,000件でメモリ保護)は`MetricsSink`
+  trait経由で書き出す設計 — 既定`InMemorySink`(テスト/ClickHouse未設定
+  時)、`clickhouse` Cargo featureで`ClickHouseSink`
+  (`open_runo_db::clickhouse_backend::ClickHouseBackend`と同じ
+  `Client::default().with_url(url)`接続パターンを踏襲、`clickhouse`
+  クレートの`chrono`サブfeatureが必要だったことを`cargo check`で発見・
+  `Cargo.toml`に追加)。`spawn_periodic_flush`が30秒毎にバッファを
+  drainしてsinkへ(失敗してもリクエストパスに影響せず`tracing::warn!`
+  のみ、`init_tracing_with_otlp`と同じ「テレメトリはベストエフォート」
+  方針)。
+  `open-runo-router::middleware_hyper::with_metrics`を新設(既存
+  `with_tracing`と全く同じ場所——method/path/status/durationの捕捉——に
+  フックする設計、`build_hyper_app`の`wrap`クロージャに配線)。
+  `AppState`に`request_metrics: Arc<RequestMetrics>`追加(`state.rs`の
+  `default_request_metrics()`が`OPEN_RUNO_CLICKHOUSE_URL`環境変数
+  +`clickhouse` featureの有無でsinkを選択)。`GET
+  /api/analytics/requests-per-month`(既存`authenticate_with_session`で
+  保護、他のREST管理系ハンドラと同じ認証パターン)がメモリ内集計を
+  そのまま返す——**課金・レート制限には一切使用しない**運用メトリクス
+  専用である点を関数doc・cosmo-parity.md双方に明記
+  (`open-runo-security::RateLimiter`とは完全に独立した経路)。
+  **(2) Analytics / Tracing (Cosmo Studio相当)**: 同じ`RequestMetrics`の
+  `operations_summary()`(method+pathごとのavg_duration_ms/error_rate、
+  総所要時間降順ソート)を`GET /api/analytics/operations`で提供。
+  ダッシュボードは`aruaru-web`独立プロジェクトではなく**`apps/
+  desktop-wasm`に新規Analyticsページを追加**(既存の8ページ
+  ——dashboard/schemas/federation/ai-routing/db/scim/persisted-queries/
+  feature-flags/cache-backup——と全く同じサイドバーnavパターン、
+  `src/pages.rs::render_analytics`+`src/api.rs`の
+  `requests_per_month`/`operations_summary` — これで計10ページ)。
+  判断理由: cosmo-parity.md4a節冒頭が定義する「REST APIを不要にする」
+  目的への寄与と、既存UI構成への素直な追加という一貫性を優先し、
+  別プロジェクト(`aruaru-web`)を新規に用意するコストに見合わないと判断。
+  **検証**: `cargo test -p open-runo-observability --features
+  clickhouse`で9テストgreen(+ClickHouse実接続の`#[ignore]`1本)、
+  `cargo check --workspace`/`cargo test --workspace`(159テスト含む
+  router一式)ともgreen。実バイナリ+curlで自己発行キー取得→複数
+  リクエスト発行→`/api/analytics/requests-per-month`
+  `/api/analytics/operations`が実データ(月別カウント・オペレーション
+  別集計)を返すことを確認。さらに`apps/desktop-wasm`を
+  wasm32-unknown-unknownでリビルドし**実ブラウザでAnalyticsページを
+  操作**——月別件数テーブル・オペレーション別レイテンシ/エラー率
+  テーブルが実際のバックエンドレスポンスで描画されること、コンソール
+  エラーが無いことを確認済み。**未検証点(正直に記載)**: この
+  サンドボックス環境には到達可能なClickHouseインスタンスが無い
+  (`docker-compose.yml`に`clickhouse`サービス無し、`Test-NetConnection
+  localhost:8123`で不通を確認済み)。そのため`ClickHouseSink`の実際の
+  書き込み/読み出しラウンドトリップは検証できておらず、
+  `#[ignore]`+`OPEN_RUNO_CLICKHOUSE_URL`環境変数によるテストとして
+  用意するに留めた(実インスタンスがあれば
+  `OPEN_RUNO_CLICKHOUSE_URL=http://localhost:8123 cargo test -p
+  open-runo-observability --features clickhouse -- --ignored`で
+  即座に検証可能)。バッファリング/flushロジック自体は`InMemorySink`
+  経由で完全に検証済み。
+  `docs/cosmo-parity.md`4a節の該当2行を取り消し線+「✅ 完了」に更新
+  (Analytics側はClickHouse実接続未検証である旨を明記)。
+  **open-runo側へのミラー**: 同じ`request_metrics.rs`・
+  `middleware_hyper.rs`(`with_metrics`)・`state.rs`
+  (`request_metrics`フィールド)・`handlers_hyper.rs`(2ハンドラ)・
+  `lib.rs`(ルート配線)・両`Cargo.toml`(`open-runo-observability`の
+  `async-trait`/`chrono`/`serde`/`tokio`/`clickhouse`追加、
+  `open-runo-router`の`clickhouse` feature追加)・`apps/desktop-wasm`
+  (`pages.rs`/`api.rs`/`www/index.html`)を移植、`cargo test
+  --workspace`確認後commit・push——コミットハッシュは本パス末尾に記載。
+  次回パスがすべきこと: (1) 実ClickHouseインスタンスが用意でき次第、
+  `#[ignore]`テストを実行して実ラウンドトリップを確認、(2) 他8言語
+  README(中/韓/西/仏/独/伊/露/アラビア語)は元々WASM UIウォークスルー
+  節を持たないため今回未更新——将来的にUI節を追加する際はAnalytics
+  ページも含めること、(3) `docs/cosmo-parity.md`4a節はこれで全項目
+  ✅ 完了(旧★★☆が0件に)。次に高価値なタスクを探す場合は
+  `docs/poem-parity.md`/`docs/tauri-parity.md`の残ギャップ、または
+  macOS/Linuxパッケージングなど、ユーザー指示で明示的に除外されて
+  いない項目から選ぶこと。
 
 - **2026-07-13 OpenAPI spec coverage拡大 + 実用性向上パス**: `docs/HANDOFF.md`
   経由の別バックグラウンドエージェントがQUIC/MPQUIC・PostgreSQL ACID

@@ -2173,6 +2173,65 @@ pub fn feature_flag_evaluate_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
     })
 }
 
+/// GET /api/analytics/requests-per-month — monthly request-count metering
+/// (`docs/cosmo-parity.md` 4a). An **operational metric only**: this is
+/// never used to throttle or bill a caller (rate limiting is entirely
+/// separate, see `open-runo-security::RateLimiter`). Served from the
+/// in-process aggregate (`open_runo_observability::RequestMetrics`), not
+/// a ClickHouse query, so it works identically whether or not a
+/// ClickHouse export sink is configured -- see that crate's doc comment
+/// for why the two read paths are kept separate.
+pub fn requests_per_month_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
+    Arc::new(move |req, _params| {
+        let state = Arc::clone(&state);
+        let guardian = Arc::clone(&guardian);
+        Box::pin(async move {
+            let method = req.method().clone();
+            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+                return empty_status(status);
+            }
+            json_response(
+                StatusCode::OK,
+                &serde_json::json!({ "months": state.request_metrics.requests_per_month() }),
+            )
+        })
+    })
+}
+
+/// GET /api/analytics/operations — per-operation (method+path) latency and
+/// error-rate breakdown (Cosmo Studio parity, `docs/cosmo-parity.md` 4a),
+/// sorted by total time contributed (busiest/slowest first). Same
+/// in-process aggregate as [`requests_per_month_handler`].
+pub fn operations_summary_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
+    Arc::new(move |req, _params| {
+        let state = Arc::clone(&state);
+        let guardian = Arc::clone(&guardian);
+        Box::pin(async move {
+            let method = req.method().clone();
+            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+                return empty_status(status);
+            }
+            let operations: Vec<serde_json::Value> = state
+                .request_metrics
+                .operations_summary()
+                .into_iter()
+                .map(|op| {
+                    serde_json::json!({
+                        "method": op.method,
+                        "path": op.path,
+                        "count": op.count,
+                        "error_count": op.error_count,
+                        "total_duration_ms": op.total_duration_ms,
+                        "avg_duration_ms": op.avg_duration_ms(),
+                        "error_rate": op.error_rate(),
+                    })
+                })
+                .collect();
+            json_response(StatusCode::OK, &serde_json::json!({ "operations": operations }))
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
