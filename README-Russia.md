@@ -43,7 +43,7 @@ open-runo решает эту проблему в корне с помощью *
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 296 тестов (305 с --all-features)
+cargo test --workspace          # 301 тестов (310 с --all-features)
 cargo run -p open-runo-gateway  # сервер REST + GraphQL
 ```
 
