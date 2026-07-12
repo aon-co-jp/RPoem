@@ -4,6 +4,8 @@
 — WunderGraph Cosmo の有料版機能を OSS で。独自の自己学習 AI 搭載（外部 LLM 契約不要）。
 旧 open-runo / poem-runo の後継リポジトリ(名称は歴史的経緯によるもので、
 実体は Poem/Tauri/Cosmo いずれも「統合」ではなく自前で完全再現したもの)。
+**Poemとブラウザ内実行機能搭載も含めたTauri両方共に、一から開発して完全互換で
+再現する。**
 
 [![CI](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
@@ -136,12 +138,12 @@ feature フラグで選択。「マネージド版でしか使えない機能」
 
 ## ドキュメント
 
-[docs/architecture.md](docs/architecture.md) — 全体設計 ·
-[docs/cosmo-parity.md](docs/cosmo-parity.md) — Cosmo 機能対応表 ·
-[docs/migration.md](docs/migration.md) — お引越し/変換/統合 ·
-[docs/api-spec.md](docs/api-spec.md) — API 仕様 ·
-[docs/security.md](docs/security.md) — セキュリティ ·
-[docs/HANDOFF.md](docs/HANDOFF.md) — 開発履歴
+- [docs/architecture.md](docs/architecture.md) — 全体設計
+- [docs/cosmo-parity.md](docs/cosmo-parity.md) — Cosmo 機能対応表
+- [docs/migration.md](docs/migration.md) — お引越し/変換/統合
+- [docs/api-spec.md](docs/api-spec.md) — API 仕様
+- [docs/security.md](docs/security.md) — セキュリティ
+- [docs/HANDOFF.md](docs/HANDOFF.md) — 開発履歴
 
 ## 関連プロジェクト
 
