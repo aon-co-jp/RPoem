@@ -1252,7 +1252,7 @@ pub fn backup_restore_latest_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
                 Err(status) => return empty_status(status),
             };
             let config = crate::maintenance::BackupConfig::from_env();
-            let path = match crate::maintenance::find_latest_backup(&config) {
+            let path = match crate::maintenance::find_latest_backup_async(config).await {
                 Some(p) => p,
                 None => {
                     return json_response(
@@ -1327,11 +1327,13 @@ pub fn migrate_export_sql_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
                 chrono::Utc::now().format("%Y%m%d-%H%M%S")
             )
             .to_lowercase();
-            let written = match crate::maintenance::write_to_backup_dirs(
-                &crate::maintenance::BackupConfig::from_env(),
-                &name,
-                &sql,
-            ) {
+            let written = match crate::maintenance::write_to_backup_dirs_async(
+                crate::maintenance::BackupConfig::from_env(),
+                name,
+                sql,
+            )
+            .await
+            {
                 Ok(v) => v,
                 Err(e) => {
                     return json_response(
@@ -1371,11 +1373,13 @@ pub fn migrate_export_csv_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
                 "open-runo-dump-{}.csv",
                 chrono::Utc::now().format("%Y%m%d-%H%M%S")
             );
-            let written = match crate::maintenance::write_to_backup_dirs(
-                &crate::maintenance::BackupConfig::from_env(),
-                &name,
-                &csv,
-            ) {
+            let written = match crate::maintenance::write_to_backup_dirs_async(
+                crate::maintenance::BackupConfig::from_env(),
+                name,
+                csv,
+            )
+            .await
+            {
                 Ok(v) => v,
                 Err(e) => {
                     return json_response(
