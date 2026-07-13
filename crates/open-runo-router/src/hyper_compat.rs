@@ -630,24 +630,50 @@ pub async fn read_multipart_body(req: Request) -> Result<Vec<MultipartField>, Re
 /// `GET /health` and `GET /healthz` — poem-free equivalent of the handler
 /// in `lib.rs`. Kept in lockstep with that JSON shape until the poem
 /// version is retired.
-pub fn health_handler() -> Handler {
+///
+/// Actually exercises the configured `DbBackend` (a real `list()` call, not
+/// just "the process is up") so a load balancer sitting in front of
+/// multiple instances (nginx/Caddy/Envoy — see `docs/deployment-scaling.md`)
+/// can tell a genuinely-unhealthy instance (DB unreachable) apart from a
+/// merely-busy one, and pull it out of rotation. A health check that always
+/// answers 200 regardless of backend state defeats the point of clustering
+/// behind a load balancer -- this used to be exactly that unconditional
+/// check.
+pub fn health_handler(state: Arc<crate::state::AppState>) -> Handler {
     #[derive(serde::Serialize)]
     struct Health {
         status: &'static str,
         service: &'static str,
         version: &'static str,
+        backend: &'static str,
     }
 
     Arc::new(move |_req, _params| {
+        let state = Arc::clone(&state);
         Box::pin(async move {
-            json_response(
-                StatusCode::OK,
-                &Health {
-                    status: "ok",
-                    service: "open-runo-router",
-                    version: env!("CARGO_PKG_VERSION"),
-                },
-            )
+            match state.db.list("__health_check__").await {
+                Ok(_) => json_response(
+                    StatusCode::OK,
+                    &Health {
+                        status: "ok",
+                        service: "open-runo-router",
+                        version: env!("CARGO_PKG_VERSION"),
+                        backend: state.db.backend_name(),
+                    },
+                ),
+                Err(e) => {
+                    tracing::error!(error = %e, backend = state.db.backend_name(), "health check: db backend unreachable");
+                    json_response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        &Health {
+                            status: "degraded",
+                            service: "open-runo-router",
+                            version: env!("CARGO_PKG_VERSION"),
+                            backend: state.db.backend_name(),
+                        },
+                    )
+                }
+            }
         })
     })
 }
@@ -676,17 +702,76 @@ pub fn static_file_handler(path: std::path::PathBuf, content_type: &'static str)
 /// task handle. Used by tests (and, eventually, `main.rs`) to run the
 /// poem-free stack end to end.
 pub async fn serve(router: Router, addr: std::net::SocketAddr) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    // No shutdown signal wired in -- runs forever until the process is
+    // killed. Kept for callers (tests, quick examples) that don't care
+    // about graceful shutdown. Production entrypoints should prefer
+    // [`serve_with_shutdown`] so a rolling restart behind a load balancer
+    // (nginx/Caddy/Envoy — see docs/deployment-scaling.md's horizontal-
+    // scaling recipe) doesn't cut in-flight requests off mid-response.
+    //
+    // `std::future::pending()` never resolves, unlike an earlier version of
+    // this wrapper that used a `watch::channel` sender scoped to this
+    // function -- that sender got dropped the instant `serve` returned,
+    // and a dropped `watch::Sender` makes the receiver's `changed()`
+    // resolve immediately, so the "never fires" shutdown signal actually
+    // fired right away and reset every connection moments after accepting
+    // it.
+    serve_with_shutdown(router, addr, std::future::pending())
+        .await
+        .map(|(addr, handle, _tracker)| (addr, handle))
+}
+
+/// Like [`serve`], but stops accepting new connections once `shutdown`
+/// resolves, then waits for in-flight connections to finish their current
+/// request/response (via hyper's `graceful_shutdown()`) before the returned
+/// `JoinHandle` completes.
+///
+/// This is the piece Tomcat-behind-Apache HTTPD gets almost for free from
+/// Apache's connection buffering: when Apache stops routing to a Tomcat
+/// instance being taken out of rotation, in-flight requests already handed
+/// to that Tomcat still get to finish. A tokio/hyper single-process server
+/// has no such front door doing that for it, so if it needs to support
+/// "run N instances behind a reverse-proxy load balancer, roll them one at
+/// a time" (the deployment pattern this ecosystem's CLAUDE.md previously
+/// dismissed as having "no equivalent need"), the equivalent behavior has
+/// to be implemented here explicitly. See `docs/deployment-scaling.md` for
+/// the full reverse-proxy deployment recipe and the research this is based
+/// on.
+pub async fn serve_with_shutdown(
+    router: Router,
+    addr: std::net::SocketAddr,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>, Arc<tokio::sync::Notify>)> {
     use hyper::server::conn::http1;
     use hyper_util::rt::TokioIo;
     use tokio::net::TcpListener;
+    use tokio::sync::watch;
+    use tokio::task::JoinSet;
 
     let listener = TcpListener::bind(addr).await?;
     let bound_addr = listener.local_addr()?;
     let router = Arc::new(router);
 
+    // Broadcasts "start graceful shutdown" to every live connection task.
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    // Fires once every connection task spawned before shutdown has actually
+    // finished draining -- unlike `handle` (which only proves the accept
+    // loop stopped), this is what a test (or a caller doing its own
+    // orchestration) should await to prove in-flight requests really
+    // completed before the server considered itself shut down.
+    let drained = Arc::new(tokio::sync::Notify::new());
+    let drained_for_task = Arc::clone(&drained);
+
     let handle = tokio::spawn(async move {
+        tokio::pin!(shutdown);
+        let mut connections = JoinSet::new();
         loop {
-            let (stream, _) = match listener.accept().await {
+            let accept_result = tokio::select! {
+                biased;
+                _ = &mut shutdown => break,
+                res = listener.accept() => res,
+            };
+            let (stream, _) = match accept_result {
                 Ok(pair) => pair,
                 Err(_) => continue,
             };
@@ -696,21 +781,74 @@ pub async fn serve(router: Router, addr: std::net::SocketAddr) -> std::io::Resul
                 let router = Arc::clone(&router);
                 async move { Ok::<_, std::convert::Infallible>(router.dispatch(req).await) }
             });
-            tokio::spawn(async move {
+            let mut conn_shutdown_rx = shutdown_rx.clone();
+            connections.spawn(async move {
                 // `.with_upgrades()` is required for `hyper::upgrade::on` to
                 // ever resolve -- without it hyper tears the connection down
                 // after the response instead of handing it off, and any
                 // `websocket_handler` route would hang forever waiting for
                 // an upgrade that never comes.
-                let _ = http1::Builder::new()
+                let conn = http1::Builder::new()
                     .serve_connection(io, service)
-                    .with_upgrades()
-                    .await;
+                    .with_upgrades();
+                let mut conn = std::pin::pin!(conn);
+                loop {
+                    tokio::select! {
+                        res = conn.as_mut() => {
+                            let _ = res;
+                            break;
+                        }
+                        _ = conn_shutdown_rx.changed() => {
+                            // Ask hyper to finish the current in-flight
+                            // request/response and then close, instead of
+                            // dropping the connection outright -- this is
+                            // the actual "in-flight request completes
+                            // before shutdown" guarantee.
+                            conn.as_mut().graceful_shutdown();
+                        }
+                    }
+                }
             });
         }
+        // Stop accepting, then tell every already-live connection to wrap
+        // up its current request/response instead of yanking it, and only
+        // then declare the server drained.
+        let _ = shutdown_tx.send(true);
+        while connections.join_next().await.is_some() {}
+        drained_for_task.notify_waiters();
     });
 
-    Ok((bound_addr, handle))
+    Ok((bound_addr, handle, drained))
+}
+
+/// Resolves on Ctrl-C (`SIGINT`) or, on Unix, `SIGTERM` -- the two signals
+/// that matter for "run N instances behind a reverse-proxy load balancer,
+/// roll them one at a time": Ctrl-C for local/dev interrupts and `SIGTERM`
+/// for how process supervisors (systemd, Docker, Kubernetes' `preStop` +
+/// grace period, nginx/Caddy/Envoy-fronted rolling restarts) ask a process
+/// to stop before escalating to `SIGKILL`. Intended to be passed as the
+/// `shutdown` future to [`serve_with_shutdown`].
+pub async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
 }
 
 // ── TLS termination (rustls) ──────────────────────────────────────────────
@@ -833,7 +971,7 @@ pub mod tls {
             let (cert_path, key_path, dir) = self_signed_cert_files();
             let tls_config = load_tls_config(&cert_path, &key_path).expect("load tls config");
 
-            let router = Router::new().route(Method::GET, "/health", health_handler());
+            let router = Router::new().route(Method::GET, "/health", health_handler(Arc::new(crate::state::AppState::new())));
             let (addr, _handle) = serve_tls(router, "127.0.0.1:0".parse().unwrap(), tls_config)
                 .await
                 .expect("bind ephemeral TLS port");
@@ -864,7 +1002,7 @@ pub mod tls {
             let (cert_path, key_path, dir) = self_signed_cert_files();
             let tls_config = load_tls_config(&cert_path, &key_path).expect("load tls config");
 
-            let router = Router::new().route(Method::GET, "/health", health_handler());
+            let router = Router::new().route(Method::GET, "/health", health_handler(Arc::new(crate::state::AppState::new())));
             let (addr, _handle) = serve_tls(router, "127.0.0.1:0".parse().unwrap(), tls_config)
                 .await
                 .expect("bind ephemeral TLS port");
@@ -1155,8 +1293,8 @@ mod tests {
     #[tokio::test]
     async fn health_endpoint_serves_over_real_http() {
         let router = Router::new()
-            .route(Method::GET, "/health", health_handler())
-            .route(Method::GET, "/healthz", health_handler());
+            .route(Method::GET, "/health", health_handler(Arc::new(crate::state::AppState::new())))
+            .route(Method::GET, "/healthz", health_handler(Arc::new(crate::state::AppState::new())));
 
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
