@@ -161,18 +161,31 @@ pub async fn export_backup(
         Utc::now().format("%Y%m%d-%H%M%S")
     );
 
-    let mut written = Vec::new();
-    for dir in std::iter::once(&config.dir).chain(config.mirror_dir.iter()) {
-        if let Err(e) = std::fs::create_dir_all(dir) {
-            tracing::warn!(dir = %dir.display(), error = %e, "backup dir unavailable");
-            continue;
+    // File I/O is genuinely blocking (create_dir_all + write, potentially to
+    // two locations); running it inline on the async executor would stall
+    // whichever tokio worker thread picked up this request, starving other
+    // concurrent requests on that worker. Offload to the blocking thread
+    // pool via `spawn_blocking` (tokio's dedicated pool for exactly this).
+    let dirs: Vec<PathBuf> = std::iter::once(config.dir.clone())
+        .chain(config.mirror_dir.clone())
+        .collect();
+    let written = tokio::task::spawn_blocking(move || {
+        let mut written = Vec::new();
+        for dir in &dirs {
+            if let Err(e) = std::fs::create_dir_all(dir) {
+                tracing::warn!(dir = %dir.display(), error = %e, "backup dir unavailable");
+                continue;
+            }
+            let path = dir.join(&name);
+            match std::fs::write(&path, &json) {
+                Ok(()) => written.push(path.display().to_string()),
+                Err(e) => tracing::warn!(path = %path.display(), error = %e, "backup write failed"),
+            }
         }
-        let path = dir.join(&name);
-        match std::fs::write(&path, &json) {
-            Ok(()) => written.push(path.display().to_string()),
-            Err(e) => tracing::warn!(path = %path.display(), error = %e, "backup write failed"),
-        }
-    }
+        written
+    })
+    .await
+    .map_err(|e| format!("backup write task panicked: {e}"))?;
 
     if written.is_empty() {
         return Err("no backup location was writable".into());
@@ -185,7 +198,13 @@ pub async fn import_backup(
     state: &AppState,
     path: &str,
 ) -> std::result::Result<usize, String> {
-    let json = std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+    // Same rationale as `export_backup`: keep synchronous disk I/O off the
+    // async worker thread.
+    let path_owned = path.to_string();
+    let json = tokio::task::spawn_blocking(move || std::fs::read_to_string(&path_owned))
+        .await
+        .map_err(|e| format!("backup read task panicked: {e}"))?
+        .map_err(|e| format!("read {path}: {e}"))?;
     let file: BackupFile = serde_json::from_str(&json).map_err(|e| format!("parse: {e}"))?;
     if file.format != "open-runo-backup/v1" {
         return Err(format!("unknown backup format: {}", file.format));
@@ -204,8 +223,19 @@ pub async fn import_backup(
     Ok(restored)
 }
 
+/// Async, non-blocking-executor-friendly wrapper around
+/// [`find_latest_backup`] for callers already on a tokio worker thread
+/// (e.g. HTTP handlers) — directory scanning + per-entry `metadata()` calls
+/// are blocking syscalls, so this offloads them via `spawn_blocking`.
+pub async fn find_latest_backup_async(config: BackupConfig) -> Option<PathBuf> {
+    tokio::task::spawn_blocking(move || find_latest_backup(&config))
+        .await
+        .unwrap_or(None)
+}
+
 /// Find the newest portable backup across the primary and mirror dirs
-/// (簡単復活: no need to remember file names).
+/// (簡単復活: no need to remember file names). Synchronous — prefer
+/// [`find_latest_backup_async`] from async/handler code.
 pub fn find_latest_backup(config: &BackupConfig) -> Option<PathBuf> {
     let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
     for dir in std::iter::once(&config.dir).chain(config.mirror_dir.iter()) {
@@ -318,6 +348,19 @@ pub fn write_to_backup_dirs(
         return Err("no export location was writable".into());
     }
     Ok(written)
+}
+
+/// Async wrapper around [`write_to_backup_dirs`] for handler call sites —
+/// offloads the `create_dir_all`/`write` syscalls to `spawn_blocking` so an
+/// export request does not block the tokio worker thread it landed on.
+pub async fn write_to_backup_dirs_async(
+    config: BackupConfig,
+    name: String,
+    content: String,
+) -> std::result::Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(move || write_to_backup_dirs(&config, &name, &content))
+        .await
+        .map_err(|e| format!("export write task panicked: {e}"))?
 }
 
 // ── Background self-maintenance loops ───────────────────────────────────────
