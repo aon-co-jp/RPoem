@@ -40,7 +40,7 @@ Go 编写的 WunderGraph Cosmo 仅在付费方案（Launch / Scale / Enterprise�
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 341 个测试(--all-features 为 359)
+cargo test --workspace          # 342 个测试(--all-features 为 361)
 cargo run -p open-runo-gateway  # 启动 REST + GraphQL 服务
 ```
 
