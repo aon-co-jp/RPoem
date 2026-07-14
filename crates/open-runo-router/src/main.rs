@@ -29,7 +29,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&state),
         config.rate_limit_max_requests,
         config.rate_limit_window_secs as i64,
-    );
+    )
+    .await;
 
     // EDFS (Event-Driven Federated Subscriptions, docs/cosmo-parity.md
     // §4a): opt-in via env vars, unset by default so a single-instance
