@@ -3364,6 +3364,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "open-runo-appserver"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "open-runo-backup"
 version = "0.1.0"
 dependencies = [
@@ -3613,6 +3621,14 @@ name = "open-runo-versionless-api"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "open-runo-view"
+version = "0.1.0"
+dependencies = [
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
