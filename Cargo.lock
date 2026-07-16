@@ -3498,7 +3498,7 @@ dependencies = [
  "deadpool-redis",
  "mongodb",
  "open-runo-core",
- "open-runo-rjson",
+ "open-runo-rustjson",
  "redis",
  "serde",
  "serde_json",
@@ -3538,6 +3538,7 @@ dependencies = [
  "hex",
  "hyper",
  "indexmap 2.2.6",
+ "open-runo-appserver",
  "open-runo-cache",
  "open-runo-core",
  "open-runo-federation",
@@ -3598,14 +3599,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "open-runo-rjson"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "open-runo-router"
 version = "0.1.0"
 dependencies = [
@@ -3652,6 +3645,14 @@ dependencies = [
  "tokio-tungstenite 0.24.0",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "open-runo-rustjson"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

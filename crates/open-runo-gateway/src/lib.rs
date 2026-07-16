@@ -14,6 +14,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod appserver_tenants;
 pub mod graphql_hyper;
 pub mod ssr;
 
