@@ -12,7 +12,7 @@ description = "open-runo GraphQL Gateway: exposes the Schema Registry and Federa
 workspace = true
 
 [dependencies]
-indexmap = "=2.2.6"  # sandbox rustc 1.75対策: 推移依存の最新版がedition2024を要求するため、直接依存として明示しresolverに古い版を強制統一させる
+indexmap = "=2.14.0"  # sandbox rustc 1.75対策: 推移依存の最新版がedition2024を要求するため、直接依存として明示しresolverに古い版を強制統一させる
 open-runo-core             = { workspace = true }
 open-runo-appserver          = { workspace = true }
 open-runo-router            = { workspace = true }
