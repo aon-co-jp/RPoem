@@ -1,17 +1,17 @@
-# PORTING.md — poem-cosmo-tauri お引越しファイル
+# PORTING.md — RPoem お引越しファイル
 
-> このファイル 1 枚で、**どのプロジェクトでも poem-cosmo-tauri を導入・移設**できます。
+> このファイル 1 枚で、**どのプロジェクトでも RPoem を導入・移設**できます。
 > open-e-gov / OpenRedmine / OpenWordPress など新プロジェクトのリポジトリに
 > このファイルをコピーして、上から順に進めてください。
 >
 > 対象バージョン: workspace 0.1.0（18 クレート / 335 テスト、--all-features で353）
-> 最終更新: 2026-07-11
+> 最終更新: 2026-07-20(リポジトリ名を`poem-cosmo-tauri`→`RPoem`に統一)
 
 ---
 
-## 1. poem-cosmo-tauri とは（30 秒版）
+## 1. RPoem とは（30 秒版）
 
-**poem-cosmo-tauri** は、以下の3要素をすべて外部パッケージに依存せず
+**RPoem** は、以下の3要素をすべて外部パッケージに依存せず
 自前で一から開発・再現し、その連携をスムーズに行うことで WEB サイト/
 WEB アプリ開発を効率的に行えるようにする**フレームワーク/ミドルウェア**
 です(2026-07-11、ユーザーによる最終定義)。
@@ -77,7 +77,7 @@ open-runo-cache    = { path = "../open-runo/crates/open-runo-cache" }
 open-runo-security = { path = "../open-runo/crates/open-runo-security" }
 
 # GitHub 公開後は git 依存でも可
-# open-runo-router = { git = "https://github.com/aon-co-jp/poem-cosmo-tauri" }
+# open-runo-router = { git = "https://github.com/aon-co-jp/RPoem" }
 
 tokio = { version = "1.40", features = ["full"] }
 hyper = { version = "1.10", features = ["full"] }
