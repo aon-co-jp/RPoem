@@ -1,9 +1,9 @@
-# poem-cosmo-tauri
+# RPoem
 
 **Rust 製 GraphQL Federation プラットフォーム(Poem/Tauri/Cosmoは非依存・互換自前実装)**
 — WunderGraph Cosmo の有料版機能を OSS・Pure Rust で(Cosmo自体は着想元のみで実装非依存)。独自の自己学習 AI 搭載（外部 LLM 契約不要）。
 
-> poem-cosmo-tauri は [open-runo](https://github.com/aon-co-jp/open-runo) を正本として
+> RPoem は [open-runo](https://github.com/aon-co-jp/open-runo) を正本として
 > 分岐した poem-runo をさらにリネーム・統合した後継リポジトリです。名称は歴史的
 > 経緯によるもので、現在の実体は Poem・Tauri・WunderGraph Cosmo のいずれにも
 > パッケージとして直接依存せず、それぞれの機能・API 形状には互換性を保ちつつ
@@ -11,7 +11,7 @@
 > **Poemとブラウザ内実行機能搭載も含めたTauri両方共に、一から開発して完全互換で
 > 再現する。** open-runo と本リポジトリを同時並行で開発しています。
 
-[![CI](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/poem-cosmo-tauri/actions/workflows/ci.yml)
+[![CI](https://github.com/aon-co-jp/RPoem/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/RPoem/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
 ![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)
 ![Tests](https://img.shields.io/badge/tests-361%20passed-brightgreen)
@@ -24,7 +24,7 @@
 
 ---
 
-## poem-cosmo-tauri とは
+## RPoem とは
 
 REST API の乱立(BFF 地獄・`/v1 /v2` のバージョン爆発・エンドポイント管理の崩壊)を
 **GraphQL Federation + VersionlessAPI** で根本解決するプラットフォームです。
@@ -40,14 +40,14 @@ tokio/hyper で自前実装しています。
        └───────GraphQL (POST /graphql) + REST───────────┘
                            │
                  ┌───────────────────┐        PostgreSQL :5432
-                 │  poem-cosmo-tauri │──DUAL──┤
+                 │  RPoem │──DUAL──┤
                  │  (このリポジトリ)  │        aruaru-db  :5433
                  └───────────────────┘        Redis / ClickHouse
 ```
 
 ## 機能マトリクス
 
-| 機能 | Cosmo 無料版 | Cosmo 有料版 | **poem-cosmo-tauri** |
+| 機能 | Cosmo 無料版 | Cosmo 有料版 | **RPoem** |
 |------|:---:|:---:|:---:|
 | GraphQL Federation / Schema Registry | ✅ | ✅ | ✅ |
 | GraphQL Subscriptions (WebSocket) | ✅ | ✅ | ✅ |
@@ -61,7 +61,7 @@ tokio/hyper で自前実装しています。
 | マルチグラフ / namespace | — | ✅ | ✅ **無料** |
 | リクエスト数・チーム人数・保持期間の制限 | あり | 緩和 | **一切なし** |
 
-### poem-cosmo-tauri だけの機能
+### RPoem だけの機能
 
 - 🧠 **自己学習 AI**（外部 LLM・有料契約ゼロ）— HTML ページキャッシュの
   自動判定（URL パターン汎化によるコールドスタート予測）、レンダリング
@@ -99,8 +99,8 @@ tokio/hyper で自前実装しています。
 ## クイックスタート
 
 ```bash
-git clone https://github.com/aon-co-jp/poem-cosmo-tauri
-cd poem-cosmo-tauri
+git clone https://github.com/aon-co-jp/RPoem
+cd RPoem
 cargo test --workspace          # 342 テスト(--all-features で361、tls/acme feature込み)
 cargo run -p open-runo-gateway  # REST + GraphQL 統合サーバー起動(poem-free)
 ```
@@ -117,7 +117,7 @@ curl -X POST http://localhost:8080/api/schemas \
      -d '{"service_name":"users","sdl":"type User { id: ID! }"}'
 ```
 
-### poem-cosmo-tauri 独自機能を試す(Poem/Tauri 再現の実例)
+### RPoem 独自機能を試す(Poem/Tauri 再現の実例)
 
 `open-runo` には無い、このリポジトリ固有の「Poem を一から再現する」目標
 (§0.5 参照)の成果を実際に動かして確認できます。
@@ -224,7 +224,7 @@ feature フラグで選択。「マネージド版でしか使えない機能」
 `aruaru-db`・`open-raid-z` を組み合わせ、3Dオンラインゲームの課金アイテム・
 金融/証券データをネットワーク上で紛失させないための目標アーキテクチャ
 (通信層四重化・DB書き込み四重化、2026-07-11改訂)がある。
-poem-cosmo-tauri は Federation Gateway/バックエンド側として関与しうる
+RPoem は Federation Gateway/バックエンド側として関与しうる
 (詳細は [open-web-server](https://github.com/aon-co-jp/open-web-server) の
 `README.md`/`CLAUDE.md` を参照)。
 

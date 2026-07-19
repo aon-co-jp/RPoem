@@ -1,4 +1,4 @@
-# poem-cosmo-tauri
+# RPoem
 
 **GraphQL Federation platform built with Rust** (Poem/Tauri/Cosmo are never
 direct dependencies — their functionality is hand-implemented for
@@ -62,8 +62,8 @@ are implemented here in pure Rust — **entirely free, as OSS**.
 ## Quick start
 
 ```bash
-git clone https://github.com/aon-co-jp/poem-cosmo-tauri
-cd poem-cosmo-tauri
+git clone https://github.com/aon-co-jp/RPoem
+cd RPoem
 cargo test --workspace          # 342 tests (361 with --all-features)
 cargo run -p open-runo-gateway  # start the combined REST + GraphQL server (poem-free)
 ```
@@ -80,7 +80,7 @@ curl -X POST http://localhost:8080/api/schemas \
      -d '{"service_name":"users","sdl":"type User { id: ID! }"}'
 ```
 
-### Trying poem-cosmo-tauri-specific features (the Poem/Tauri reimplementation, in practice)
+### Trying RPoem-specific features (the Poem/Tauri reimplementation, in practice)
 
 These are unique to this repo, not `open-runo` (see §0.5 of
 `docs/HYBRID_NETWORK_ARCHITECTURE.md`) -- they're the concrete output of
@@ -154,7 +154,7 @@ There is a target architecture combining `open-web-server` with this
 repository, `open-runo`, PostgreSQL, `aruaru-db`, and `open-raid-z`,
 designed to prevent network loss of paid-item and financial/securities
 data in 3D online games (quadruple-redundant transport and quadruple-
-redundant DB writes, revised 2026-07-11). poem-cosmo-tauri can participate
+redundant DB writes, revised 2026-07-11). RPoem can participate
 as a Federation Gateway / backend within that architecture (see
 [open-web-server](https://github.com/aon-co-jp/open-web-server)'s
 `README.md`/`CLAUDE.md` for the full picture).
