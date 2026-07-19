@@ -52,7 +52,7 @@ surrealdb  = ["dep:surrealdb"]             # SurrealDB (Rust ネイティブ)
 redis      = ["dep:redis", "dep:deadpool-redis"]  # Redis / KeyDB / DragonflyDB
 clickhouse = ["dep:clickhouse"]            # ClickHouse 列指向分析
 
-# RustJSON (石塚正浩・aon CEO 発案の独自JSON拡張仕様、Phase 1: インメモリの
+# RustJSON (ユーザー発案の独自JSON拡張仕様、Phase 1: インメモリの
 # 実証実装) — value/table.rs参照。開発コストが軽い(open-runo-rustjsonは
 # serde_json+thiserrorのみ)ため既定オフだが依存関係自体はごく薄い。
 rustjson      = []
