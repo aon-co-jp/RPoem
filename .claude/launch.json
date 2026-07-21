@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "open-runo-router",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": ["run", "-p", "open-runo-router"],
+      "port": 8080
+    }
+  ]
+}
