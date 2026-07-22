@@ -1,0 +1,18 @@
+[package]
+name = "open-runo-poem-compat"
+version.workspace = true
+edition.workspace = true
+description = "外部プロジェクトがpoemクレートの代わりにRPoemを直接利用できるようにする、poem互換API面(Route::at/get/post/Server::new/Json等)の薄いファサード。実体はopen-runo-router::hyper_compat(tokio/hyper)のラッパーであり、poem本体には依存しない。"
+
+[dependencies]
+open-runo-router = { path = "../open-runo-router" }
+hyper = { version = "1.10", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+tokio = { workspace = true }
+bytes = "1.9"
+http-body-util = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

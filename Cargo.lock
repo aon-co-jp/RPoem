@@ -3599,6 +3599,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "open-runo-poem-compat"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "open-runo-router",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "open-runo-router"
 version = "0.1.0"
 dependencies = [
