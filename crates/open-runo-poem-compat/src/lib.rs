@@ -20,18 +20,36 @@
 //!   規模で検証されるまでは、あくまで「互換API面の第一歩」の位置づけ。
 
 use bytes::Bytes;
-use open_runo_router::hyper_compat::{self, Params};
+pub use open_runo_router::hyper_compat::Params;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 pub use hyper::Method;
 pub use hyper::StatusCode;
+/// 逃げ道として`hyper_compat`自体も再公開する——CORS/gzip/WebSocket等、
+/// 本ファサードがまだ配線していない機能は、当面この経路で直接使える。
+pub use open_runo_router::hyper_compat;
+pub use open_runo_router::middleware_hyper;
 
 pub type Request = hyper_compat::Request;
 pub type Response = hyper_compat::Response;
 pub type Handler = hyper_compat::Handler;
 pub type BoxFuture<T> = hyper_compat::BoxFuture<T>;
+
+pub fn empty_status(status: StatusCode) -> Response {
+    hyper_compat::empty_status(status)
+}
+
+pub fn empty_status_ok() -> Response {
+    hyper_compat::empty_status(StatusCode::OK)
+}
+
+/// poemのWebSocketハンドラ相当。実体は`hyper_compat::websocket_handler`
+/// (RFC 6455手書き実装)への直接委譲——本クレートは独自実装を持たず、
+/// 既存機能をそのまま`get(websocket_handler(f))`という書き味で使える
+/// ようにするだけ。
+pub use hyper_compat::{websocket_handler, WsMessage};
 
 /// poemの`Route::new().at(path, get(handler).post(handler2))`と同じ
 /// 書き味を提供する、`hyper_compat::Router`のビルダーラッパー。
@@ -51,6 +69,29 @@ impl Route {
     /// 呼び出し側が1パス1回で組み立てる前提とする——正直な簡略化)。
     pub fn at(mut self, path: &str, method_router: MethodRouter) -> Self {
         self.entries.push((path.to_string(), method_router));
+        self
+    }
+
+    /// poemの`.with(Cors::new())`相当。登録済みの全ハンドラを
+    /// `middleware_hyper::with_cors`で包む(`build()`が別途行う
+    /// `OPTIONS`プリフライトの自動登録とは独立した処理——プリフライト
+    /// 応答自体もCORSヘッダを付けたいので両方必要)。
+    pub fn with_cors(mut self) -> Self {
+        for (_, mr) in self.entries.iter_mut() {
+            for (_, handler) in mr.handlers.iter_mut() {
+                *handler = middleware_hyper::with_cors(handler.clone());
+            }
+        }
+        self
+    }
+
+    /// poemの`.with(Compression::new())`相当(gzip、`Accept-Encoding`次第)。
+    pub fn with_compression(mut self) -> Self {
+        for (_, mr) in self.entries.iter_mut() {
+            for (_, handler) in mr.handlers.iter_mut() {
+                *handler = middleware_hyper::with_compression(handler.clone());
+            }
+        }
         self
     }
 
@@ -216,6 +257,18 @@ mod tests {
             .body(http_body_util::Empty::<Bytes>::new())
             .unwrap();
         sender.send_request(req).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn with_cors_actually_adds_access_control_headers_over_real_tcp() {
+        let app = Route::new()
+            .at("/cors-ping", get(handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::OK) })))
+            .with_cors();
+        let (addr, handle) = spawn(app).await;
+        let resp = send(addr, Method::GET, "/cors-ping").await;
+        assert_eq!(resp.status(), SC::OK);
+        assert!(resp.headers().get("access-control-allow-origin").is_some());
+        handle.abort();
     }
 
     #[tokio::test]

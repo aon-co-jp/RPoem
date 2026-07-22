@@ -3,6 +3,7 @@ members = [
     "crates/open-runo-core",
     "crates/open-runo-router",
     "crates/open-runo-poem-compat",
+    "crates/open-runo-poem-compat-macro",
     "crates/open-runo-federation",
     "crates/open-runo-schema-registry",
     "crates/open-runo-ai-routing",
