@@ -89,6 +89,34 @@ pub trait DbBackend: Send + Sync + std::fmt::Debug {
         )))
     }
 
+    /// VersionLessAPI + Git-on-SQL hybrid write side: write `value` and, on
+    /// Git-on-SQL-backed stores, atomically create a real commit for it,
+    /// returning the resulting commit ID.
+    ///
+    /// **正直な開示(2026-07-22発見)**: これまで`put()`は`AruaruDbBackend`
+    /// 上でも素の`INSERT ... ON CONFLICT`のみを実行し、aruaru-dbが実際に
+    /// コミット履歴を刻むには別途明示的な`SELECT aruaru_commit(message)`
+    /// 呼び出しが必要という事実を、この経路のどのハンドラも呼んでいな
+    /// かった(`open-runo-db/tests/aruaru_as_of_commit.rs`のテストコード
+    /// では手動で`aruaru_commit`を呼んでいたが、本番HTTPハンドラ
+    /// (`handlers_hyper::db_put_handler`)は一度も呼んでいなかった)。
+    /// つまり、通常のHTTP書き込み経路を通る限り、`AruaruDbBackend`を
+    /// 使っていても実際にはGit-on-SQLのコミット履歴が一切作られておらず、
+    /// 「書き込み側は既に機能済み」というこれまでの記録は不正確だった。
+    /// この新メソッドはその欠落を埋める——デフォルト実装は既存の`put`と
+    /// 同じ挙動を保ちつつ、コミットIDという概念自体を持たないバックエンド
+    /// では正直に`None`を返す(存在しないコミットを捏造しない)。
+    async fn put_versioned(
+        &self,
+        table: &str,
+        key: &str,
+        value: &str,
+        _commit_message: &str,
+    ) -> Result<Option<String>> {
+        self.put(table, key, value).await?;
+        Ok(None)
+    }
+
     /// RustJSON server-side partial extraction (Phase 2, 2026-07-14): fetch
     /// just `path` (see `open_runo_rustjson::extract_path`'s doc comment for
     /// the path language) out of `(table, key)`'s value, instead of the
@@ -589,6 +617,34 @@ pub mod aruaru {
                     .map_err(|e| AppError::Internal(format!("aruaru-db get_at_commit: decode: {e}")))?),
                 None => None,
             })
+        }
+
+        /// `put`のINSERTに続けて`SELECT aruaru_commit(message)`を実行し、
+        /// 実際にGit-on-SQLのコミット履歴へ反映してから、確定した
+        /// コミットIDを呼び出し元へ返す。以前は`put`単体しか呼ばれておらず
+        /// (このモジュールdoc冒頭の「正直な開示」参照)、この経路を通る
+        /// までは実際に誰も`aruaru_commit`を呼んでいなかった。
+        async fn put_versioned(
+            &self,
+            table: &str,
+            key: &str,
+            value: &str,
+            commit_message: &str,
+        ) -> Result<Option<String>> {
+            self.put(table, key, value).await?;
+            use sqlx::Row;
+            let message_esc = sql_escape(commit_message);
+            let mut rows = sqlx::raw_sql(&format!("SELECT aruaru_commit('{message_esc}')"))
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| AppError::Internal(format!("aruaru-db put_versioned: aruaru_commit: {e}")))?;
+            let row = rows.pop().ok_or_else(|| {
+                AppError::Internal("aruaru-db put_versioned: aruaru_commit returned no row".to_string())
+            })?;
+            let commit_id = row
+                .try_get::<String, _>(0)
+                .map_err(|e| AppError::Internal(format!("aruaru-db put_versioned: decode commit_id: {e}")))?;
+            Ok(Some(commit_id))
         }
     }
 }
