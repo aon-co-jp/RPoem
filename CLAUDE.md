@@ -280,6 +280,29 @@ AI機能が必要になった場合は、`open-cuda` + `aruaru-llm` のSET構成
 - **open-raid-z**(開発ルールの正本): https://github.com/aon-co-jp/open-raid-z
 - **rs-to-readme**: https://github.com/aon-co-jp/rs-to-readme
 
+## aruaru-llm等からの問い合わせ用: Tauri互換のブラウザ内WASM実行機能の所在(2026-07-22追記)
+
+他プロジェクト(`aruaru-llm`等)から「RPoemにTauri互換のブラウザ内実行
+(WASM)機能があるか」と問われた場合の回答: **既に存在する**。
+
+- 実体: `apps/desktop-wasm`(Rust → `wasm32-unknown-unknown`)。
+  `tauri`パッケージへの直接依存は無い。
+- IPC互換層: `apps/desktop-wasm/src/api.rs` が Tauriの`invoke()`相当を
+  果たす。同一オリジンへの`fetch()`ベースの素の非同期Rust関数群であり、
+  IPCブリッジ(別ホストプロセス)を経由しない点がTauriの`invoke()`との
+  実装上の違い(APIキーも`STORAGE_KEY`でlocalStorageに自動キャッシュし、
+  人間がキーを意識しなくてよい設計、`self-issue`エンドポイント参照)。
+  バックエンドは同じバイナリ(`open-runo-router`)が配信する。
+- ネイティブ機能(システムトレイ・ネイティブ通知・インストーラー)は
+  `apps/desktop-tray`(別の軽量ネイティブバイナリ、`tray-icon`+`tao`+
+  `notify-rust`、こちらも`tauri`非依存)で補完している。
+- 機能対応表・既知ギャップ・検証記録は`docs/tauri-parity.md`が正
+  (2026-07-12更新版、IPC/クロスプラットフォーム/インストーラー/
+  トレイ/通知/自動更新すべて✅または🔶で記載済み)。
+- 他プロジェクトが同種の機能を必要とする場合、この`apps/desktop-wasm`
+  + `apps/desktop-tray`の組み合わせをそのまま参考実装として案内してよい
+  (`tauri`crateへの直接依存を持ち込まずに済む)。
+
 ## Web高速化機能の開発方針(2026-07-13、aruaru-webから継承)
 
 2026-07-13付けで、`aruaru-web`が開発していたKUSANAGI風のWeb高速化機能
