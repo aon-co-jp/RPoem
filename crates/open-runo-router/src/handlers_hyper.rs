@@ -424,6 +424,122 @@ pub fn db_put_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
     })
 }
 
+/// リクエスト側 `open-web-server-ledger::MutationRequest` と同じJSON形状
+/// (フィールド名・型のみ一致、Rust型としては別リポジトリのため共有しない
+/// ——`open-web-server`側と同じ「OPEN_RUNO_ENDPOINT + JSON over HTTPのみ、
+/// Rustクレート依存は共有しない」既存方針を踏襲)。
+#[derive(serde::Deserialize)]
+struct MutationRequestWire {
+    idempotency_key: String,
+    #[allow(dead_code)]
+    account_id: String,
+    target: String,
+    payload: serde_json::Value,
+    #[allow(dead_code)]
+    requested_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// `open-web-server-ledger::MutationReceipt`と同じJSON形状。
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct MutationReceiptWire {
+    idempotency_key: String,
+    committed: bool,
+    db_commit_id: Option<String>,
+    committed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+const MUTATION_RECEIPTS_TABLE: &str = "__mutation_receipts";
+
+/// `POST /internal/db/mutate` — `open-web-server-ledger::Ledger::commit()`
+/// が`forward_once()`で叩く先。2026-07-22時点まで、この経路はRPoem側に
+/// 一切実装されておらず、`open-web-server`側の設計(4層4重通信・
+/// VersionlessAPI+Git-on-SQLハイブリッド)が謳う「open-runo Gateway経由で
+/// aruaru-dbにコミットする」という3ホップの最終段は、実際には**一度も
+/// 接続されたことがなかった**——これがその接続を実装した箇所。
+///
+/// 冪等性は`__mutation_receipts`テーブルへ`idempotency_key`をキーとして
+/// `MutationReceiptWire`をそのまま保存することで実現する(`Ledger`側の
+/// WAL冪等性チェックとは独立した、受信側でのもう一段の防御——同じ
+/// `idempotency_key`で再送されても実データへの二重書き込みを避ける)。
+///
+/// **正直な開示・スコープ**: `open-web-server-ledger::Ledger::commit()`の
+/// 実クライアントコード(`forward_once`)は現状このエンドポイントへ
+/// 一切の認証ヘッダを送らない。そのため本ハンドラも(他の`/api/*`系
+/// ハンドラと異なり)セッション認証を要求しない——`/internal/`という
+/// 命名通り、信頼済みの内部ネットワーク経由でのみ到達可能という前提を
+/// 置いている(本番運用では、この経路自体をmTLS/ネットワーク分離で
+/// 保護するか、`Ledger`側に認証ヘッダ送信を追加する必要がある。今回は
+/// 実際に存在するクライアント実装の挙動に合わせて実装したのみで、
+/// 認証強化は次回以降の課題として明記する)。
+pub fn db_mutate_handler(state: Arc<AppState>) -> Handler {
+    Arc::new(move |req, _params| {
+        let state = Arc::clone(&state);
+        Box::pin(async move {
+            let body: MutationRequestWire = match read_json_body(req).await {
+                Ok(v) => v,
+                Err(resp) => return resp,
+            };
+
+            // 冪等性チェック: 同じキーが既に処理済みならそのまま返す。
+            match state.db.get(MUTATION_RECEIPTS_TABLE, &body.idempotency_key).await {
+                Ok(Some(existing_raw)) => {
+                    if let Ok(existing) = serde_json::from_str::<MutationReceiptWire>(&existing_raw) {
+                        return json_response(StatusCode::OK, &existing);
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    return json_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &serde_json::json!({ "error": e.to_string() }),
+                    )
+                }
+            }
+
+            let serialized = match serde_json::to_string(&body.payload) {
+                Ok(s) => s,
+                Err(e) => {
+                    return json_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &serde_json::json!({ "error": format!("serialize payload: {e}") }),
+                    )
+                }
+            };
+
+            let commit_message = format!("mutation {} on {}", body.idempotency_key, body.target);
+            let db_commit_id = match state
+                .db
+                .put_versioned(&body.target, &body.idempotency_key, &serialized, &commit_message)
+                .await
+            {
+                Ok(commit_id) => commit_id,
+                Err(e) => {
+                    return json_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &serde_json::json!({ "error": e.to_string() }),
+                    )
+                }
+            };
+
+            let receipt = MutationReceiptWire {
+                idempotency_key: body.idempotency_key.clone(),
+                committed: true,
+                db_commit_id,
+                committed_at: Some(chrono::Utc::now()),
+            };
+
+            // 受領票の保存はベストエフォート(補助的な冪等性キャッシュ
+            // ——実データは上の`put_versioned`で既に確定済みのため、この
+            // 書き込みが失敗しても権威パスの成否には影響させない)。
+            if let Ok(receipt_json) = serde_json::to_string(&receipt) {
+                let _ = state.db.put(MUTATION_RECEIPTS_TABLE, &body.idempotency_key, &receipt_json).await;
+            }
+
+            json_response(StatusCode::OK, &receipt)
+        })
+    })
+}
+
 /// DELETE /api/db/:table/:key — poem-free port of `handlers::db::db_delete`.
 pub fn db_delete_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
     Arc::new(move |req, params| {
@@ -4223,5 +4339,93 @@ mod tests {
         let n = stream.read(&mut buf).await.expect("read response");
         let response = String::from_utf8_lossy(&buf[..n]);
         assert!(response.starts_with("HTTP/1.1 401"), "expected 401, got: {response}");
+    }
+
+    /// `POST /internal/db/mutate` — `open-web-server-ledger::Ledger`が
+    /// 呼ぶ先。認証ヘッダ無しで実際に200・実データが書き込まれる
+    /// (`GET /api/db/:table/:key`で確認可能)ことを実TCP経由で検証する。
+    #[tokio::test]
+    async fn db_mutate_writes_the_payload_and_returns_a_receipt() {
+        let state = Arc::new(AppState::new());
+        let guardian = guardian(&state);
+        let router = Router::new()
+            .route(Method::POST, "/internal/db/mutate", db_mutate_handler(Arc::clone(&state)))
+            .route(Method::GET, "/api/db/:table/:key", db_get_handler(Arc::clone(&state), Arc::clone(&guardian)));
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(format!("http://{addr}/internal/db/mutate"))
+            .json(&serde_json::json!({
+                "idempotency_key": "mutate-key-1",
+                "account_id": "user-1",
+                "target": "items",
+                "payload": {"item_id": "sword", "quantity": 1},
+                "requested_at": chrono::Utc::now().to_rfc3339(),
+            }))
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        let receipt: serde_json::Value = resp.json().await.expect("receipt body should parse");
+        assert_eq!(receipt["committed"], serde_json::json!(true));
+        assert_eq!(receipt["idempotency_key"], serde_json::json!("mutate-key-1"));
+        // InMemoryBackendはコミット概念を持たないため正直にNoneが返る。
+        assert_eq!(receipt["db_commit_id"], serde_json::json!(null));
+
+        // 実データが本当に書き込まれていることを、通常のGET経路で確認する。
+        let get_resp = client
+            .get(format!("http://{addr}/api/db/items/mutate-key-1"))
+            .header("x-api-key", "test-key")
+            .send()
+            .await
+            .expect("get should succeed");
+        assert_eq!(get_resp.status(), reqwest::StatusCode::OK);
+        let stored: serde_json::Value = get_resp.json().await.expect("get body should parse");
+        assert_eq!(stored["value"]["item_id"], serde_json::json!("sword"));
+    }
+
+    /// 同じ`idempotency_key`での再送は、実データへ二重書き込みせず、
+    /// 最初のコミット結果をそのまま返す(受信側での冪等性の実証)。
+    #[tokio::test]
+    async fn db_mutate_is_idempotent_across_retries() {
+        let state = Arc::new(AppState::new());
+        let router = Router::new().route(Method::POST, "/internal/db/mutate", db_mutate_handler(Arc::clone(&state)));
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
+
+        let client = reqwest::Client::new();
+        let body = serde_json::json!({
+            "idempotency_key": "mutate-key-retry",
+            "account_id": "user-1",
+            "target": "items",
+            "payload": {"item_id": "shield", "quantity": 1},
+            "requested_at": chrono::Utc::now().to_rfc3339(),
+        });
+
+        let first = client
+            .post(format!("http://{addr}/internal/db/mutate"))
+            .json(&body)
+            .send()
+            .await
+            .expect("first request should succeed")
+            .json::<serde_json::Value>()
+            .await
+            .expect("first receipt should parse");
+
+        let second = client
+            .post(format!("http://{addr}/internal/db/mutate"))
+            .json(&body)
+            .send()
+            .await
+            .expect("retry request should succeed")
+            .json::<serde_json::Value>()
+            .await
+            .expect("retry receipt should parse");
+
+        assert_eq!(first["committed_at"], second["committed_at"], "retry must return the original receipt, not a fresh one");
     }
 }

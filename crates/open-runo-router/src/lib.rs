@@ -209,6 +209,11 @@ pub async fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_lim
         )
         .route(
             Method::POST,
+            "/internal/db/mutate",
+            wrap(handlers_hyper::db_mutate_handler(Arc::clone(&state))),
+        )
+        .route(
+            Method::POST,
             "/api/cache/purge",
             wrap(handlers_hyper::purge_page_handler(Arc::clone(&state), Arc::clone(&page_cache), Arc::clone(&guardian))),
         )
