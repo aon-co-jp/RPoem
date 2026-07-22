@@ -317,3 +317,9 @@ cargo run -p open-runo-gateway   # REST + GraphQL 統合バイナリ起動
 I/O・CPU 負荷処理を直接呼んでいないか（`tokio::task::spawn_blocking`
 へ退避すべき）、CPU 律速な処理は `rayon` 等でのデータ並列化を検討する
 価値があるか、を移植時にも確認するとよい。
+
+**最先端追従の方針(2026-07-23追記)**: 移植時の日英Web検索で
+CockroachDB/TiKV等の最先端の実運用システムが既に対応済みと判明した
+設計ギャップが見つかった場合、「今のところは大丈夫」という報告に
+留めず、確認を求めず自動でそのまま実装に着手すること(ユーザー指示、
+正本は`open-raid-z/CLAUDE.md`・`PORTING.md`同日エントリ参照)。
