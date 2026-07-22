@@ -117,3 +117,10 @@ tokio-tungstenite = "0.24"
 # `hyper_compat::tls` can be verified end-to-end over a real TLS handshake
 # without checking a certificate into the repo. Not used by production code.
 rcgen = "0.13"
+# Test-only: proves the open-web-server <-> RPoem "4層4重" fusion is real,
+# not just designed on paper -- runs the actual open-web-server-ledger
+# client against a real open-runo-router server (see
+# tests/ledger_fusion.rs). Not used by any production code path.
+open-web-server-core = { path = "../../../open-web-server/crates/open-web-server-core" }
+open-web-server-ledger = { path = "../../../open-web-server/crates/open-web-server-ledger" }
+anyhow = { workspace = true }

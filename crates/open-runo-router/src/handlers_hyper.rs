@@ -531,6 +531,26 @@ pub fn db_mutate_handler(state: Arc<AppState>) -> Handler {
             // 受領票の保存はベストエフォート(補助的な冪等性キャッシュ
             // ——実データは上の`put_versioned`で既に確定済みのため、この
             // 書き込みが失敗しても権威パスの成否には影響させない)。
+            //
+            // **正直な既知の限界(2026-07-23、Web検索で裏取り)**: 2026年
+            // 時点の決済API設計のベストプラクティスは「冪等キーの記録と
+            // 実データ書き込みを同一トランザクションでアトミックに
+            // コミットする」ことを求める
+            // (https://notes.sohag.pro/idempotency-keys-and-the-immutable-audit-log)。
+            // 本実装はこの理想形ではない——`put_versioned`(実データ書き込み+
+            // コミット)とこの受領票キャッシュ書き込みは**2つの別々の
+            // `put`呼び出し**であり、`DbBackend`トレイト自体が複数キーを
+            // 跨ぐトランザクションを持たないため、両者を1つの原子的操作に
+            // することは今回のスコープでは実現していない。実際に起こり得る
+            // 障害: この2つの書き込みの間でプロセスが落ちると、実データは
+            // 確定済みだが受領票キャッシュが欠落し、同一idempotency_keyの
+            // 再送が(冪等キャッシュの短絡が効かず)`put_versioned`を
+            // もう一度実行してしまう——結果として実データは同じ値で
+            // 上書きされ実害は無いが、aruaru-db上には**重複したコミットが
+            // 1件余分に残る**(二重課金にはならないが、コミット履歴が
+            // 汚れる)。この限界を解消するには`DbBackend`側に複数キーの
+            // トランザクションAPIを追加する必要があり、次回以降の課題
+            // として明記する。
             if let Ok(receipt_json) = serde_json::to_string(&receipt) {
                 let _ = state.db.put(MUTATION_RECEIPTS_TABLE, &body.idempotency_key, &receipt_json).await;
             }
