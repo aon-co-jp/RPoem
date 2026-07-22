@@ -3606,10 +3606,20 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "open-runo-poem-compat-macro",
  "open-runo-router",
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "open-runo-poem-compat-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

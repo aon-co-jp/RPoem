@@ -1,0 +1,13 @@
+[package]
+name = "open-runo-poem-compat-macro"
+version.workspace = true
+edition.workspace = true
+description = "open-runo-poem-compatの#[handler]属性マクロ(poemの#[handler]と同じ書き味で、ハンドラ関数をHandler値として直接ルーティングに渡せるようにする)"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

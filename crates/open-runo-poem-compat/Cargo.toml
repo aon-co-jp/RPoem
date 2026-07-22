@@ -16,3 +16,4 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+open-runo-poem-compat-macro = { path = "../open-runo-poem-compat-macro" }
