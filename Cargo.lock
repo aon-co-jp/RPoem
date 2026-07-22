@@ -3905,6 +3905,7 @@ dependencies = [
  "open-runo-security",
  "open-web-server-core",
  "open-web-server-ledger",
+ "open-web-server-wire",
  "poem",
  "rcgen",
  "redis",

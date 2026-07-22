@@ -74,6 +74,11 @@ pub struct AppState {
     /// or billing (see `open_runo_observability::request_metrics` doc
     /// comment).
     pub request_metrics: Arc<RequestMetrics>,
+    /// UDP-IP冗長経路(即時通知)の受信カウンタ(`udp_notice.rs`)。常に
+    /// 存在するが、`OPEN_RUNO_UDP_NOTICE_BIND`未設定ならリスナー自体が
+    /// 起動しないため増えないだけ(他の`Option`系フィールドと同じ既定
+    /// オフの流儀)。
+    pub udp_notice_stats: Arc<crate::udp_notice::NoticeStats>,
 }
 
 impl AppState {
@@ -90,6 +95,7 @@ impl AppState {
             acme_challenges: Arc::new(ChallengeStore::new()),
             edfs_publish: Arc::new(Mutex::new(None)),
             request_metrics: default_request_metrics(),
+            udp_notice_stats: Arc::new(crate::udp_notice::NoticeStats::default()),
         }
     }
 
@@ -106,6 +112,7 @@ impl AppState {
             acme_challenges: Arc::new(ChallengeStore::new()),
             edfs_publish: Arc::new(Mutex::new(None)),
             request_metrics: default_request_metrics(),
+            udp_notice_stats: Arc::new(crate::udp_notice::NoticeStats::default()),
         }
     }
 

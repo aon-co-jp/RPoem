@@ -33,6 +33,12 @@ sha2 = { workspace = true }
 sha1 = { workspace = true }
 hex = { workspace = true }
 open-runo-db               = { workspace = true }
+# UDP-IP冗長経路(即時通知/advance notice)の受信側。送信側
+# (open-web-server-ledger)は既に実装・テスト済みだったが、実際に
+# listenして消費する側がこのエコシステムのどこにも存在しなかった
+# (2026-07-23発見、`udp_notice.rs`のモジュールdoc参照)。
+open-web-server-wire = { path = "../../../open-web-server/crates/open-web-server-wire" }
+anyhow = { workspace = true }
 poem = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -80,12 +86,11 @@ rcgen = { version = "0.13", optional = true }
 # process. Reuses the same `redis` version open-runo-cache's
 # `redis-backend` feature already depends on.
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
-anyhow = { workspace = true, optional = true }
 
 [features]
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
 acme = ["tls", "dep:ring", "dep:reqwest", "dep:rcgen"]
-edfs = ["dep:redis", "dep:anyhow"]
+edfs = ["dep:redis"]
 # Multi-instance shared rate limiting (docs/deployment-scaling.md's known
 # gap: rate-limit budgets are per-instance in-memory otherwise). Off by
 # default; enabling this alone doesn't change behavior unless
@@ -123,4 +128,3 @@ rcgen = "0.13"
 # tests/ledger_fusion.rs). Not used by any production code path.
 open-web-server-core = { path = "../../../open-web-server/crates/open-web-server-core" }
 open-web-server-ledger = { path = "../../../open-web-server/crates/open-web-server-ledger" }
-anyhow = { workspace = true }
