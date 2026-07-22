@@ -40,6 +40,7 @@ pub mod middleware_hyper;
 pub mod openapi;
 pub mod session;
 pub mod state;
+pub mod udp_notice;
 pub mod validation;
 
 use keyring::{GuardianConfig, KeyGuardian};
@@ -91,6 +92,12 @@ pub async fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_lim
         Arc::clone(&state.request_metrics),
         std::time::Duration::from_secs(30),
     );
+
+    // UDP-IP冗長経路(即時通知)の受信リスナー。`OPEN_RUNO_UDP_NOTICE_BIND`
+    // 等が未設定なら何もしない(既定オフ、udp_notice.rsのdoc参照)。
+    // 2026-07-23まで、送信側は実装済みなのに受信側がこのエコシステムの
+    // どこにも存在しなかった欠落を埋める。
+    let _ = udp_notice::spawn_from_env(Arc::clone(&state.udp_notice_stats)).await;
 
     let wrap = |h: Handler| -> Handler {
         middleware_hyper::with_static_cache_headers(middleware_hyper::with_compression(
