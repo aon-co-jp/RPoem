@@ -1,15 +1,24 @@
 name: Release
 
+# タグ(例: v0.1.0)をpushすると、Linux(x86_64/aarch64)・Windows(x86_64、
+# Windows Serverも同じバイナリで動作)向けにビルドし、GitHub Releasesへ
+# 添付する(open-web-server側の release.yml と同じ構成、2026-07-23、
+# ユーザー指示「RPoemもopen-web-serverとSETで使用するので同様に」)。
+
 on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch: {}
 
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write
+
 jobs:
-  build-release:
+  build-linux:
     name: build release binaries (${{ matrix.target }})
     strategy:
       fail-fast: false
@@ -22,12 +31,68 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # open-runo-routerはopen-web-server-wire/-core/-ledgerをpath依存
+      # (../../../open-web-server/crates/...)で参照し、それらはさらに
+      # RS-SmartTCPへpath依存する。CI環境(単一リポジトリのみcheckout)
+      # では解決できないため、同じ相対位置(リポジトリルートの1つ上)へ
+      # 両siblingリポジトリをcheckoutする(open-web-server側のv0.1.0
+      # リリースで発覚した問題と同種、2026-07-23)。
+      - name: Checkout sibling path dependencies (open-web-server, RS-SmartTCP)
+        run: |
+          git clone --depth=1 https://github.com/aon-co-jp/open-web-server.git ../open-web-server
+          git clone --depth=1 https://github.com/aon-co-jp/RS-SmartTCP.git ../RS-SmartTCP
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked -p open-runo-router --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/open-runo-router dist/open-runo-router
+          cp install.sh dist/install.sh
+          tar -czf open-runo-router-${{ matrix.target }}.tar.gz -C dist open-runo-router install.sh
       - uses: actions/upload-artifact@v4
         with:
           name: open-runo-router-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/open-runo-router
+          path: open-runo-router-${{ matrix.target }}.tar.gz
+
+  build-windows:
+    name: build release binary (Windows x86_64、Windows Server含む)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout sibling path dependencies (open-web-server, RS-SmartTCP)
+        run: |
+          git clone --depth=1 https://github.com/aon-co-jp/open-web-server.git ../open-web-server
+          git clone --depth=1 https://github.com/aon-co-jp/RS-SmartTCP.git ../RS-SmartTCP
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p open-runo-router --target x86_64-pc-windows-msvc
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/x86_64-pc-windows-msvc/release/open-runo-router.exe dist/
+          Copy-Item install.ps1 dist/
+          Compress-Archive -Path dist/* -DestinationPath open-runo-router-windows-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: open-runo-router-windows-x86_64
+          path: open-runo-router-windows-x86_64.zip
+
+  release:
+    name: GitHub Releaseへ添付
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            open-runo-router-x86_64-unknown-linux-gnu/open-runo-router-x86_64-unknown-linux-gnu.tar.gz
+            open-runo-router-aarch64-unknown-linux-gnu/open-runo-router-aarch64-unknown-linux-gnu.tar.gz
+            open-runo-router-windows-x86_64/open-runo-router-windows-x86_64.zip

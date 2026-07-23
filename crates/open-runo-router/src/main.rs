@@ -5,7 +5,7 @@
 //! process, run the `open-runo-gateway` binary instead.
 
 use open_runo_core::Config;
-use open_runo_router::{build_hyper_app, grpc, hyper_compat, state::AppState};
+use open_runo_router::{build_hyper_app, grpc, hyper_compat, state::AppState, udp_notice};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -70,6 +70,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| format!("invalid OPEN_RUNO_GRPC_BIND_ADDR {grpc_bind_addr:?}: {e}"))?;
         let (grpc_bound, _grpc_handle) = grpc::serve_grpc(grpc_addr).await?;
         tracing::info!(bound = %grpc_bound, "open-runo-router gRPC (grpc.health.v1.Health) listening");
+    }
+
+    // UDP-IP冗長経路(即時通知)の受信側。`open-web-server-ledger`側の
+    // 送信(`Ledger::enable_udp_redundant_path`)は2026-07-11から実装
+    // されていたが、この受信リスナー自体(`udp_notice::spawn_from_env`)は
+    // 2026-07-23に実装されたにもかかわらず、この起動シーケンスから一度も
+    // 呼び出されていなかった——「送信側は動くが受信側が実際には起動
+    // しない」という実配線漏れが発覚したため追加(ユーザー指摘、
+    // 2026-07-23)。`OPEN_RUNO_UDP_NOTICE_BIND`等が未設定なら何もしない
+    // (既存のgRPC/EDFSと同じopt-inパターン)。
+    let udp_notice_stats = Arc::new(udp_notice::NoticeStats::default());
+    if let Some((udp_bound, _udp_handle)) = udp_notice::spawn_from_env(Arc::clone(&udp_notice_stats)).await {
+        tracing::info!(bound = %udp_bound, "open-runo-router UDP advance-notice listener started");
     }
 
     handle.await?;
