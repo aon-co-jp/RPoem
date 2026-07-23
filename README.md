@@ -221,6 +221,17 @@ make tray   # apps/desktop-tray/target/release/open-runo-tray(.exe) を生成
 
 詳細は`CLAUDE.md`のHANDOFF(2026-07-23付近)を参照。
 
+## RCosmoとの「Cosmo共通コア」重複整理(2026-07-23追記)
+
+姉妹リポジトリ[RCosmo](https://github.com/aon-co-jp/RCosmo)と共通の
+Cosmoコア(Federation・VersionlessAPI・SCIM・Security・Cache等)が
+実際にどこまで重複しているかを`diff`で調査した結果、共通20クレート中
+**18クレートがbyte-for-byte完全一致**していることを確認した。新規
+`scripts/sync-cosmo-core.sh`(両リポジトリに同一配置)で、この重複状態を
+`check`サブコマンドで機械的に検証できるようにした
+(`push`/`pull`で片方向コピーも可能)。詳細は`PORTING.md`「RPoem⇔RCosmoの
+Cosmo共通コア重複整理」節を参照。
+
 ## デプロイ
 
 同一バイナリが自前サーバー / VPS / AWS / Docker すべてで動きます。

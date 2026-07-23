@@ -345,3 +345,39 @@ RPoemをTomcatのように——Java/Ruby on Rails/PHP+Laravel/Python+FastAPI等
 (Rustに限らない)を`tenant_bridge`/`SharedDispatcher`経由でそのまま
 指せる設計を維持すること——特定言語向けの専用実装を持ち込まない
 (HTTPで統一する既存方針からブレないこと)。
+
+## 12. RPoem ⇔ RCosmo の「Cosmo共通コア」重複整理(2026-07-23)
+
+RCosmoは`docs/HANDOFF.md`の通りRPoemと共通のCosmoコア(Federation・
+VersionlessAPI・SCIM・Security・Cache等)を持つ姉妹リポジトリ。今回、
+実際に両リポジトリの`crates/`配下をファイル単位で`diff`した結果を記録する。
+
+- **調査結果**: 共通20クレートのうち **18クレートが両リポジトリで
+  byte-for-byte完全一致**(`open-runo-ai-routing`/`api-types`/
+  `appserver`/`backup`/`cache`/`cli`/`core`/`feature-flags`/
+  `federation`/`history`/`observability`/`persisted-queries`/
+  `rustjson`/`schema-registry`/`scim`/`security`/`versionless-api`/
+  `view`)。残る`open-runo-db`/`open-runo-gateway`/`open-runo-router`の
+  3クレートは、RPoem固有の追加(`appserver_tenants.rs`・`udp_notice.rs`・
+  gRPC/ACME/MCP拡張等)により意図的に分岐している——これらは
+  「共通コア」ではなくRPoem固有スコープ(第二のTomcat・Poem完全再現)の
+  範囲に属するため分岐は正常。
+- **既存パターンの踏襲を確認**: このエコシステムの「別リポジトリの
+  crateへ直接のCargo依存はしない、小さなモジュールとして直接コピーする」
+  という既存方針(RustJSON移植等)通り、両リポジトリは同じディレクトリ
+  ツリー(`F:\runo\RPoem`/`F:\runo\RCosmo`)に配置されており path依存も
+  技術的には可能だが、CI環境でのpath依存問題を避けるため、**今回も
+  コピー移植パターンを継続する判断とした**(ワークスペース統合は
+  スコープが異なる別プロジェクトという既存方針に反するため不採用)。
+- **新規: `scripts/sync-cosmo-core.sh`**(両リポジトリに同一ファイルを配置)。
+  従来「手作業でファイルをコピーしてミラーする」運用だった同期作業を
+  機械的に検証・実行できるようにした:
+  - `scripts/sync-cosmo-core.sh check` — 共通コア18クレートの同期状態を
+    一覧表示(diff -rq ベース、Cargo依存追加なし)。
+  - `scripts/sync-cosmo-core.sh diff <crate>` — 指定クレートの差分を表示。
+  - `scripts/sync-cosmo-core.sh push <crate>` / `pull <crate>` — 片方向へ
+    `src/`をまるごとコピー(コピー後は`git diff`で確認し
+    `cargo test`してからコミットすることを想定、自動コミットはしない)。
+  - 実際に使用: 本セッションで発見した`open-runo-appserver`の
+    Windows非互換テストバグ修正(後述)をこのスクリプトの`push`で
+    RCosmo側へ同期し、`check`で0件drift(18/18 in sync)を確認済み。
