@@ -30,7 +30,7 @@ jobs:
             os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # open-runo-routerはopen-web-server-wire/-core/-ledgerをpath依存
       # (../../../open-web-server/crates/...)で参照し、それらはさらに
       # RS-SmartTCPへpath依存する。CI環境(単一リポジトリのみcheckout)
@@ -61,7 +61,7 @@ jobs:
     name: build release binary (Windows x86_64、Windows Server含む)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Checkout sibling path dependencies (open-web-server, RS-SmartTCP)
         run: |
           git clone --depth=1 https://github.com/aon-co-jp/open-web-server.git ../open-web-server
