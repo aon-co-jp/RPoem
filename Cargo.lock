@@ -4024,12 +4024,14 @@ dependencies = [
  "anyhow",
  "bytes",
  "chacha20poly1305",
+ "flate2",
  "hkdf",
  "hmac 0.12.1",
  "open-web-server-core",
  "quinn",
  "rand 0.8.7",
  "rcgen",
+ "rs-smarttcp",
  "rustls",
  "rustls-pemfile",
  "rustls-pki-types",
@@ -5219,6 +5221,10 @@ name = "robust"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
+
+[[package]]
+name = "rs-smarttcp"
+version = "0.1.0"
 
 [[package]]
 name = "rsa"
