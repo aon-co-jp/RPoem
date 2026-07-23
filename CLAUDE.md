@@ -3164,6 +3164,18 @@ open-web-serverがApache＋Nginxのハイブリッド仕様のWebサーバーと
 ミッションクリティカルな用途向けに、24時間365日ノンストップの
 サーバー対応WEBサイト開発を全面的にバックアップするフレームワーク・
 ミドルウェアとして機能することを目指す。
+
+### Apache/Tomcat互換性の目標(ユーザー指示、2026-07-23、正本はopen-raid-z参照)
+
+正本(`open-raid-z/CLAUDE.md`同名節)にユーザー指示原文・現状の到達点・
+残るギャップを記録済み。要約: `open-web-server`をJavaのApacheのように、
+このリポジトリ(RPoem)をApacheのTomcatのように——Java・Ruby on Rails・
+PHP/Laravel・Python/FastAPI等、言語を問わず連携できる汎用性を高める。
+このリポジトリ側の関連実装は`crates/open-runo-appserver::tenant_bridge`
+(型非依存の橋渡し関数、実装・テスト済み)・`crates/open-runo-gateway::
+appserver_tenants`(`POST/GET /admin/appserver-tenants`)——残るのは
+`open-web-server`側`TenantRegistry`との実際のクロスリポジトリ配線
+(`open-easy-web`経由での両管理API呼び出し、次回着手事項)。
 ---
 
 ## エコシステム全体マップ(2026-07-21追記)
