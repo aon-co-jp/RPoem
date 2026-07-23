@@ -200,6 +200,26 @@ make tray   # apps/desktop-tray/target/release/open-runo-tray(.exe) を生成
 | `open-runo-api-types` | router/CLI/WASM フロントエンド共有の REST 型（drift 防止） |
 | `open-runo-cli` | `open-runo-cli` バイナリ（schema/federation/openapi/login/db サブコマンド） |
 | `open-runo-history` / `-backup` / `-observability` | 変更履歴 / バックアップ / 監視 |
+| `open-runo-poem-compat` / `-poem-compat-macro` | poem互換ファサード(`Route::at`/`get`/`post`/`Server::new`/`Json`/`#[handler]`)、2026-07-22新設。既存`hyper_compat`の薄いラッパー、CORS/gzip/WebSocketも到達可能 |
+
+## 4層4重通信・DB連携(2026-07-23追記)
+
+`open-web-server`(Apache+Nginxハイブリッド役)⇔RPoem(Tomcat役)の
+「4層4重」通信・DB連携で、以下を新規実装:
+- **`POST /internal/db/mutate`**: `open-web-server-ledger::Ledger`が
+  フォワードするエンドポイントをRPoem側に初めて実装(以前は送信側
+  だけで受け口が存在しなかった)。`open-runo-db::DbBackend`に
+  `put_versioned`を追加、`AruaruDbBackend`は実際に`aruaru_commit`を
+  呼んでコミットIDを返すよう修正。
+- **UDP-IP冗長経路の受信側**(`crates/open-runo-router/src/udp_notice.rs`):
+  送信側(`open-web-server-ledger`)は実装済みだったが受信側が存在
+  しなかったギャップを解消。`OPEN_RUNO_UDP_NOTICE_BIND`等の環境変数で
+  既定オフ。
+- クロスリポジトリ統合テスト(`tests/ledger_fusion.rs`)で、
+  `Ledger::commit()`が実際にRPoemサーバーへ届きデータが書き込まれる
+  ことを実証済み。
+
+詳細は`CLAUDE.md`のHANDOFF(2026-07-23付近)を参照。
 
 ## デプロイ
 
