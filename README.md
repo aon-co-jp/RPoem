@@ -3,13 +3,14 @@
 **Rust 製 GraphQL Federation プラットフォーム(Poem/Tauri/Cosmoは非依存・互換自前実装)**
 — WunderGraph Cosmo の有料版機能を OSS・Pure Rust で(Cosmo自体は着想元のみで実装非依存)。独自の自己学習 AI 搭載（外部 LLM 契約不要）。
 
-> RPoem は [open-runo](https://github.com/aon-co-jp/open-runo) を正本として
-> 分岐した poem-runo をさらにリネーム・統合した後継リポジトリです。名称は歴史的
-> 経緯によるもので、現在の実体は Poem・Tauri・WunderGraph Cosmo のいずれにも
-> パッケージとして直接依存せず、それぞれの機能・API 形状には互換性を保ちつつ
-> Rust 標準ライブラリ + tokio/hyper + WebAssembly で自前実装しています。
+> RPoem は [open-cosmo](https://github.com/aon-co-jp/open-cosmo)(旧`open-runo`、
+> GitHub上で改称)を正本として分岐した poem-runo をさらにリネーム・統合した
+> 後継リポジトリです。名称は歴史的経緯によるもので、現在の実体は Poem・Tauri・
+> WunderGraph Cosmo のいずれにもパッケージとして直接依存せず、それぞれの機能・
+> API 形状には互換性を保ちつつ Rust 標準ライブラリ + tokio/hyper + WebAssembly
+> で自前実装しています。
 > **Poemとブラウザ内実行機能搭載も含めたTauri両方共に、一から開発して完全互換で
-> 再現する。** open-runo と本リポジトリを同時並行で開発しています。
+> 再現する。** open-cosmo と本リポジトリを同時並行で開発しています。
 
 [![CI](https://github.com/aon-co-jp/RPoem/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/RPoem/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
@@ -119,7 +120,7 @@ curl -X POST http://localhost:8080/api/schemas \
 
 ### RPoem 独自機能を試す(Poem/Tauri 再現の実例)
 
-`open-runo` には無い、このリポジトリ固有の「Poem を一から再現する」目標
+`open-cosmo` には無い、このリポジトリ固有の「Poem を一から再現する」目標
 (§0.5 参照)の成果を実際に動かして確認できます。
 
 ```bash
@@ -251,7 +252,7 @@ feature フラグで選択。「マネージド版でしか使えない機能」
 
 ## 関連プロジェクト
 
-`open-web-server` を中心に、このリポジトリ・`open-runo`・PostgreSQL・
+`open-web-server` を中心に、このリポジトリ・`open-cosmo`・PostgreSQL・
 `aruaru-db`・`open-raid-z` を組み合わせ、3Dオンラインゲームの課金アイテム・
 金融/証券データをネットワーク上で紛失させないための目標アーキテクチャ
 (通信層四重化・DB書き込み四重化、2026-07-11改訂)がある。
