@@ -381,3 +381,42 @@ VersionlessAPI・SCIM・Security・Cache等)を持つ姉妹リポジトリ。今
   - 実際に使用: 本セッションで発見した`open-runo-appserver`の
     Windows非互換テストバグ修正(後述)をこのスクリプトの`push`で
     RCosmo側へ同期し、`check`で0件drift(18/18 in sync)を確認済み。
+
+## 13. GitHub `open-runo`(旧`open-cosmo`)からの「救済」調査(2026-07-24、結論: 移植なし)
+
+ユーザーから「open-runo内にPoem+Cosmo+Tauri+WEB高速化のプログラムが
+残っていれば、本来RPoemの物なので救済(移植)してほしい。ただし
+open-runoがWunderGraph Cosmo有料版とWEB高速化中心の狭いプロジェクト
+であれば、そのまま続けてよい」という条件分岐の指示を受けた。
+
+`F:\runo\open-runo`(新規クローン)の中身を確認したところ、
+`docs/poem-parity.md`・`docs/tauri-parity.md`・`apps/desktop-tray`・
+`apps/desktop-wasm`・約20個の`open-runo-*`クレートが実在し、狭い
+プロジェクトではなく広範な実装を持っていたため、11節・12節の
+RPoem⇔RCosmo比較と同じ手順(`diff -rq`)で、今度はRPoem⇔open-runo間
+を比較した。
+
+- **`apps/desktop-tray`・`apps/desktop-wasm`(Tauri相当のデスクトップ
+  アプリ体験)**: 両リポジトリで完全一致。差分は`target/`・
+  `installer/dist`・`www/pkg`のようなビルド成果物のみで、ソース
+  コードに差は無かった。ユーザーが最優先で確認を求めた項目だったが、
+  RPoem側に既に同一のものが存在しており救済不要と判明。
+- **`crates/`(共通20クレート)**: 17クレートが完全一致。差分のあった
+  `open-runo-appserver`/`open-runo-db`/`open-runo-gateway`/
+  `open-runo-router`/`open-runo-rustjson`の5クレートは、**すべて
+  RPoem側がopen-runo側を上回る内容**(RPoemのみに存在する
+  `appserver_tenants.rs`・`udp_notice.rs`・`router/tests/`、
+  `open-runo-db`の`put_versioned`実装、行数もRPoem側が常に多い)。
+  コメント中の実名・日付入り開発メモがopen-runo側では汎化・簡略化
+  されている痕跡から、open-runoはRPoemから派生・エクスポートされた
+  スナップショットだと判断した。
+- **RPoemにのみ存在するクレート**: `open-runo-poem-compat`・
+  `open-runo-poem-compat-macro`(Poem互換ファサード)——open-runo側には
+  そもそも存在しない。
+
+**結論**: open-runo側にRPoemより優れている・RPoemに無い実装は
+見つからなかったため、**RPoemへの移植は0件**(コード変更なし)。
+`open-runo`リポジトリ自体の扱い(削除・アーカイブ等)はユーザー指示
+通りスコープ外としており、本セッションでは一切操作していない。
+将来open-runo側で独自コミットが増えた場合は、本節と同じ
+`diff -rq crates/<name>`手順で再判定すること。

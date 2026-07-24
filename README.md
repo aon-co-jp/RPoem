@@ -233,6 +233,17 @@ Cosmoコア(Federation・VersionlessAPI・SCIM・Security・Cache等)が
 (`push`/`pull`で片方向コピーも可能)。詳細は`PORTING.md`「RPoem⇔RCosmoの
 Cosmo共通コア重複整理」節を参照。
 
+## `open-runo`(旧`open-cosmo`)からの「救済」調査(2026-07-24追記、結論: 移植なし)
+
+GitHub `open-runo`にPoem/Tauri/WEB高速化の実装が残っていればRPoemへ
+救済してほしいという指示を受け、`F:\runo\open-runo`とこのリポジトリの
+`crates`/`apps`を`diff -rq`で全数比較した。結果、`apps/desktop-tray`・
+`apps/desktop-wasm`(Tauri相当のデスクトップ体験)はソース完全一致、
+差分のあった5クレートも全てRPoem側が上位互換(open-runo側にのみ
+存在する追加実装は無し)で、**移植すべき差分は見つからなかった**。
+詳細は`PORTING.md`「13. GitHub open-runoからの『救済』調査」節、
+経緯は`CLAUDE.md`の同日付HANDOFFを参照。
+
 ## デプロイ
 
 同一バイナリが自前サーバー / VPS / AWS / Docker すべてで動きます。
