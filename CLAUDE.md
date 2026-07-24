@@ -3324,3 +3324,69 @@ RPoem→open-runoへの移植であれば意味があるかもしれないが、
 入り、RPoemに無い差分が生まれた場合は、本エントリと同じ`diff -rq`
 比較手順(`F:\runo\open-runo\crates` vs `F:\runo\RPoem\crates`)を
 再実行して再判定すること。現時点(2026-07-24)では追従不要。
+
+## HANDOFF追記(2026-07-24 第2弾、スマホ版省電力/常時電源接続モードの指示 — 結論: RPoemにAndroid未着手、設計方針のみ記録)
+
+**ユーザー指示の原文**: 「スマホ版の省電力版は、選ぶと本当に省電力に
+なるようにして、常時電源接続版は、CPU＋GPU＋NPUがあればハードウェア
+アクセラレーター対応ですが、電源から外したら自動で、デフォルトは、
+省電力モード、もしくは、通常版に切り替えますか？と質問して切り替える
+説明を付けてその様にして下さい。」
+
+**調査結果(正直な事実確認)**:
+- `F:\runo\RPoem`配下を`android`/`kotlin`/`*.kt`で全数探索したが、
+  該当ディレクトリ・ファイルは**一件も存在しない**
+  (`find F:/runo/RPoem -iname "*android*" -o -iname "*kotlin*"`が
+  空)。RPoemはTomcat相当の汎用アプリケーションサーバー層(Rust、
+  crates/apps構成)であり、スマホ(Android)クライアント自体が
+  このリポジトリのスコープに含まれていない。
+- 一方、隣接する`F:\runo\open-web-server`リポジトリには
+  **既にAndroidアプリと3電源プロファイル機構が実装済み**
+  (`open-web-server/android/app/src/main/java/tokyo/runo/openwebserver/
+  PowerProfile.kt`・`MainActivity.kt`)。同リポジトリの
+  `CLAUDE.md`(586行目以降)に詳細があり、要点は以下:
+  - `PowerProfile`enum: `POWER_SAVE`/`NORMAL`/`ALWAYS_ON`の3値。
+  - 省電力/通常プロファイルは`WakeLock`を一切取得しない設計
+    (Android Doze/App Standbyに逆らわない、が「省電力対応」の実体)。
+  - 常時電源接続(`ALWAYS_ON`)のみ`PARTIAL_WAKE_LOCK`を明示取得。
+  - アイコン・アプリ名をプロファイルごとに色分け(緑=省電力/
+    青=通常/橙=常時電源接続)し、誤選択を防止。
+  - 実体は`MainActivity.applyProfilePowerBehavior()`に集約。
+
+**本セッションでの判断**: ユーザー指示にある「電源から外したら
+自動で切替確認ダイアログを出す」機能(`ACTION_POWER_DISCONNECTED`
+監視、省電力/通常モードへの切替確認、再接続時の常時電源接続版への
+復帰導線)は、実装対象となるAndroidコード自体がRPoemに存在しない
+ため、**RPoem側での実装は行っていない**(コード変更なし)。
+実装を強行してAndroidディレクトリを新規作成することは、
+「フォルダ作成前に相談」の運用ルールにも反するため見送った。
+
+**将来Android実装時の設計方針(記録のみ)**:
+1. 3モード(省電力版/常時電源接続版=HWアクセラレーター対応/通常版)
+   の選択は、open-web-serverの`PowerProfile.kt`パターン
+   (enum + プロファイル別アイコン・アプリ名alias)をそのまま
+   RPoem用にも再利用できる設計とする。
+2. 省電力版は実際に省電力になる具体策として:
+   `PowerManager`/`BatteryManager` APIで充電状態・バッテリー残量を
+   監視、ポーリング間隔を延長、HWアクセラレーター(GPU/NPU利用)を
+   無効化、`WakeLock`を取得しない(open-web-serverと同一方針)。
+3. 常時電源接続版は`ALWAYS_ON`同様に`WakeLock`取得を許可し、
+   CPU+GPU+NPUが揃っている端末ではHWアクセラレーターを有効化。
+4. 電源切断検知: `BroadcastReceiver`で
+   `Intent.ACTION_POWER_DISCONNECTED`を監視し、常時電源接続版
+   モード中に発火したら「省電力モードに切り替えますか？それとも
+   通常モードのままにしますか？」の`AlertDialog`を表示。
+   デフォルト推奨(強調ボタン)は省電力モード側とする。
+5. 電源再接続(`ACTION_POWER_CONNECTED`)時も同様に「常時電源接続版
+   (ハードウェアアクセラレーター対応)に戻しますか？」と尋ねる
+   導線を用意する。
+6. 実装時期が来たら、まずopen-web-server側の`PowerProfile.kt`・
+   `MainActivity.kt`を読み、上記4-5番の電源切断/再接続ダイアログ
+   機構(現時点ではopen-web-server側にも未実装、要確認)を
+   RPoem・open-web-server双方に共通化できないか検討すること。
+
+**次回以降の着手事項**: (1) RPoem独自のAndroidクライアントを
+新規に起こすかどうかをユーザーに確認(現状スコープ外)、
+(2) open-web-server側に電源切断/再接続時の確認ダイアログが
+既にあるか`MainActivity.kt`を再確認、無ければopen-web-server側で
+先行実装してからRPoem側へのパターン移植を検討。
