@@ -41,3 +41,10 @@ tarpaulin-report.html
 perf.data
 perf.data.old
 flamegraph.svg
+
+# Android (android/、2026-07-24新設)
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/*.log
