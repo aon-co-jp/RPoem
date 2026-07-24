@@ -148,6 +148,21 @@ Scale from a minimal single-SQLite setup up to `--features full` (DUAL + Redis +
 ClickHouse) via feature flags. There is no functionality gated behind a
 "managed-only" tier.
 
+## Investigation: rescuing code from `open-runo` (2026-07-24, conclusion: nothing to port)
+
+Following a request to check whether the GitHub `open-runo` repo (formerly
+`open-cosmo`) still held Poem/Tauri/web-acceleration code that rightfully
+belonged in RPoem, `crates/` and `apps/` in `F:\runo\open-runo` were
+diffed file-by-file against this repository. `apps/desktop-tray` and
+`apps/desktop-wasm` (the Tauri-equivalent desktop experience) were
+byte-identical in source. Of the crates that differed, every one was a
+strict superset in RPoem's favor (extra files such as
+`appserver_tenants.rs`, `udp_notice.rs`, `router/tests/`, and the
+`open-runo-db::put_versioned` fix existed only on the RPoem side; RPoem
+also has `open-runo-poem-compat`/`-macro`, which `open-runo` lacks
+entirely). No code was ported as a result — see `PORTING.md` section 13
+and the matching `CLAUDE.md` HANDOFF entry for the full comparison.
+
 ## Related Projects
 
 There is a target architecture combining `open-web-server` with this

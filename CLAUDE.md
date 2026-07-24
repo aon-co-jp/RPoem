@@ -3267,3 +3267,60 @@ appserver_tenants`(`POST/GET /admin/appserver-tenants`)——残るのは
 この節を起点に他プロジェクトへ辿れる**ようにしてある(新規追加:
 RS-Git・RJSON・RS-Chiketto・RS-Blog・RS-EC。このリポジトリ自身の状況は
 このファイルの他の節・HANDOFFを参照)。
+
+## HANDOFF追記(2026-07-24、GitHub `open-runo`(旧`open-cosmo`)からの「救済」調査 — 結論: 救済対象なし)
+
+**ユーザー指示の原文**: 「GitHub: open-cosmo(旧open-runo)→open-runo 内に、
+もし、Poem+Cosmo+Tauri+WEB高速化のプログラムが残っていれば救済する
+必要があり、それは、本来RPoemの物だからです。しかし、GitHub: open-cosmo
+(旧open-runo)→open-runoが、WunderGraph Cosmoの有料版とWEB高速化を
+中心にあるいみ狭いプロジェクトであれば、そのまま続けて下さい。」という
+条件分岐の指示を受け、`F:\runo\open-runo`(新規クローン)と
+`F:\runo\RPoem\crates`・`apps`を`diff -rq`で全数比較した。
+
+**調査結果(結論: 移植不要)**:
+- `open-runo/crates`は20クレート、`RPoem/crates`は22クレート
+  (`open-runo-poem-compat`・`open-runo-poem-compat-macro`はRPoemにのみ
+  存在——open-runo側にはPoem互換ファサード自体が無い)。
+- 20クレート中17クレートはbyte-for-byte完全一致
+  (`ai-routing`/`api-types`/`backup`/`cache`/`cli`/`core`/
+  `feature-flags`/`federation`/`history`/`observability`/
+  `persisted-queries`/`schema-registry`/`scim`/`security`/
+  `versionless-api`/`view`、および`db`/`gateway`/`router`/`appserver`/
+  `rustjson`以外)。
+- 差分のあった5クレート(`appserver`/`db`/`gateway`/`router`/
+  `rustjson`)は**全てRPoem側がopen-runo側の上位互換**——
+  RPoem側にのみ存在する追加実装
+  (`open-runo-gateway/src/appserver_tenants.rs`・
+  `open-runo-router/src/udp_notice.rs`・`open-runo-router/tests/`)、
+  行数もRPoem側が常に多い(例: `appserver/src/lib.rs`は
+  open-runo 541行→RPoem 552行、`router/src/lib.rs`は530行→542行、
+  `gateway/src/lib.rs`は598行→646行)。`open-runo-db`の差分は
+  RPoem側にのみ`put_versioned`(Git-on-SQLコミット欠落の是正、
+  2026-07-22発見分)が実装済み。差分箇所のコメントを読むと、
+  open-runo側は日本語コメント中の実名(石塚正浩・aon CEO)や
+  日付入り開発メモが`user`等へ汎化・簡略化されており、**open-runoは
+  RPoemから派生・エクスポートされた(属性情報を落とした)スナップ
+  ショットである**ことが読み取れた——RPoemがopen-runoに追いついて
+  いない側ではなく、その逆だった。
+- `apps/desktop-tray`・`apps/desktop-wasm`(Tauri相当のデスクトップ
+  アプリ体験)は**両リポジトリに既に同一内容で存在**(差分は
+  `target/`・`installer/dist`・`www/pkg`等のビルド成果物のみ、
+  ソースは完全一致)。ユーザーが最優先で懸念していた「Tauri体験の
+  救済」は、そもそも救済の必要が無かった。
+
+**結論**: 上記ユーザー指示の条件分岐に当てはめると、実際には
+「救済すべき差分がRPoem側に存在しない」という第三のケースだった。
+open-runoは独立した広範なプロジェクトに見えるが、中身はRPoemの
+劣化コピー(またはRPoemより古い時点のエクスポート)であり、
+RPoem→open-runoへの移植であれば意味があるかもしれないが、
+逆方向(open-runo→RPoem)の移植は行うべき差分が無い。そのため
+**本セッションではRPoemへの移植・コピーは一切行っていない**
+(コード変更なし、このHANDOFFエントリと`PORTING.md`への記録のみ)。
+`open-runo`リポジトリ自体の削除・アーカイブ等の判断はユーザー指示
+通りスコープ外としメインセッション側に委ねる。
+
+**次回以降の着手事項**: もし将来open-runo側で独自の新規コミットが
+入り、RPoemに無い差分が生まれた場合は、本エントリと同じ`diff -rq`
+比較手順(`F:\runo\open-runo\crates` vs `F:\runo\RPoem\crates`)を
+再実行して再判定すること。現時点(2026-07-24)では追従不要。
