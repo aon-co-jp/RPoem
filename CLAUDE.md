@@ -540,6 +540,87 @@ FastCGIバッファ調整・named upstream keepaliveプーリングは、この�
 
 ## HANDOFF(直近の自動実行パス)
 
+### 2026-08-03 RPoem「Tomcat相当」としての独自価値を再定義(open-web-server側の改善計画・項目4への対応)
+
+`open-web-server`側から、ユーザー指示「Tomcatの互換としてのRPoemの
+実用性と互換性と使いやすさなどを向上して」を受け、まず「RPoemが本当に
+提供できる、open-web-serverのリバースプロキシでは代替できない価値は
+何か」を再定義した(open-web-server/CLAUDE.md 2026-08-03エントリの
+「次にすべきこと(3)」に対応)。
+
+**結論(調査結果、コード変更は無し・再定義のみ)**: RPoemの
+`appserver_tenants::SharedDispatcher`(単純なHost→backend_addrの
+動的振り分け)は、確かに`open-web-server::TenantRegistry`と機能重複
+しており、本番未デプロイという既存判断(`open-raid-z/CLAUDE.md`
+2026-08-01エントリ)は引き続き正しい。**しかしRPoemが持つ以下の
+クレート群は、`open-web-server`(静的配信+リバースプロキシ層)が
+原理的に代替できない、真のアプリケーションランタイム機能であり、
+これこそが「Tomcat/WunderGraph Cosmo Enterprise相当」の実体である**:
+
+1. **`open-runo-federation`**: 複数バックエンド(GraphQL/gRPC/OpenAPI/
+   内部Rustサービス/AIサービス)を1つの連合APIへ合成する
+   (Apollo Federation V1/V2 SDL検出+スキーマ合成)。Cosmoの中核機能
+   そのもの。単純なHTTPリバースプロキシでは実現不可能——スキーマの
+   型・フィールド単位でのマージ・競合検出はアプリケーション層の
+   ロジックが必要。
+2. **`open-runo-scim`**: SCIM 2.0(RFC 7643/7644)ユーザープロビジョニング。
+   **Cosmoは有料版(Enterprise)でのみSCIMを提供するが、RPoemはOSSで
+   提供する**——IdP(Entra ID/Okta/Keycloak)からのユーザーライフサイクル
+   イベントを受け取り`DbBackend`(DUAL DB経由)へ反映する、明確な
+   差別化ポイント。
+3. **`open-runo-versionless-api`**: フィールド単位の互換性ルール
+   (リネーム・削除時デフォルト値補完・非推奨マーキング)により、
+   `/v1`/`/v2`のようなバージョン分岐無しに異なるクライアント世代を
+   同一の進化するスキーマで共存させる。VersionLessAPIというコンセプト
+   (§0.9参照)の実体。
+4. **`open-runo-schema-registry`**・**`open-runo-persisted-queries`**・
+   **`open-runo-feature-flags`**・**`open-runo-ai-routing`**・
+   **`open-runo-history`**(Git-on-SQLバージョン管理)・
+   **`open-runo-security`**・**`open-runo-cache`**・
+   **`open-runo-backup`**: いずれもGraphQL Federation Gatewayや
+   アプリケーションサーバーが本来担うべき機能群であり、
+   Apache/NginxおよびTomcatのServlet/JSPコンテナが対応する領域とは
+   性質が異なる「API合成・進化・ガバナンス」層。
+
+**まとめ**: 「RPoem=Tomcat」という比喩の実体は「複数言語のアプリを
+起動・振り分けるコンテナ」ではなく(それは既にopen-web-serverが担う)、
+**「複数バックエンドサービスを1つの進化するAPIへ統合し、
+エンタープライズ機能(SCIM等)をOSSで提供するFederation Gateway
+(WunderGraph Cosmo Enterprise相当)」である**、と再定義する。
+
+*English*: Redefining RPoem's "Tomcat-equivalent" value: it is not a
+"multi-language app container/dispatcher" (that role is already
+filled by open-web-server's `TenantRegistry`) but a **GraphQL
+Federation Gateway that composes multiple backend services into one
+evolving API surface, offering enterprise features (SCIM 2.0) as
+OSS** — i.e., a WunderGraph Cosmo Enterprise equivalent. Its unique
+value lives in `open-runo-federation` (schema composition),
+`open-runo-scim` (OSS SCIM 2.0, Enterprise-only in real Cosmo),
+`open-runo-versionless-api` (field-level compat rules instead of
+`/v1`/`/v2`), plus schema-registry/persisted-queries/feature-flags/
+ai-routing/history/security/cache/backup — none of which a reverse
+proxy can substitute for.
+
+**正直な開示・今回のスコープ**: これは価値の再定義(ドキュメント上の
+判断)であり、これらのクレートを実際に統合したエンドツーエンドの
+GraphQL Federation Gatewayとして本番稼働させる作業は今回のスコープ外
+(各クレート自体は既存の別セッションで実装・テスト済みだが、
+「使いやすさの向上」に相当する統合・デプロイ・ドキュメント整備は
+別途の作業として残る)。
+
+*English (honest scope)*: This is a value redefinition (a
+documentation-level judgment call), not new integration work — each
+crate already exists and is tested from prior sessions, but wiring
+them into a single deployed end-to-end Federation Gateway (the
+"usability improvement" the user asked for) remains separate future
+work.
+
+- 次にすべきこと: (1) `open-runo-federation`+`open-runo-gateway`を
+  実際に統合し、複数バックエンドを合成する最小デモを本番デプロイして
+  実証する、(2) `open-runo-scim`のIdP実接続検証(実Entra ID/Okta/
+  Keycloak環境が必要)、(3) 「使いやすさ」向上の具体策(セットアップ
+  ガイド・サンプル構成ファイル等)の検討。
+
 - **2026-07-23(続き) RPoem⇔RCosmo「Cosmo共通コア」重複調査 + 同期
   スクリプト新設 + Windows非互換テストバグ修正**: ユーザー指示
   「RPoemとTauri/Poemとの互換性・実用性向上、RCosmoと有料版部分だけ
