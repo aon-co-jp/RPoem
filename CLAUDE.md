@@ -540,6 +540,54 @@ FastCGIバッファ調整・named upstream keepaliveプーリングは、この�
 
 ## HANDOFF(直近の自動実行パス)
 
+### 2026-08-04 open-web-server↔RPoemの`tenant_bridge`実接続E2E検証(初の実証)
+
+`open-web-server`側ユーザー指示「RPoemを実際にopen-web-serverに接続・
+実際にE2E検証」への対応。従来、`open-runo-appserver::tenant_bridge::
+dispatcher_from_tenants`(`open-web-server::TenantRegistry`との橋渡し
+関数)は両リポジトリのCLAUDE.mdにドキュメント化・単体テスト済み
+だったが、**実際に2つの実バイナリを同時起動してのE2E検証は一度も
+行われていなかった**(open-web-server側2026-07-23エントリが「配線は
+未接続」と正直に記録していた通り)。
+
+**実施内容**: 新規`crates/open-runo-appserver/examples/e2e_stub_app.rs`
+——`tenant_bridge::dispatcher_from_tenants`で構築した`Dispatcher`を
+`ThreadedProxyServer`に載せ、`X-Served-By: RPoem-appserver`ヘッダ付き
+固定レスポンスを返す最小upstreamの手前に立てる、RPoem側の実スタブ
+アプリケーションサーバー。`cargo build -p open-runo-appserver --example
+e2e_stub_app`でローカルcargo(1.96、WSL不要)でビルド成功。
+
+**実接続検証(実バイナリ2つ、実TCP通信)**:
+1. RPoem側`e2e_stub_app`を`127.0.0.1:19801`で起動。
+2. open-web-server本体(`OPEN_WEB_SERVER_BIND=127.0.0.1:19900`)を起動。
+3. `POST /admin/tenants`で`{host: "e2e-rpoem.test", backend:
+   "open_runo", backend_addr: "127.0.0.1:19801"}`を登録
+   ——**201 tenant added**。
+4. `Host: e2e-rpoem.test`ヘッダ付きで`http://127.0.0.1:19900/`へ
+   リクエストを送信——**5回連続で200 + `x-served-by:
+   RPoem-appserver`**を確認。open-web-serverの`TenantRegistry`が
+   実際にRPoem側`Dispatcher`まで転送し、RPoem側が実際に応答した
+   ことを実証(モック無し、実TCP経由)。
+5. 初回リクエストのみ一時的な502(RPoemワーカープール起動直後の
+   ウォームアップと推測、以降は再現せず)——本番運用では初回リクエスト
+   のリトライ・ヘルスチェック猶予期間の検討価値あり(次回課題)。
+
+**正直な開示・スコープ**: (1) この検証はRPoem側`Dispatcher`実装
+(`SharedDispatcher`ではなく`tenant_bridge`が返す不変`TenantDispatcher`)
+のみを対象とし、`open-runo-router`本体(REST/GraphQL API)への実接続
+検証ではない——あくまで「RPoemのアプリケーションサーバー層プリミティブ
+(`ThreadedProxyServer`+`tenant_bridge`)がopen-web-server経由で実際に
+機能する」ことの実証。(2) `open-runo-gateway::appserver_tenants`
+(`POST /admin/appserver-tenants`)経由での逆方向登録(RPoem側が
+open-web-serverの`backend_addr`を受け取る形)は今回未検証。
+(3) `open-easy-web`側からの両管理API呼び出し連携(元々の「分身の術」
+構想の完成形)は依然未着手。
+
+- 次にすべきこと: (1) 初回リクエスト502の原因調査(ウォームアップ
+  猶予・ヘルスチェック機構の要否)、(2) `open-runo-router`本体
+  (REST API)を`backend_addr`として登録する形でのE2E検証、
+  (3) `open-easy-web`からの両管理API連携の実装。
+
 ### 2026-08-03 RPoem「Tomcat相当」としての独自価値を再定義(open-web-server側の改善計画・項目4への対応)
 
 `open-web-server`側から、ユーザー指示「Tomcatの互換としてのRPoemの
