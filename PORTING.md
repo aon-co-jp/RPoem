@@ -420,3 +420,20 @@ RPoem⇔RCosmo比較と同じ手順(`diff -rq`)で、今度はRPoem⇔open-runo�
 通りスコープ外としており、本セッションでは一切操作していない。
 将来open-runo側で独自コミットが増えた場合は、本節と同じ
 `diff -rq crates/<name>`手順で再判定すること。
+
+## 15. `tenant_bridge`の実E2E検証(2026-08-04、初の実証)
+
+`crates/open-runo-appserver/src/tenant_bridge.rs::dispatcher_from_tenants`
+(`open-web-server::TenantRegistry`との橋渡し関数)は単体テストのみで
+実証されておらず、実際にopen-web-server本体と接続してのE2E検証は
+一度も行われていなかった。新規`crates/open-runo-appserver/examples/
+e2e_stub_app.rs`(`tenant_bridge`で構築した`Dispatcher`を
+`ThreadedProxyServer`に載せ、`X-Served-By: RPoem-appserver`固定応答を
+返す最小upstreamの手前に立てる)を作り、open-web-server本体を実起動
+→`POST /admin/tenants`で登録→`Host`ヘッダ指定リクエストが実際に
+RPoem側まで転送されることを、5回連続で`200`+期待ヘッダにより実証した
+(モック無し、実TCP2プロセス間通信)。移植先で同様のブリッジ機構を
+検証する際は、この`examples/`ディレクトリのパターン(スタブ
+アプリケーションサーバー+実バイナリ2つの同時起動)をそのまま使える。
+詳細・初回リクエストの一時的な502(ウォームアップ猶予の要検討課題)は
+[CLAUDE.md](CLAUDE.md)の2026-08-04 HANDOFF参照。
