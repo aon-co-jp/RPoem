@@ -244,6 +244,16 @@ GitHub `open-runo`にPoem/Tauri/WEB高速化の実装が残っていればRPoem�
 詳細は`PORTING.md`「13. GitHub open-runoからの『救済』調査」節、
 経緯は`CLAUDE.md`の同日付HANDOFFを参照。
 
+## open-web-serverとの実接続E2E検証(2026-08-04追記)
+
+`tenant_bridge::dispatcher_from_tenants`(`open-web-server::
+TenantRegistry`との橋渡し)が、ドキュメント・単体テストだけでなく
+**実際に2つの実バイナリを同時起動して機能する**ことを初めて実証した。
+open-web-server本体を起動→`POST /admin/tenants`でRPoem側の
+`ThreadedProxyServer`スタブを登録→実HTTPリクエストが実際にRPoem側まで
+転送・応答されることを5回連続で確認(詳細は`PORTING.md`「15.
+`tenant_bridge`の実E2E検証」節、`CLAUDE.md`の同日HANDOFF参照)。
+
 ## デプロイ
 
 同一バイナリが自前サーバー / VPS / AWS / Docker すべてで動きます。
