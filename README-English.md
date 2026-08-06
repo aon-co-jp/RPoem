@@ -1,5 +1,7 @@
 # RPoem
 
+> 📌 Pending task (2026-08-06): a plan exists to incorporate Toshiba SBM / DeepSeek techniques. See [CLAUDE.md](CLAUDE.md) for details.
+
 **GraphQL Federation platform built with Rust** (Poem/Tauri/Cosmo are never
 direct dependencies — their functionality is hand-implemented for
 compatibility on tokio+hyper) — WunderGraph Cosmo's paid-plan features,
