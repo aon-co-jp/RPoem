@@ -8,3 +8,13 @@ description = "Universal application-server runtime host (the 'second Tomcat', n
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# 既存の`examples/dummy_http_server.rs`(Supervisor検証用の最小HTTPサーバー、
+# `/health`で200・`/crash`で自己`process::exit(1)`)を、統合テストから
+# `env!("CARGO_BIN_EXE_open-runo-dummy-http-server")`で確実に見つけられる
+# ようにするため`[[bin]]`としても登録する(exampleのままだとcargoが
+# `CARGO_BIN_EXE_*`を発行しないため、テストがバイナリパスを推測する
+# 必要が生じてしまう)。ソースはexampleと共有、内容の複製はしない。
+[[bin]]
+name = "open-runo-dummy-http-server"
+path = "examples/dummy_http_server.rs"

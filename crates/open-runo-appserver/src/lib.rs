@@ -10,6 +10,7 @@
 //! Phase 1 は同期 `std::process` ベース。Poem/4層トランスポート統合は
 //! 後続フェーズで `Dispatcher` 実装として追加する(§0.9.3)。
 
+pub mod process_lifecycle;
 pub mod proxy;
 pub mod server;
 pub mod tenant_bridge;
@@ -240,6 +241,16 @@ impl Supervisor {
     pub fn reset(&mut self) {
         self.stop();
         self.state = ProcState::NotStarted;
+    }
+
+    /// 現在稼働中の子プロセスのOS PID(無ければ`None`)。
+    /// テスト・管理APIから「本当にそのプロセスを操作しているか」を検証する
+    /// 目的で公開する。
+    pub fn pid(&self) -> Option<u32> {
+        match &self.state {
+            ProcState::Running { child, .. } => Some(child.id()),
+            _ => None,
+        }
     }
 
     /// 稼働中なら kill する。
