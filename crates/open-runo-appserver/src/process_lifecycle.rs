@@ -20,6 +20,7 @@
 //!   `restart()`まで停止状態を維持する)。
 
 use crate::{Health, RestartPolicy, RuntimeProfile, Supervisor};
+use serde::Serialize;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,7 +29,11 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 /// 監視スレッドが観測する現在の健康状態(管理API・ダッシュボード向け)。
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// `Serialize`は`open-runo-gateway`側のHTTP管理API(2026-08-06追加)が
+/// このままJSONへ変換して返すために必要(`#[serde(rename_all =
+/// "snake_case")]`でJSON上は`healthy`/`backing_off`等の慣習的な形にする)。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HealthState {
     /// プロセス起動直後、まだヘルスチェックに1回も成功していない。
     Starting,

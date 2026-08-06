@@ -3838,3 +3838,86 @@ lib内ユニットテストからも確実にビルド済みexeを見つけら�
   ユーザーから明確に「実際にTomcat相当として再実装してほしい」との
   指示があったため今回実装したが、次回セッションで両者の役割分担を
   再度ドキュメント上で整合させること)。
+
+## 追記(2026-08-06): プロセス管理のHTTP管理API化(上記(1)の着手)
+
+前回HANDOFFの「次にすべきこと(1) HTTP管理APIをgatewayクレートへ配線」に
+着手。ユーザーからの追加指示(「フレームワークとしての使いやすさ・
+実用性・完成度、open-web-server/open-raid-z/aruaru-dbとの連携性を
+向上させて」)を受け、まず自リポジトリ内(gatewayクレート)で完結する
+改善から着手——外部リポジトリ(open-web-server/open-raid-z)の実ソース
+(`tenant_router`・disaster recovery関連)は確認したが、現時点で
+RPoem側から呼び出すべき具体的なフック(RPoem発のジャーナル書き込み・
+DR連携等)が両リポジトリのCLAUDE.mdに明記されておらず、推測で配線する
+と「連携性向上」の名目で無用な結合を生む恐れがあったため、今回はこの
+節を見送り、次回セッションで両リポジトリのCLAUDE.md HANDOFFを再確認の
+上、必要なら着手する(**正直な開示**: 今回はopen-web-server/open-raid-z/
+aruaru-dbへの実際の新規統合コードは書いていない)。
+
+**実装内容**:
+- `crates/open-runo-appserver/src/process_lifecycle.rs`の`HealthState`
+  に`Serialize`(`#[serde(rename_all = "snake_case")]`)を追加——HTTP
+  管理APIがそのままJSONへ変換して返せるようにするための最小変更。
+- `crates/open-runo-gateway/src/appserver_processes.rs`を新設。
+  既存の`appserver_tenants.rs`(テナント登録のHTTP管理API、
+  2026-07-16)と同じ認証パターン(`check_api_key`、`X-Api-Key`)・
+  同じ`(Method, pattern, Handler)`列を返す`routes()`規約で、
+  `SupervisedTenantRegistry`の`register_with_managed_process`/
+  `stop_process`/`restart_process`/`process_status`をHTTPハンドラとして
+  公開:
+  - `POST /admin/appserver-processes` — `{host, profile, restart_policy?,
+    poll_interval_ms?}`でテナント登録+プロセス起動+監視開始を一括実行
+    (実際の子プロセスspawnは`tokio::task::spawn_blocking`でオフロード、
+    非同期ワーカースレッドを塞がない)。
+  - `GET /admin/appserver-processes/:host` — `{host, status}`
+    (`status`は管理対象でなければ`null`、異常とは区別)。
+  - `POST /admin/appserver-processes/:host/stop` /
+    `POST /admin/appserver-processes/:host/restart` — 管理対象でない
+    ホストへは404を返す(既存Rustレベルメソッドの`bool`戻り値をHTTPの
+    ステータスコードへ素直に写像)。
+- `crates/open-runo-gateway/src/main.rs`: 従来`appserver_tenants`専用に
+  `Arc<SharedDispatcher>`を直接生成していたのを、`Arc<SupervisedTenant
+  Registry>`1つに統合し、`appserver_tenants::routes`(`registry.
+  dispatcher()`経由)・`appserver_processes::routes`・
+  `ThreadedProxyServer`(プロキシ実体)の3者が**同一のレジストリを共有**
+  するよう配線し直した——これにより、`/admin/appserver-tenants`
+  (プロキシ専用登録)と`/admin/appserver-processes`(プロセス管理付き
+  登録)のどちらのAPI経由で追加したホストも、同じ`ThreadedProxyServer`
+  から一貫して到達可能になる(従来は2つの独立した`SharedDispatcher`に
+  分裂する設計だった欠陥を、実装前に発見し配線段階で解消)。
+
+**実際に動作確認した内容**(型チェック・ビルド成功だけで完了と報告しない
+という運用ルールに従う): `cargo test -p open-runo-gateway appserver`
+(新規4件+既存3件、計7件)で、新設の
+`appserver_processes::tests::register_stop_restart_round_trip_over_real_http`
+が実際に`open-runo-dummy-http-server`(実バイナリ)をHTTP経由で
+起動→ヘルスチェックによる`healthy`到達確認→HTTP経由の`stop`→
+`stopped`到達確認→HTTP経由の`restart`→`healthy`復帰確認、まで
+モック無しで一気通貫検証(`reqwest`で実TCP経由、`appserver_tenants.rs`
+既存テストと同じ確立されたパターンを踏襲)。あわせて
+`cargo test -p open-runo-appserver`(既存20件、`HealthState`への
+`Serialize`追加以外は無変更)・`cargo check --workspace`
+(既存警告4件のみ、今回変更起因の新規警告なし)も実行し全green。
+
+**正直な開示・未着手事項**:
+1. 上記の通り、open-web-server/open-raid-z/aruaru-dbとの実際の新規
+   統合は今回未着手。
+2. 前回HANDOFFの(2)(ヘルスチェック失敗の継続による強制kill+再起動)
+   は今回も未着手のまま。
+3. 設定ファイル化(`RuntimeProfile`をTOML/YAML等の設定ファイルから
+   ロードする機能)・グレースフルシャットダウン(gateway自体の終了時に
+   管理下の全プロセスへ`stop()`を伝播する仕組み)は、ユーザー指示の
+   「フレームワークとしての使いやすさ」に含まれる項目だが、今回は
+   HTTP管理API化を優先し着手していない。
+4. `POST /admin/appserver-processes`のリクエストボディで`profile`
+   (`RuntimeProfile`)をJSON直書きで要求する設計にしたため、呼び出し側
+   が`command`/`workdir`/`port`等をすべて把握して組み立てる必要がある
+   ——`Stack`ごとの雛形(`RuntimeProfile::template`)をHTTP経由でも
+   使えるような簡易エンドポイント(例:
+   `stack`+`name`+`workdir`+`port`だけ渡せば`template`を内部で呼ぶ)は
+   未実装、次回「使いやすさ」向上の候補。
+- 次にすべきこと: (1) 上記「正直な開示」1〜4のいずれか(まずは
+  open-web-server/open-raid-zのCLAUDE.md HANDOFFを再読して、RPoem側の
+  具体的なフックポイント[ジャーナル書き込み等]が明記されていないか
+  確認するところから)、(2) HANDOFFにある「アプリケーションサーバー層の
+  役割」節との整合の宿題は依然未着手のまま持ち越し。

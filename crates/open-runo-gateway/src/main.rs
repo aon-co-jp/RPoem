@@ -11,7 +11,7 @@
 //! execution).
 
 use open_runo_appserver::server::{ServerConfig, ThreadedProxyServer};
-use open_runo_appserver::SharedDispatcher;
+use open_runo_appserver::tenant_bridge::SupervisedTenantRegistry;
 use open_runo_core::Config;
 use open_runo_router::keyring::{GuardianConfig, KeyGuardian};
 use open_runo_router::{build_hyper_app, hyper_compat, state::AppState};
@@ -37,20 +37,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (graphiql, graphql_post) = open_runo_gateway::graphql_hyper::graphql_handlers(Arc::clone(&state));
 
     // アプリケーションサーバー層(「第二のTomcat」)の多重テナント管理。
-    // `SharedDispatcher`はスレッド間共有・実行時追加/削除が可能なため、
-    // ドメインを追加するたびに新しいpoem-cosmo-tauriプロセスを個別
-    // インストールする必要が無くなる(「分身の術」構想、2026-07-16)。
-    // 管理API(`/admin/appserver-tenants`)自体は常時有効、実際の
-    // プロキシリスナー(`OPEN_RUNO_APPSERVER_PROXY_BIND`)は明示設定時のみ。
+    // `SupervisedTenantRegistry`(2026-08-06、`process_lifecycle`と統合)は
+    // 「テナント登録(host→backend_addr)」と「そのバックエンドプロセス自体
+    // の起動・監視」を1つのレジストリでオプトインに束ねる——`appserver_
+    // tenants`(プロキシ専用登録、後方互換)と`appserver_processes`
+    // (プロセス管理、新規)の両管理APIが**同じレジストリを共有**するため、
+    // どちらのAPI経由で登録したホストも同じ`Dispatcher`/プロキシリスナー
+    // から一貫して到達可能になる(スレッド間共有・実行時追加/削除が可能、
+    // ドメインを追加するたびに新しいプロセスを個別インストールする必要が
+    // 無くなる「分身の術」構想、2026-07-16)。管理API自体は常時有効、
+    // 実際のプロキシリスナー(`OPEN_RUNO_APPSERVER_PROXY_BIND`)は
+    // 明示設定時のみ。
     let appserver_guardian = Arc::new(KeyGuardian::new(Arc::clone(&state.db), GuardianConfig::from_env()));
-    let appserver_dispatcher = Arc::new(SharedDispatcher::new());
+    let appserver_registry = Arc::new(SupervisedTenantRegistry::new());
 
     let mut app = build_hyper_app(state, config.rate_limit_max_requests, config.rate_limit_window_secs as i64)
         .await
         .route(hyper::Method::GET, "/graphql", graphiql)
         .route(hyper::Method::POST, "/graphql", graphql_post);
+    for (method, pattern, handler) in open_runo_gateway::appserver_tenants::routes(
+        appserver_registry.dispatcher(),
+        Arc::clone(&appserver_guardian),
+    ) {
+        app = app.route(method, pattern, handler);
+    }
     for (method, pattern, handler) in
-        open_runo_gateway::appserver_tenants::routes(Arc::clone(&appserver_dispatcher), appserver_guardian)
+        open_runo_gateway::appserver_processes::routes(Arc::clone(&appserver_registry), appserver_guardian)
     {
         app = app.route(method, pattern, handler);
     }
@@ -60,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ある(先に束縛を外に置き、有効時のみ`Some`にする)。
     let _appserver_proxy = match std::env::var("OPEN_RUNO_APPSERVER_PROXY_BIND").ok() {
         Some(bind) => {
-            let server = ThreadedProxyServer::start(&bind, Arc::clone(&appserver_dispatcher), ServerConfig::default())?;
+            let server = ThreadedProxyServer::start(&bind, appserver_registry.dispatcher(), ServerConfig::default())?;
             tracing::info!(bind_addr = %bind, "appserver tenant proxy listening (shared, multi-domain, no per-domain install)");
             Some(server)
         }
