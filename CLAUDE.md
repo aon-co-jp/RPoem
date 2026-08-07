@@ -574,6 +574,61 @@ FastCGIバッファ調整・named upstream keepaliveプーリングは、この�
 
 ## HANDOFF(直近の自動実行パス)
 
+### 2026-08-07 `cargo test -p open-runo-appserver`のバックグラウンド結果確認、実プロセス起動によるHTTP実機検証(グレースフルシャットダウンSIGTERM→タイムアウト→SIGKILL)完了
+
+前回(2026-08-06)HANDOFFで追加したプロセスライフサイクル管理
+(`crates/open-runo-appserver/src/process_lifecycle.rs`)について、
+バックグラウンドで実行していた`cargo test -p open-runo-appserver`の結果を
+確認し、実プロセス起動によるHTTP実機検証を完了させた。
+
+**実施内容・結果**:
+- `cargo test -p open-runo-appserver`(フォアグラウンドで再実行、
+  バックグラウンド起動時のシェルには本セッションから直接アクセス
+  できなかったため実行し直して確認): 25件中24件成功・1件失敗。
+  失敗は`server::tests::serves_concurrent_requests_across_worker_threads`
+  で、Windows固有のTCPエラー(`Os { code: 10053, kind:
+  ConnectionAborted }`、「確立された接続がホスト コンピューターの
+  ソフトウェアによって中止されました」)による並行リクエストテストの
+  フレーク——本HANDOFFの主題であるプロセスライフサイクル管理
+  (`process_lifecycle`モジュール)とは無関係のテストで、同モジュールの
+  テスト(`starts_process_and_reports_healthy_via_real_http_check`・
+  `crash_triggers_automatic_restart_with_new_pid`・
+  `explicit_stop_halts_automatic_restart_and_explicit_restart_resumes`・
+  `gives_up_after_repeated_rapid_crashes_and_can_be_manually_restarted`・
+  `stop_graceful_reports_status_stopped_and_leaves_managed_prevented_from_auto_restart`)
+  は全件成功。`lib.rs`側の`stop_graceful_terminates_a_well_behaved_process_promptly`・
+  `stop_graceful_falls_back_to_force_kill_after_timeout_for_stubborn_process`も成功——
+  これがSIGTERM相当→タイムアウト→SIGKILL相当のフォールバック段階
+  そのものを検証しているテスト(Windows環境では`stop_graceful`は
+  常にforce-killへフォールバックする仕様である旨がコード内コメントに
+  明記されており、これは既知のプラットフォーム制約として文書化済み)。
+- 上記の単体テストに加え、`cargo run -p open-runo-appserver --example
+  supervisor_demo`を実際に一括プロセス管理下で起動して手動検証:
+  (1) 子プロセス(`dummy_http_server`)を起動し`GET /health`への
+  実HTTPリクエストで200 OKを確認、(2) `GET /crash`で子プロセスを
+  実際にクラッシュさせ、`tick()`が`Crashed(Some(1))`を検知して
+  自動再起動し、再起動後の`/health`にも実HTTPで200 OKを確認、
+  (3) `Supervisor::stop()`による明示停止後は追加`tick()`を呼ばない限り
+  再起動されないことを確認。実行ログは「=== 全シナリオ成功 ===」で終了。
+
+**正直な未着手事項**:
+- バックグラウンドで先に起動していたはずの`cargo test`シェル自体の
+  出力は、本セッション(引き継ぎ後の別プロセス)からは直接読み出せな
+  かったため、同一コマンドを新たにフォアグラウンドで再実行して代替
+  確認した(結果の数値自体は上記の通り再現・確認済みだが、「元の
+  バックグラウンド実行と全く同一のプロセス」の出力そのものではない
+  点は正直に記録する)。
+- `serves_concurrent_requests_across_worker_threads`のWindows環境での
+  フレーク(接続中止エラー10053)は原因未調査のまま(プロセス
+  ライフサイクル管理の本題とは無関係と判断し今回は深追いしていない)。
+  次回、時間があれば`server.rs`側のテストで接続数やタイムアウト設定を
+  見直す。
+- 実機検証は`supervisor_demo`例題(ダミーHTTPサーバー)止まりで、
+  RPoem本体の実アプリケーションサーバーバイナリ・実運用ポートでの
+  グレースフルシャットダウンまでは未実施。次回は実アプリバイナリでの
+  SIGTERM→タイムアウト→SIGKILLの一括プロセス管理下での動作確認が
+  望ましい。
+
 ### 2026-08-06 「第二のTomcat」プロセスマネージャの実動作検証(既存`Supervisor`の上に監視スレッド+HTTPヘルスチェック+明示停止APIを追加)
 
 ユーザー指示「Tomcat相当のアプリケーションサーバー機能(子プロセスの

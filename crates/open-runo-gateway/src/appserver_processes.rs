@@ -29,9 +29,20 @@ use open_runo_appserver::process_lifecycle::HealthState;
 use open_runo_appserver::tenant_bridge::SupervisedTenantRegistry;
 use open_runo_appserver::{RestartPolicy, RuntimeProfile};
 use open_runo_router::auth_hyper::check_api_key;
-use open_runo_router::hyper_compat::{json_response, read_json_body, Handler, Params};
+use open_runo_router::hyper_compat::{json_response, query_params, read_json_body, Handler, Params};
 use open_runo_router::keyring::KeyGuardian;
 use serde::{Deserialize, Serialize};
+
+/// `?timeout_ms=N`のようなクエリパラメータからグレースフルシャットダウンの
+/// タイムアウトを読み取る。未指定・パース不能なら`default_ms`
+/// (このモジュールの既定値、呼び出し側で明記)。
+fn graceful_timeout_from_query(req: &open_runo_router::hyper_compat::Request, default_ms: u64) -> Duration {
+    let ms = query_params(req)
+        .get("timeout_ms")
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(default_ms);
+    Duration::from_millis(ms)
+}
 
 /// `POST /admin/appserver-processes`のリクエストボディ。
 /// `restart_policy`/`poll_interval_ms`は省略可(既定値を使う)。
@@ -54,6 +65,17 @@ struct ProcessStatusEntry {
     /// 管理対象プロセスが存在しない(プロキシ専用登録、または未登録)場合は
     /// `null`——「管理していない」ことと「異常」を混同しないための明示。
     status: Option<HealthState>,
+}
+
+/// `POST /admin/appserver-processes/:host/stop-graceful`・
+/// `stop-all-graceful`共通のレスポンス片。`graceful=true`はSIGTERMのみで
+/// 終了(理想的な後始末)、`false`はタイムアウトして強制終了
+/// (SIGKILL相当)へフォールバックしたことを示す——エラーではないので
+/// ステータスコードは常に200(対象が存在しない場合のみ404)。
+#[derive(Serialize)]
+struct GracefulStopEntry {
+    host: String,
+    graceful: bool,
 }
 
 /// `POST /admin/appserver-processes` — テナント登録と同時にバックエンド
@@ -171,7 +193,99 @@ pub fn restart_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<Ke
     })
 }
 
-/// `(method, pattern, handler)`の4件をまとめて返す(`appserver_tenants::
+/// `GET /admin/appserver-processes` — **複数プロセスの一括管理(1)**:
+/// このレジストリが管理している全プロセスの一覧+健康状態
+/// (`SupervisedTenantRegistry::list_managed`)。プロキシ専用登録
+/// (`register_proxy_only`)のホストは含まれない(`status_handler`の
+/// `null`と同じ線引き)。
+pub fn list_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Handler {
+    Arc::new(move |req, _params| {
+        let registry = Arc::clone(&registry);
+        let guardian = Arc::clone(&guardian);
+        Box::pin(async move {
+            if let Err(status) = check_api_key(req.headers(), &guardian).await {
+                return json_response(status, &serde_json::json!({ "error": "unauthorized" }));
+            }
+            let entries: Vec<ProcessStatusEntry> = registry
+                .list_managed()
+                .into_iter()
+                .map(|(host, status)| ProcessStatusEntry { host, status: Some(status) })
+                .collect();
+            json_response(StatusCode::OK, &serde_json::json!({ "processes": entries }))
+        })
+    })
+}
+
+/// `POST /admin/appserver-processes/stop-all` — **複数プロセスの一括管理
+/// (2)**: 管理対象の全プロセスへ即時停止(`stop()`、SIGKILL相当)を発行
+/// する(`SupervisedTenantRegistry::stop_all`)。段階的グレースフル停止が
+/// 必要な場合は`?graceful=true&timeout_ms=N`(既定5000ms)を付ける。
+pub fn stop_all_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Handler {
+    Arc::new(move |req, _params| {
+        let registry = Arc::clone(&registry);
+        let guardian = Arc::clone(&guardian);
+        Box::pin(async move {
+            if let Err(status) = check_api_key(req.headers(), &guardian).await {
+                return json_response(status, &serde_json::json!({ "error": "unauthorized" }));
+            }
+
+            let graceful_requested = query_params(&req).get("graceful").map(|v| v == "true").unwrap_or(false);
+            let timeout = graceful_timeout_from_query(&req, 5000);
+
+            if graceful_requested {
+                let results = {
+                    let registry = Arc::clone(&registry);
+                    tokio::task::spawn_blocking(move || registry.stop_all_graceful(timeout))
+                        .await
+                        .unwrap_or_default()
+                };
+                let entries: Vec<GracefulStopEntry> = results
+                    .into_iter()
+                    .map(|(host, graceful)| GracefulStopEntry { host, graceful })
+                    .collect();
+                json_response(StatusCode::OK, &serde_json::json!({ "stopped": entries }))
+            } else {
+                let stopped = registry.stop_all();
+                json_response(StatusCode::OK, &serde_json::json!({ "stopped": stopped }))
+            }
+        })
+    })
+}
+
+/// `POST /admin/appserver-processes/:host/stop-graceful?timeout_ms=N`
+/// (既定5000ms) — **段階的グレースフルシャットダウン**: SIGTERM相当を
+/// 送って`timeout`まで自発的終了を待ち、応答が無ければ強制終了
+/// (SIGKILL相当)にフォールバックする(`Supervisor::stop_graceful`)。
+/// 管理対象でないホストは404(既存`stop_handler`/`restart_handler`と
+/// 同じ意味論)。
+pub fn stop_graceful_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Handler {
+    Arc::new(move |req, params: Params| {
+        let registry = Arc::clone(&registry);
+        let guardian = Arc::clone(&guardian);
+        let host = params.get("host").unwrap_or_default().to_string();
+        let timeout = graceful_timeout_from_query(&req, 5000);
+        Box::pin(async move {
+            if let Err(status) = check_api_key(req.headers(), &guardian).await {
+                return json_response(status, &serde_json::json!({ "error": "unauthorized" }));
+            }
+
+            let host_for_task = host.clone();
+            let outcome = tokio::task::spawn_blocking(move || registry.stop_process_graceful(&host_for_task, timeout))
+                .await
+                .unwrap_or(None);
+
+            match outcome {
+                Some(graceful) => json_response(StatusCode::OK, &GracefulStopEntry { host, graceful }),
+                None => json_response(
+                    StatusCode::NOT_FOUND,
+                    &serde_json::json!({ "error": format!("no managed process for host: {host}") }),
+                ),
+            }
+        })
+    })
+}
+
+/// `(method, pattern, handler)`の7件をまとめて返す(`appserver_tenants::
 /// routes`と同じ利便性パターン)。
 pub fn routes(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Vec<(Method, &'static str, Handler)> {
     vec![
@@ -182,6 +296,16 @@ pub fn routes(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian
         ),
         (
             Method::GET,
+            "/admin/appserver-processes",
+            list_handler(Arc::clone(&registry), Arc::clone(&guardian)),
+        ),
+        (
+            Method::POST,
+            "/admin/appserver-processes/stop-all",
+            stop_all_handler(Arc::clone(&registry), Arc::clone(&guardian)),
+        ),
+        (
+            Method::GET,
             "/admin/appserver-processes/:host",
             status_handler(Arc::clone(&registry), Arc::clone(&guardian)),
         ),
@@ -189,6 +313,11 @@ pub fn routes(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian
             Method::POST,
             "/admin/appserver-processes/:host/stop",
             stop_handler(Arc::clone(&registry), Arc::clone(&guardian)),
+        ),
+        (
+            Method::POST,
+            "/admin/appserver-processes/:host/stop-graceful",
+            stop_graceful_handler(Arc::clone(&registry), Arc::clone(&guardian)),
         ),
         (
             Method::POST,
@@ -358,6 +487,120 @@ mod tests {
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
         let body: serde_json::Value = resp.json().await.expect("valid json body");
         assert!(body["status"].is_null());
+    }
+
+    /// **複数プロセスの一括管理**の実HTTP検証: 2プロセスを登録し、
+    /// `GET /admin/appserver-processes`で両方が一覧に現れること、
+    /// `POST /admin/appserver-processes/stop-all`で両方とも実際に
+    /// 停止することを確認する(モック無し、実プロセス2つ)。
+    #[tokio::test]
+    async fn list_and_stop_all_operate_on_every_registered_process_over_real_http() {
+        let (addr, _registry) = test_server().await;
+        let client = reqwest::Client::new();
+        let ports = [free_port(), free_port()];
+
+        for (i, &port) in ports.iter().enumerate() {
+            let resp = client
+                .post(format!("http://{addr}/admin/appserver-processes"))
+                .header("x-api-key", "test-key")
+                .json(&serde_json::json!({
+                    "host": format!("bulk{i}.example.jp"),
+                    "profile": dummy_profile(port),
+                    "poll_interval_ms": 50,
+                }))
+                .send()
+                .await
+                .expect("request should succeed");
+            assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        }
+
+        for i in 0..2 {
+            assert!(wait_for_status(&client, addr, &format!("bulk{i}.example.jp"), "healthy", 100).await);
+        }
+
+        let resp = client
+            .get(format!("http://{addr}/admin/appserver-processes"))
+            .header("x-api-key", "test-key")
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = resp.json().await.expect("valid json body");
+        let hosts: Vec<String> = body["processes"]
+            .as_array()
+            .expect("processes array")
+            .iter()
+            .map(|e| e["host"].as_str().unwrap().to_string())
+            .collect();
+        assert!(hosts.contains(&"bulk0.example.jp".to_string()));
+        assert!(hosts.contains(&"bulk1.example.jp".to_string()));
+
+        let resp = client
+            .post(format!("http://{addr}/admin/appserver-processes/stop-all"))
+            .header("x-api-key", "test-key")
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = resp.json().await.expect("valid json body");
+        assert_eq!(body["stopped"].as_array().expect("stopped array").len(), 2);
+
+        for i in 0..2 {
+            assert!(wait_for_status(&client, addr, &format!("bulk{i}.example.jp"), "stopped", 40).await);
+        }
+    }
+
+    /// **段階的グレースフルシャットダウン**の実HTTP検証: `dummy_http_server`
+    /// はSIGTERMハンドラを持たないため既定の振る舞いで終了し、Unixでは
+    /// タイムアウトを待たずに`graceful: true`が返ることを確認する
+    /// (Windowsでは常にタイムアウト経過後の強制終了になる、という
+    /// プラットフォーム差はSupervisor::stop_gracefulのテストで詳細検証済み
+    /// のためここでは「実際にプロセスが停止すること」のみ厳密に確認する)。
+    #[tokio::test]
+    async fn stop_graceful_over_real_http_actually_terminates_the_process() {
+        let (addr, _registry) = test_server().await;
+        let client = reqwest::Client::new();
+        let port = free_port();
+
+        let resp = client
+            .post(format!("http://{addr}/admin/appserver-processes"))
+            .header("x-api-key", "test-key")
+            .json(&serde_json::json!({
+                "host": "graceful1.example.jp",
+                "profile": dummy_profile(port),
+                "poll_interval_ms": 50,
+            }))
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        assert!(wait_for_status(&client, addr, "graceful1.example.jp", "healthy", 100).await);
+
+        let resp = client
+            .post(format!("http://{addr}/admin/appserver-processes/graceful1.example.jp/stop-graceful?timeout_ms=3000"))
+            .header("x-api-key", "test-key")
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = resp.json().await.expect("valid json body");
+        assert_eq!(body["host"], "graceful1.example.jp");
+        assert!(body["graceful"].is_boolean());
+
+        assert!(wait_for_status(&client, addr, "graceful1.example.jp", "stopped", 100).await);
+        assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err(), "process must actually be terminated");
+    }
+
+    #[tokio::test]
+    async fn stop_graceful_on_unmanaged_host_returns_404() {
+        let (addr, _registry) = test_server().await;
+        let resp = reqwest::Client::new()
+            .post(format!("http://{addr}/admin/appserver-processes/unknown.example.jp/stop-graceful"))
+            .header("x-api-key", "test-key")
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
