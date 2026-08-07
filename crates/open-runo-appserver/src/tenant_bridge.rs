@@ -205,6 +205,83 @@ impl SupervisedTenantRegistry {
             None => false,
         }
     }
+
+    /// 管理対象プロセスの段階的グレースフル停止(2026-08-07新設、管理API
+    /// 相当)。`ProcessLifecycleManager::stop_graceful`をそのまま呼ぶ——
+    /// 管理対象でないホストは`None`、管理対象であれば
+    /// `Some(true)`=SIGTERMのみでの正常終了、`Some(false)`=タイムアウトして
+    /// 強制終了、を返す。
+    pub fn stop_process_graceful(&self, host: &str, timeout: Duration) -> Option<bool> {
+        self.managed
+            .read()
+            .expect("managed lock poisoned")
+            .get(&host.to_ascii_lowercase())
+            .map(|mgr| mgr.stop_graceful(timeout))
+    }
+
+    /// 複数プロセスの一括管理(2026-08-07新設): 現在このレジストリが
+    /// 管理している全ホストとその健康状態の一覧(`GET
+    /// /admin/appserver-processes`相当)。`register_proxy_only`のみの
+    /// ホスト(このレジストリの管理対象ではない)は含まれない
+    /// (`process_status`が`None`を返すのと同じ線引き)。
+    pub fn list_managed(&self) -> Vec<(String, HealthState)> {
+        self.managed
+            .read()
+            .expect("managed lock poisoned")
+            .iter()
+            .map(|(host, mgr)| (host.clone(), mgr.status()))
+            .collect()
+    }
+
+    /// 複数プロセスの一括停止(2026-08-07新設、`POST
+    /// /admin/appserver-processes/stop-all`相当)。管理対象の全ホストへ
+    /// 即時停止(`stop()`、SIGKILL相当)を発行し、実際に停止指示を送った
+    /// ホスト名の一覧を返す(空なら管理対象が無かった、というだけで
+    /// エラーではない)。1件ずつ確実に停止させるため、途中で失敗しても
+    /// 残りのホストへの停止指示はスキップしない。
+    pub fn stop_all(&self) -> Vec<String> {
+        let managers: Vec<(String, Arc<ProcessLifecycleManager>)> = self
+            .managed
+            .read()
+            .expect("managed lock poisoned")
+            .iter()
+            .map(|(host, mgr)| (host.clone(), Arc::clone(mgr)))
+            .collect();
+        let mut stopped = Vec::with_capacity(managers.len());
+        for (host, mgr) in managers {
+            mgr.stop();
+            stopped.push(host);
+        }
+        stopped
+    }
+
+    /// 複数プロセスの一括グレースフル停止(2026-08-07新設、`POST
+    /// /admin/appserver-processes/stop-all?graceful_timeout_ms=N`相当)。
+    /// 各プロセスへ`timeout`を上限としたSIGTERM→タイムアウト→SIGKILLの
+    /// 段階的停止を順に行い、`(host, graceful)`の一覧を返す
+    /// (`graceful=true`ならSIGTERMのみで終了、`false`ならSIGKILLへ
+    /// フォールバックした)。複数プロセスを同時に`timeout`待ちさせる
+    /// 並列化は行わず意図的に直列実行する——各プロセスが独立した
+    /// `timeout`を消費するため合計の所要時間は台数に比例するが、
+    /// 実装を単純に保ち「1プロセスずつ確実に段階を踏む」ことを優先した
+    /// (大量プロセスの一括停止で待ち時間が問題になる場合は、呼び出し側で
+    /// スレッドに分けて並列に呼び出すことでも対応できる)。
+    pub fn stop_all_graceful(&self, timeout: Duration) -> Vec<(String, bool)> {
+        let managers: Vec<(String, Arc<ProcessLifecycleManager>)> = self
+            .managed
+            .read()
+            .expect("managed lock poisoned")
+            .iter()
+            .map(|(host, mgr)| (host.clone(), Arc::clone(mgr)))
+            .collect();
+        managers
+            .into_iter()
+            .map(|(host, mgr)| {
+                let graceful = mgr.stop_graceful(timeout);
+                (host, graceful)
+            })
+            .collect()
+    }
 }
 
 impl Dispatcher for SupervisedTenantRegistry {
@@ -340,5 +417,81 @@ mod tests {
 
         registry.remove("managed.example.jp");
         assert!(registry.resolve("managed.example.jp").is_none());
+    }
+
+    #[test]
+    fn list_managed_and_stop_all_operate_on_every_managed_process_at_once() {
+        // 複数プロセスの一括管理(2026-08-07新設)の検証: 3つの実プロセスを
+        // 同時に起動・監視させ、一覧取得と一括停止が全プロセスへ
+        // 実際に効くことを確認する(モック無し、実プロセス3つ)。
+        let registry = SupervisedTenantRegistry::new();
+        let ports: Vec<u16> = (0..3).map(|_| free_port()).collect();
+        for (i, &port) in ports.iter().enumerate() {
+            registry.register_with_managed_process(
+                &format!("app{i}.example.jp"),
+                dummy_profile(port),
+                fast_policy(),
+                Duration::from_millis(50),
+            );
+        }
+
+        // 3件全てHealthyになるまで待つ。
+        assert!(wait_for(Duration::from_secs(5), || {
+            (0..3).all(|i| registry.process_status(&format!("app{i}.example.jp")) == Some(HealthState::Healthy))
+        }));
+
+        let mut listed: Vec<String> = registry.list_managed().into_iter().map(|(h, _)| h).collect();
+        listed.sort();
+        assert_eq!(
+            listed,
+            vec!["app0.example.jp".to_string(), "app1.example.jp".to_string(), "app2.example.jp".to_string()]
+        );
+        // register_proxy_onlyのホストは一覧に含まれないことも確認。
+        registry.register_proxy_only(
+            "proxy-only.example.jp",
+            UpstreamAddr { host: "127.0.0.1".into(), port: 1 },
+        );
+        assert_eq!(registry.list_managed().len(), 3);
+
+        // 一括停止: 3プロセス全てへ停止指示が送られ、実際に全部落ちること
+        // (どれか1つだけ、ではなく)を確認する。
+        let stopped = registry.stop_all();
+        assert_eq!(stopped.len(), 3);
+        for &port in &ports {
+            assert!(
+                wait_for(Duration::from_secs(2), || TcpStream::connect(("127.0.0.1", port)).is_err()),
+                "port {port} should be unreachable after stop_all"
+            );
+        }
+        for i in 0..3 {
+            assert_eq!(registry.process_status(&format!("app{i}.example.jp")), Some(HealthState::Stopped));
+        }
+    }
+
+    #[test]
+    fn stop_all_graceful_reports_per_host_outcome() {
+        let registry = SupervisedTenantRegistry::new();
+        let ports: Vec<u16> = (0..2).map(|_| free_port()).collect();
+        for (i, &port) in ports.iter().enumerate() {
+            registry.register_with_managed_process(
+                &format!("g{i}.example.jp"),
+                dummy_profile(port),
+                fast_policy(),
+                Duration::from_millis(50),
+            );
+        }
+        assert!(wait_for(Duration::from_secs(5), || {
+            (0..2).all(|i| registry.process_status(&format!("g{i}.example.jp")) == Some(HealthState::Healthy))
+        }));
+
+        let mut results = registry.stop_all_graceful(Duration::from_secs(5));
+        results.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(results.len(), 2);
+        for &port in &ports {
+            assert!(TcpStream::connect(("127.0.0.1", port)).is_err());
+        }
+
+        // 未管理ホストへのgraceful stopはNone。
+        assert_eq!(registry.stop_process_graceful("never-registered.example.jp", Duration::from_millis(10)), None);
     }
 }

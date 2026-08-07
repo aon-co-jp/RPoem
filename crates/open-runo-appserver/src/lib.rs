@@ -20,6 +20,28 @@ use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+/// Unix専用: `SIGTERM`をFFIで直接送るための最小限の宣言(2026-08-07新設、
+/// `Supervisor::stop_graceful`専用)。新規crate(`libc`等)を追加せず、
+/// 必要な1関数だけを自前で`extern "C"`宣言する——`kill(2)`のシグネチャは
+/// POSIXで安定しており、ここで使う分には十分安全。
+#[cfg(unix)]
+mod unix_signal {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    const SIGTERM: i32 = 15;
+
+    /// 指定PIDへSIGTERMを送る。対象が既に存在しない等で失敗しても
+    /// (`kill`の戻り値が負)、呼び出し元は後続のタイムアウト待機→
+    /// 強制終了フォールバックで結局後始末できるため、ここではエラーを
+    /// 無視する(=`stop()`の既存の`let _ = child.kill()`と同じ流儀)。
+    pub fn send_sigterm(pid: u32) {
+        unsafe {
+            let _ = kill(pid as i32, SIGTERM);
+        }
+    }
+}
+
 /// 対応スタック(§0.9.2 の優先順)。`Custom` で任意拡張可能。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -261,6 +283,64 @@ impl Supervisor {
         }
     }
 
+    /// 段階的グレースフルシャットダウン(2026-08-07新設): まずSIGTERM相当を
+    /// 送って`timeout`まで自発的な終了を待ち、応答が無ければ強制終了
+    /// (`stop()`と同じ`Child::kill()`、Unixでは`SIGKILL`相当)にフォール
+    /// バックする。戻り値は「SIGTERMのみで終了できたか」
+    /// (`true`=グレースフル終了、`false`=タイムアウトしてSIGKILLした)。
+    ///
+    /// **正直な開示・プラットフォーム差**: Unixでは実際に`SIGTERM`を送信する
+    /// (`std::process::Child`はSIGKILL相当の`kill()`しか提供しないため、
+    /// 新規crateを足さずに`libc`の`kill(2)`をFFIで直接宣言して呼ぶ——
+    /// このモジュール内で完結する数行のFFIであり、`open-runo-appserver`
+    /// が新規依存を増やさない既存方針を維持できる)。Windowsには任意の
+    /// 子プロセスへ「グレースフルに終了してほしい」と伝える標準的な
+    /// ポータブル手段が無い(`GenerateConsoleCtrlEvent`は同一コンソール
+    /// グループに限定される等の制約が強く、汎用的に使えない)ため、
+    /// Windows環境では何も送らずタイムアウトまで待ってから強制終了する
+    /// ——「SIGTERMを送ったのに応答が無い」ケースと外形上は区別が付かない
+    /// が、実際にはそもそも終了要求自体を送れていない、という違いを
+    /// 正直に記録しておく。
+    pub fn stop_graceful(&mut self, timeout: Duration) -> bool {
+        let ProcState::Running { child, .. } = &mut self.state else {
+            // 既に稼働していない場合は「グレースフルに完了済み」として扱う。
+            return true;
+        };
+
+        #[cfg(unix)]
+        {
+            unix_signal::send_sigterm(child.id());
+        }
+        #[cfg(not(unix))]
+        {
+            // Windows等: ポータブルな「終了してほしい」通知手段が無いため、
+            // ここでは何も送らずタイムアウト待機のみ行う(doc comment参照)。
+        }
+
+        let deadline = Instant::now() + timeout;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    self.state = ProcState::NotStarted;
+                    return true;
+                }
+                Ok(None) => {
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20).min(timeout));
+                }
+                Err(_) => break,
+            }
+        }
+
+        // タイムアウト、または`try_wait`自体がエラー: 強制終了にフォールバック。
+        let _ = child.kill();
+        let _ = child.wait();
+        self.state = ProcState::NotStarted;
+        false
+    }
+
     fn spawn(&mut self, prior_failures: u32) -> Health {
         match self.profile.build_command().spawn() {
             Ok(child) => {
@@ -491,6 +571,79 @@ mod tests {
         std::thread::sleep(Duration::from_millis(50));
         assert_eq!(sup.tick(), Health::Up);
         sup.stop();
+    }
+
+    #[test]
+    fn stop_graceful_terminates_a_well_behaved_process_promptly() {
+        // `dummy_http_server`(examples/)は明示的なSIGTERMハンドラを持たない
+        // ため、Unixでは既定の振る舞い(即終了)でSIGTERMを受けて終了する
+        // ——つまりSIGKILLへフォールバックせずグレースフルに終わるはず。
+        let exe = crate::process_lifecycle::dummy_app_exe_path();
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        drop(l);
+        let mut profile = RuntimeProfile::template(Stack::Custom("dummy".into()), "dummy", ".", port);
+        profile.command = exe.to_string_lossy().to_string();
+        profile.args.clear();
+        let mut sup = Supervisor::new(profile, RestartPolicy::default());
+        assert_eq!(sup.tick(), Health::Starting);
+        // 実際に接続できるまで待つ(起動完了の確認)。
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline && std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_ok(), "dummy server must be up before stop_graceful");
+
+        let start = Instant::now();
+        let graceful = sup.stop_graceful(Duration::from_secs(5));
+        let elapsed = start.elapsed();
+        assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err(), "process must actually be gone");
+
+        #[cfg(unix)]
+        {
+            assert!(graceful, "a process with no SIGTERM handler must exit on SIGTERM (default disposition), not require SIGKILL");
+            assert!(elapsed < Duration::from_secs(2), "must not wait for the full 5s timeout, took {elapsed:?}");
+        }
+        // Windowsでは実際にSIGTERM相当を送る手段が無いため、常に
+        // タイムアウト経過後の強制終了(graceful=false)になる
+        // ——doc comment・HANDOFFに記載済みの正直な既知の制約。
+        #[cfg(windows)]
+        {
+            assert!(!graceful, "Windows has no portable SIGTERM equivalent; stop_graceful must fall back to force-kill after the timeout");
+        }
+    }
+
+    #[test]
+    fn stop_graceful_falls_back_to_force_kill_after_timeout_for_stubborn_process() {
+        // Unix専用の"stubborn"ダミー(SIGTERMを無視する)でフォールバック
+        // パスを実証する。Windowsではそもそも終了要求を送る手段が無いため
+        // 上のテストと本質的に同じ経路になり別途の検証価値が薄いので、
+        // このテストはUnixに限定する。
+        #[cfg(unix)]
+        {
+            let exe = crate::process_lifecycle::dummy_stubborn_exe_path();
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = l.local_addr().unwrap().port();
+            drop(l);
+            let mut profile = RuntimeProfile::template(Stack::Custom("stubborn".into()), "stubborn", ".", port);
+            profile.command = exe.to_string_lossy().to_string();
+            profile.args.clear();
+            let mut sup = Supervisor::new(profile, RestartPolicy::default());
+            assert_eq!(sup.tick(), Health::Starting);
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline && std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_ok(), "stubborn server must be up before stop_graceful");
+
+            let start = Instant::now();
+            let graceful = sup.stop_graceful(Duration::from_millis(300));
+            let elapsed = start.elapsed();
+
+            assert!(!graceful, "a process that ignores SIGTERM must be force-killed, not counted as graceful");
+            assert!(elapsed >= Duration::from_millis(280), "must actually wait out (approximately) the timeout before force-killing, took {elapsed:?}");
+            assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err(), "process must be gone after the force-kill fallback");
+        }
     }
 
     #[test]

@@ -120,6 +120,25 @@ impl ProcessLifecycleManager {
         *self.shared.health.lock().expect("health lock poisoned") = HealthState::Stopped;
     }
 
+    /// 段階的グレースフルシャットダウン(管理API相当、2026-08-07新設):
+    /// `Supervisor::stop_graceful`をそのまま呼ぶ薄いラッパー——SIGTERM相当を
+    /// 送って`timeout`まで自発的終了を待ち、応答が無ければ`stop()`と同じ
+    /// 強制終了(SIGKILL相当)にフォールバックする。`stop()`と同じく監視
+    /// スレッドの自動再起動を止め、明示的な`restart()`まで停止状態を
+    /// 維持する。戻り値は「SIGTERMのみで終了できたか」
+    /// (プラットフォーム差の詳細は`Supervisor::stop_graceful`のdoc参照)。
+    pub fn stop_graceful(&self, timeout: std::time::Duration) -> bool {
+        self.shared.stopped.store(true, Ordering::SeqCst);
+        let graceful = self
+            .shared
+            .supervisor
+            .lock()
+            .expect("supervisor lock poisoned")
+            .stop_graceful(timeout);
+        *self.shared.health.lock().expect("health lock poisoned") = HealthState::Stopped;
+        graceful
+    }
+
     /// 明示的な再起動(管理API相当)。`stop()`後の停止状態、および
     /// crash-loop backoffで`GaveUp`になった状態のどちらからも復帰できる
     /// (運用者が原因を修正した後の再挑戦に使う想定)。
@@ -257,6 +276,30 @@ pub(crate) fn dummy_app_exe_path() -> std::path::PathBuf {
     dir
 }
 
+/// `dummy_app_exe_path`と同じ解決方法で、`open-runo-dummy-stubborn-server`
+/// (SIGTERMを無視するUnix専用の検証用サーバー、2026-08-07新設)を探す。
+/// `lib.rs`の`stop_graceful`テストから`pub(crate)`として使う。
+#[cfg(test)]
+pub(crate) fn dummy_stubborn_exe_path() -> std::path::PathBuf {
+    let mut dir = std::env::current_exe().expect("current_exe");
+    while dir.file_name().map(|n| n != "debug" && n != "release").unwrap_or(false) {
+        if !dir.pop() {
+            break;
+        }
+    }
+    let name = if cfg!(windows) {
+        "open-runo-dummy-stubborn-server.exe"
+    } else {
+        "open-runo-dummy-stubborn-server"
+    };
+    dir.push(name);
+    assert!(
+        dir.exists(),
+        "expected stubborn dummy server binary at {dir:?} (run `cargo build -p open-runo-appserver --bin open-runo-dummy-stubborn-server` first)"
+    );
+    dir
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,6 +424,38 @@ mod tests {
             wait_for(Duration::from_secs(5), || mgr.status() == HealthState::Healthy),
             "expected explicit restart to bring the process back healthy"
         );
+    }
+
+    #[test]
+    fn stop_graceful_reports_status_stopped_and_leaves_managed_prevented_from_auto_restart() {
+        // ProcessLifecycleManagerレベルの薄いラッパーとしての検証
+        // (SIGTERM送信・タイムアウト・SIGKILLフォールバック自体の詳細は
+        // lib.rs側のSupervisor::stop_gracefulのテストで検証済み)。
+        let port = free_port();
+        let mgr = ProcessLifecycleManager::start(
+            dummy_app_profile(port),
+            fast_policy(),
+            Duration::from_millis(50),
+        );
+        assert!(wait_for(Duration::from_secs(5), || mgr.status() == HealthState::Healthy));
+
+        let graceful = mgr.stop_graceful(Duration::from_secs(5));
+        assert_eq!(mgr.status(), HealthState::Stopped);
+        assert!(TcpStream::connect(("127.0.0.1", port)).is_err());
+
+        #[cfg(unix)]
+        assert!(graceful, "dummy server has no SIGTERM handler and should exit gracefully");
+        #[cfg(windows)]
+        assert!(!graceful, "Windows always falls back to force-kill (documented limitation)");
+
+        // stop_graceful後も自動再起動されないこと(stop()と同じ意味論)を確認。
+        thread::sleep(Duration::from_millis(300));
+        assert_eq!(mgr.status(), HealthState::Stopped);
+
+        // 明示的restart()で復帰できること。
+        mgr.restart();
+        assert!(wait_for(Duration::from_secs(5), || mgr.status() == HealthState::Healthy));
+        mgr.stop();
     }
 
     #[test]
