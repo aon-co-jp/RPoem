@@ -1,4 +1,4 @@
-# RPoem(open-runo-router)インストールスクリプト(Windows / Windows Server 共通)。
+﻿# RPoem(open-runo-router)インストールスクリプト(Windows / Windows Server 共通)。
 #
 # open-web-server(第二のApache+Nginx)とSETで使うアプリケーションサーバー
 # (第二のTomcat)。
