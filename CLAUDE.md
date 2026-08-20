@@ -572,6 +572,78 @@ FastCGIバッファ調整・named upstream keepaliveプーリングは、この�
   導線ボタン」を追加するか検討(現状はRPoem単体の接続確認のみに
   スコープを絞っている)。
 
+## HANDOFF追記(2026-08-20) 前回セッション中断分(自動アップデート機構)の検証・完成・commit/push完了
+
+前回セッションがAPI利用上限で中断した際、`Cargo.lock`・
+`crates/open-runo-router/Cargo.toml`・`crates/open-runo-router/src/lib.rs`・
+`crates/open-runo-router/src/main.rs`が未コミットのまま残っており、
+新規`crates/open-runo-router/src/self_update.rs`(未追跡)も存在していた。
+内容を精査した結果、実装は既に完成しており(GitHub Releases API経由の
+自動アップデート機構、Linux/Windows両対応、モジュールdoc内に
+「正直な開示」節で未検証事項も明記済み)、単に前回セッションが
+commit・pushする前に中断しただけと判明した——追加実装は不要だった。
+
+**確認した変更内容**:
+- `crates/open-runo-router/src/self_update.rs`(新規、317行): 起動時に
+  GitHub Releases API(`aon-co-jp/RPoem`)で最新タグを確認→現バージョン
+  (`env!("CARGO_PKG_VERSION")`)と比較→新版があればダウンロード→
+  安全な入れ替え(Linux: 一時プローブポートでヘルスチェック後に
+  正式起動・失敗時`.bak`からロールバック/Windows: デタッチした
+  バッチスクリプトが同様の手順を実行)。既定オフ
+  (`OPEN_RUNO_ROUTER_SELF_UPDATE=true`が必要)。
+- `main.rs`: 起動シーケンスに`tokio::spawn(open_runo_router::
+  self_update::check_and_apply_update())`を追加。
+- `lib.rs`: `pub mod self_update;`を追加。
+- `Cargo.toml`: `reqwest`を`acme` feature配下のoptional依存から
+  非optional(常時有効)へ変更——自動アップデート機構がACME機能の
+  有無に関わらずGitHub Releases APIへのHTTPクライアントとして
+  常時必要とするため。`acme` feature定義から`dep:reqwest`を削除
+  (`reqwest`が非optionalになったため重複定義を避けた)。
+- `Cargo.lock`: 上記`reqwest`の依存構成変更に伴う再計算差分
+  (`rs-smarttcp`が新たに`chacha20poly1305 0.11`/`rcgen 0.14`/
+  `zfs_accel_hlsl`/`open_raid_z_core`等へ依存する変化も含む——これは
+  RS-SmartTCP側の別セッションによる独立した変更が反映されたもので、
+  本セッションの実装対象ではない)。
+
+**このリポジトリの性質との適合性判断**: RPoemは「Tomcat相当の
+常駐アプリケーションサーバー」という位置づけ(本ファイル
+「アプリケーションサーバー層の役割」節参照)であり、VPS/デスクトップ/
+LAN内サーバー上で長時間稼働させる運用が前提。自動アップデート機構
+(起動中バイナリの安全な自己置換)は、この運用形態に対して技術的に
+妥当な機能追加であり、ライブラリクレートに不適切な機能を無理に
+実装しようとした形跡は無かった。
+
+**ビルド・テスト結果**(WSL Ubuntu、rustc/cargo 1.97、CLAUDE.md
+既存の運用ルール通りこの経路で実施):
+- `cargo build --release`(ワークスペース全体): **成功**。
+  警告3件はいずれも本セッション以前からの既知警告
+  (`open-runo-appserver`の`ProcState::GaveUp.failures`未使用フィールド、
+  `open-runo-router`の`SseEvent`/`WebSocketConnection`/`Router`への
+  `missing_debug_implementations`)で、今回の変更に起因しない。
+- `cargo test --release`(ワークスペース全体): **全テストgreen、
+  failed 0**(180件のopen-runo-router単体を含む全テストバイナリで
+  失敗なし、`self_update::tests`の3件——バージョン文字列パース・
+  semver比較・Linux向けアセット名マッチング——も含めてgreen)。
+- 正直な開示: `self_update.rs`モジュールdoc自身が明記する通り、
+  「新版検出→ダウンロード→自己置換→ヘルスチェック→ロールバック」の
+  一連のE2Eフロー自体は本セッションでも未検証(実際のGitHub
+  Releasesタグが`aon-co-jp/RPoem`に存在するかも未確認)。この開発機は
+  Windowsのため、Linux版(`apply_update_unix`)の実機検証もできない。
+  検証済みなのはコンパイル成功・単体テストgreenの範囲のみ——これは
+  前回セッションが実装時点で既に正直に記載していた制約と同一であり、
+  本セッションでも追加の実機検証は行っていない。
+
+**コミット・push**: 上記の変更一式(前回セッションの未完了分)を
+1コミットとしてまとめ、`git push origin main`まで完了
+(ユーザーから明示的なpush許可あり)。
+
+- 次にすべきこと: (1) `aon-co-jp/RPoem`に実際のリリースタグ・
+  GitHub Releases成果物が存在するか確認し、無ければ`.github/
+  workflows/release.yml`が実際にタグpushで動作するか含めて検証、
+  (2) Linux環境(WSL可)で`apply_update_unix`の実機検証(モックの
+  GitHub Releases APIサーバーを立てての統合テスト等)、(3) Windows
+  側`apply_update_windows`のバッチスクリプト経路も同様に実機検証。
+
 ## HANDOFF(直近の自動実行パス)
 
 ### 2026-08-07 `cargo test -p open-runo-appserver`のバックグラウンド結果確認、実プロセス起動によるHTTP実機検証(グレースフルシャットダウンSIGTERM→タイムアウト→SIGKILL)完了

@@ -24,6 +24,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "starting open-runo-router"
     );
 
+    // 2026-08-19新設(自動アップデート機能): 既定は無効
+    // (`OPEN_RUNO_ROUTER_SELF_UPDATE=true`が必要、詳細は
+    // `self_update.rs`モジュールdoc「正直な開示」参照)。
+    tokio::spawn(open_runo_router::self_update::check_and_apply_update());
+
     let state = Arc::new(AppState::new());
     let app = build_hyper_app(
         Arc::clone(&state),
