@@ -5,7 +5,20 @@
 > このファイルをコピーして、上から順に進めてください。
 >
 > 対象バージョン: workspace 0.1.0（18 クレート / 335 テスト、--all-features で353）
-> 最終更新: 2026-07-20(リポジトリ名を`poem-cosmo-tauri`→`RPoem`に統一)
+> 最終更新: 2026-08-20(自動アップデート機構`self_update.rs`追加を反映)
+
+## 自動アップデート機構(2026-08-20新設、`crates/open-runo-router/src/self_update.rs`)
+
+起動時にGitHub Releases API(`aon-co-jp/RPoem`)で最新タグを確認し、
+現バージョンより新しければダウンロード→安全な自己置換(ヘルスチェック
+成功時のみ切替、失敗時は`.bak`からロールバックし旧プロセスは継続稼働)
+を行う。**既定オフ**——`OPEN_RUNO_ROUTER_SELF_UPDATE=true`を明示設定
+した場合のみ動作する(VPS本番運用との予期しない競合を避けるため)。
+Linux(x86_64/aarch64)・Windows(x86_64)のみ対応。詳細・未検証事項は
+`self_update.rs`モジュールdoc、および本リポジトリの`CLAUDE.md`
+2026-08-20エントリを参照。他プロジェクトへ移植する場合は
+`Cargo.toml`の`reqwest`が非optional依存になっている点に注意
+(GitHub Releases APIへの常時稼働HTTPクライアントとして必要)。
 
 ---
 

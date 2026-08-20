@@ -38,6 +38,7 @@ pub mod mcp;
 pub mod middleware;
 pub mod middleware_hyper;
 pub mod openapi;
+pub mod self_update;
 pub mod session;
 pub mod state;
 pub mod udp_notice;
