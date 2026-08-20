@@ -646,6 +646,33 @@ LAN内サーバー上で長時間稼働させる運用が前提。自動アッ�
 
 ## HANDOFF(直近の自動実行パス)
 
+### 2026-08-20 world-lab-coordinatorをSupervisedTenantRegistry経由で実際にホストし、open-web-server経由の実E2Eを実証(world-lab側ユーザー指示への対応)
+
+world-lab側のユーザー指示「独自実装world-lab-coordinatorを見直して、
+RPoemを中心に、open-web-serverをApache・RPoemをTomcatとして利用」への
+対応。既存の`SupervisedTenantRegistry`(2026-08-06新設)が新規コード
+無しでそのまま使えることを確認し、`crates/open-runo-appserver/examples/
+world_lab_supervised.rs`(新規)を追加——`world-lab-coordinator`バイナリを
+`RuntimeProfile`として管理対象プロセス登録し、`ThreadedProxyServer`で
+前段プロキシを立てる薄いバイナリ。world-lab-coordinator自体・RPoem既存
+コードのいずれも変更していない(新規exampleファイル1件のみ)。
+
+**実証**: 実プロセス3つ(world-lab-coordinator・RPoemのsupervisor兼
+プロキシ・open-web-server本体)を起動し、open-web-server→RPoem→
+world-lab-coordinatorという2ホップの実TCP経路で`GET /health`・
+`POST /work-units`・`GET /work-units/next`が正しく機能することを
+実HTTPで確認済み。詳細な設計判断・見送った範囲(4層4重通信の不採用
+判断とその理由)は`world-lab/CLAUDE.md`の同日HANDOFFエントリを参照
+(このリポジトリ側での新規実装はexampleバイナリ1件のみのため、詳細な
+設計根拠は変更の主目的地であるworld-lab側に記録した)。
+
+- 次にすべきこと: (1) クラッシュ時自動再起動のworld-lab-coordinator
+  実体に対する再検証(前回の検証スクリプトが`pkill`のマッチングミスで
+  supervisorごと落としてしまい未完了)、(2)
+  `WORLD_LAB_ARUARU_PG_CONN`環境変数を`world_lab_supervised.rs`の
+  `RuntimeProfile.env`へ配線して永続化込みの構成にする、(3) VPS本番
+  デプロイ。
+
 ### 2026-08-07 `cargo test -p open-runo-appserver`のバックグラウンド結果確認、実プロセス起動によるHTTP実機検証(グレースフルシャットダウンSIGTERM→タイムアウト→SIGKILL)完了
 
 前回(2026-08-06)HANDOFFで追加したプロセスライフサイクル管理
