@@ -646,6 +646,81 @@ LAN内サーバー上で長時間稼働させる運用が前提。自動アッ�
 
 ## HANDOFF(直近の自動実行パス)
 
+### 2026-08-24 前回セッション中断分(GraphQL Federationデモ`/demo`)の検証・完成・commit/push完了
+
+前回セッションが利用制限で中断した際、`crates/open-runo-gateway/src/lib.rs`・
+`crates/open-runo-gateway/src/main.rs`が未コミットのまま残っており、
+新規`crates/open-runo-gateway/src/demo.rs`(未追跡)も存在していた。
+内容を精査した結果、実装は既に完成しており(`open-easy-web`からの
+デモ公開用に、実際の`open-runo-federation::compose()`で
+`users-service`/`products-service`という2つの固定サンプル部分グラフを
+実際に合成し、その合成結果に対して`async-graphql`で実際にクエリ実行
+できる`GET /demo`(GraphiQL)+`POST /demo/graphql`を追加するもの)、
+単に前回セッションがcommit・pushする前に中断しただけと判明した——
+追加実装は不要だった。
+
+**確認した変更内容**:
+- `crates/open-runo-gateway/src/demo.rs`(新規、326行): `USERS_SDL`/
+  `PRODUCTS_SDL`という固定SDL定数を`open_runo_federation::
+  parse_service_sdl`(本番の`POST /api/federation/compose`の`sdl`
+  フィールドと同じSDLパーサー)でパースし`compose()`(本番と同一関数)で
+  合成。`DemoQueryRoot`(`users`/`products`/`demoFederationStatus`の
+  3フィールド)を`async-graphql`の`Schema`として実装し、`products`の
+  `owner`フィールドが`ownerId`をキーに`users-service`側のサンプル
+  データを検索するクロスサブグラフ参照解決(`@key`ベースの参照解決の
+  簡易シミュレーション)を行う。モジュールdoc自身に「これは
+  スキーマ合成+固定サンプルデータのデモであり、
+  `open-runo-federation`自体がまだクエリプランニング/実行エンジンを
+  実装していない(モジュールdoc参照)ため、実際に複数の実アップストリーム
+  サービスへサブクエリを転送するデモではない」という正直な範囲明記が
+  含まれている(前回セッションの時点で誠実に記載済み)。
+- `crates/open-runo-gateway/src/lib.rs`: `pub mod demo;`を追加。
+- `crates/open-runo-gateway/src/main.rs`: `GET /demo`(GraphiQL、
+  `/demo/graphql`向けのサンプルクエリ入りバナー付き)・
+  `POST /demo/graphql`(クエリ実行)の2ルートを追加。
+
+**ビルド・テスト結果**(このマシンはWindowsネイティブ、ローカル
+`%USERPROFILE%\.cargo\bin\cargo.exe`使用。他セッションが同じ
+`target`ディレクトリへ異なるrustcバージョンで並行ビルドしており
+`open_raid_z_core`のrustc不一致エラー(E0514)が発生したため、
+`CARGO_TARGET_DIR`を一時ディレクトリへ退避して競合を回避した):
+- `cargo build --workspace`: **成功**。
+- `cargo test --workspace`: **全テストgreen、failed 0**
+  (`open-runo-gateway`単体28テスト中、新規`demo::tests`5件——
+  GraphiQLページが`/demo/graphql`を指すこと・`users`クエリ実行・
+  `products`のクロスサブグラフ`owner`解決・`demoFederationStatus`が
+  実際の`compose()`出力を反映すること・`compose_demo_schema`が実際に
+  Federationコアを使っていること——を含め全green)。
+- **実バイナリ+実HTTPでの動作確認**(このリポジトリの「白画面バグ等を
+  見逃さない検証徹底」ルールに従い、ステータスコードだけでなく実際の
+  レスポンス本文を確認): `cargo run -p open-runo-gateway`を
+  `127.0.0.1:18999`で起動し、(1) `GET /demo`→200、本文に
+  "RPoem GraphQL Federation demo"バナー・`/demo/graphql`・
+  "GraphiQL"の文字列が実際に含まれることを確認(白画面ではない)、
+  (2) `POST /demo/graphql`に`{ products { title owner { name } }
+  demoFederationStatus { contributingServices typeNames fieldCount } }`
+  を送信し、`Widget`→`Alice`・`Gadget`→`Bob`・`Gizmo`→`Alice`という
+  クロスサブグラフ解決結果と、`contributingServices:
+  ["users-service","products-service"]`・`fieldCount: 7`という実際の
+  Federation合成結果が返ることを確認、(3) `{ users { id name email } }`
+  でも2件のユーザーが正しく返ることを確認。検証後プロセスは停止済み。
+
+**正直な開示**: `demo.rs`モジュールdoc自身が明記する通り、これは
+「スキーマ合成+固定サンプルデータ」のデモであり、複数の実行時
+アップストリームサービスへ実際にサブクエリを転送するクエリプランニング
+デモではない(`open-runo-federation`自体がまだその機能を持たないため)。
+この制約は前回セッションの実装時点で既に正直に記載されていたもので、
+本セッションで新たに発見した制約ではない。
+
+**コミット・push**: 上記の変更一式(前回セッションの未完了分)を
+1コミットとしてまとめ、`git push origin main`まで完了。
+
+- 次にすべきこと: (1) `open-easy-web`側から実際に`/demo`への導線
+  (リンク・iframe埋め込み等)を張り、外部公開時の見え方を確認する、
+  (2) `open-runo-federation`にクエリプランニング/実行エンジンが
+  実装された暁には、このデモを「固定データ」から「複数の実デモ
+  アップストリームサービス」構成へ発展させる余地がある。
+
 ### 2026-08-20 world-lab-coordinatorをSupervisedTenantRegistry経由で実際にホストし、open-web-server経由の実E2Eを実証(world-lab側ユーザー指示への対応)
 
 world-lab側のユーザー指示「独自実装world-lab-coordinatorを見直して、
