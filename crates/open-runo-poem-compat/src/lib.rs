@@ -132,6 +132,16 @@ impl MethodRouter {
         self.handlers.push((Method::DELETE, handler));
         self
     }
+    /// 2026-08-24新設(open-english側の実用性向上要望——多くのHTTP
+    /// クライアント/ヘルスチェックツールが`HEAD`を使うが、従来この
+    /// シムには`HEAD`を登録する手段が無かった)。poemの
+    /// `.head(handler)`と同じ書き味。呼び出し側がボディ無しの
+    /// レスポンスを返すハンドラを渡す想定(このシム自体はGETハンドラ
+    /// からボディを自動で取り除いたりはしない、正直な簡略化)。
+    pub fn head(mut self, handler: Handler) -> Self {
+        self.handlers.push((Method::HEAD, handler));
+        self
+    }
 }
 
 pub fn get(handler: Handler) -> MethodRouter {
@@ -145,6 +155,10 @@ pub fn put(handler: Handler) -> MethodRouter {
 }
 pub fn delete(handler: Handler) -> MethodRouter {
     MethodRouter::single(Method::DELETE, handler)
+}
+/// poemの`head(handler)`相当(2026-08-24新設、`MethodRouter::head`参照)。
+pub fn head(handler: Handler) -> MethodRouter {
+    MethodRouter::single(Method::HEAD, handler)
 }
 
 /// poemの`poem::web::Path<T>`相当。`Params`(`HashMap<String,String>`)
@@ -324,6 +338,27 @@ mod tests {
         let (addr, handle) = spawn(app).await;
         let resp = send(addr, Method::GET, "/unknown").await;
         assert_eq!(resp.status(), SC::NOT_FOUND);
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn head_method_dispatches_separately_from_get_over_real_tcp() {
+        let app = Route::new().at(
+            "/head-ping",
+            get(handler_fn(|_req, _p| async { hyper_compat::html_response(SC::OK, "body".to_string()) }))
+                .head(handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::OK) })),
+        );
+        let (addr, handle) = spawn(app).await;
+
+        let head_resp = send(addr, Method::HEAD, "/head-ping").await;
+        assert_eq!(head_resp.status(), SC::OK);
+        let head_body = head_resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(head_body.is_empty());
+
+        let get_resp = send(addr, Method::GET, "/head-ping").await;
+        assert_eq!(get_resp.status(), SC::OK);
+        let get_body = get_resp.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&get_body[..], b"body");
         handle.abort();
     }
 
