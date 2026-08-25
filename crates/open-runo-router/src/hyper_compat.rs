@@ -1027,6 +1027,14 @@ pub mod tls {
 }
 
 /// A single registered route: method + path pattern (`:name` segments) + handler.
+///
+/// `Clone` added 2026-08-25 (open-english world-lab Phase B) so a caller can
+/// serve the same built `Router` over two listeners at once -- e.g. plain
+/// HTTP on one port and TLS (`tls::serve_tls`) on another, without having to
+/// rebuild the whole route table twice. `Handler` is an `Arc<dyn Fn...>`, so
+/// this clone is cheap (bumps refcounts, does not duplicate any handler
+/// closures or state).
+#[derive(Clone)]
 struct Route {
     method: Method,
     segments: Vec<Segment>,
@@ -1056,7 +1064,7 @@ fn parse_pattern(pattern: &str) -> Vec<Segment> {
 
 /// Minimal method+path router. Not a general-purpose crate replacement —
 /// just enough to dispatch open-runo-router's fixed endpoint set.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Router {
     routes: Vec<Route>,
 }
