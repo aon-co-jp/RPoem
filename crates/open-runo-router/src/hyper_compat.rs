@@ -954,6 +954,19 @@ pub mod tls {
         /// don't need a checked-in certificate. Follows the same
         /// `std::env::temp_dir()` + UUID pattern as
         /// `static_file_handler_serves_existing_file_and_404s_missing`.
+        /// Multiple rustls-dependent crates in this workspace can leave the
+        /// process-level `CryptoProvider` ambiguous when the test binary
+        /// links more than one candidate (`ring`/`aws-lc-rs`) transitively.
+        /// `install_default()` only needs to succeed once per process;
+        /// later calls return `Err` (already installed), which is fine to
+        /// ignore here. Found via a real `cargo test --features tls`
+        /// failure (`Could not automatically determine the process-level
+        /// CryptoProvider`), not a hypothetical — see the same fix already
+        /// applied to `open-english`'s server main.rs.
+        fn ensure_crypto_provider() {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        }
+
         fn self_signed_cert_files() -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
             let dir = std::env::temp_dir().join(format!("orn-tls-test-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&dir).unwrap();
@@ -968,6 +981,7 @@ pub mod tls {
 
         #[tokio::test]
         async fn health_endpoint_serves_over_real_tls() {
+            ensure_crypto_provider();
             let (cert_path, key_path, dir) = self_signed_cert_files();
             let tls_config = load_tls_config(&cert_path, &key_path).expect("load tls config");
 
@@ -999,6 +1013,7 @@ pub mod tls {
 
         #[tokio::test]
         async fn plain_http_client_cannot_talk_to_a_tls_listener() {
+            ensure_crypto_provider();
             let (cert_path, key_path, dir) = self_signed_cert_files();
             let tls_config = load_tls_config(&cert_path, &key_path).expect("load tls config");
 
