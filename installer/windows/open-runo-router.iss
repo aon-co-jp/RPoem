@@ -39,7 +39,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2
 SolidCompression=yes
 OutputDir=dist
-OutputBaseFilename=open-runo-router-install
+OutputBaseFilename=open-runo-router-installer
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
 
