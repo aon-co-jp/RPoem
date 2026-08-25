@@ -7,6 +7,17 @@
 > 対象バージョン: workspace 0.1.0（18 クレート / 335 テスト、--all-features で353）
 > 最終更新: 2026-08-20(自動アップデート機構`self_update.rs`追加を反映)
 
+## ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証済み・段階的導入計画(2026-08-25追記)
+
+`experiments/wgpu-browser-spike/`に、`wgpu`(features=`webgpu`+`wgsl`)を
+`wasm32-unknown-unknown --release`向けにコンパイルできることを確認した
+最小スパイクを配置済み(`cargo check`成功、実ブラウザでの完全なE2E実行は
+未検証)。ブラウザは既にW3C勧告候補の`WebGPU` APIを実装済みのため、
+`wasi:webgpu`(非ブラウザ実行環境向けの別提案)の成熟を待つ必要はない。
+段階的導入計画(第1段階: aruaru-llmのCPU推論をwasm32ビルド+RPoemの
+`apps/desktop-wasm`でホスト+open-englishから読み込み、第2段階: WebGPU
+経由のGPU推論)の詳細は`CLAUDE.md`の2026-08-25エントリを参照。
+
 ## 自動アップデート機構(2026-08-20新設、`crates/open-runo-router/src/self_update.rs`)
 
 起動時にGitHub Releases API(`aon-co-jp/RPoem`)で最新タグを確認し、

@@ -1,5 +1,76 @@
 # 開発方針・開発環境ルール(全リポジトリ共通ヘッダー、2026-07-15追記)
 
+> **📌 2026-08-25追記: ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証完了・
+> 段階的導入計画をRPoem/aruaru-llm/open-english「トライブリッド」で確定
+> (ユーザー指示への対応、正本はこのエントリ・詳細はaruaru-llm/open-english
+> 側CLAUDE.mdにも同内容を掲載)**
+>
+> **発端**: ユーザーから「open-english(easy-web.tokyo等の共有VPSデプロイ)を
+> ブラウザで動かす場合に、PC・タブレット・スマホいずれの端末でもレンタル
+> サーバー以外の端末(=利用者自身の端末)でaruaru-llmを動かすようにして
+> ほしい」「open-cpu・open-directx・open-cuda・aruaru-llmがブラウザで
+> Tauri互換の機能としてRPoemに実装されているはずなので確認して」という
+> 依頼があった。
+>
+> **調査結果(重要な事実誤認の訂正)**: RPoemの「Tauri互換」
+> (`apps/desktop-wasm`+`apps/desktop-tray`、`docs/tauri-parity.md`)は
+> **UIシェル層のみ**——IPC代替(`fetch()`)・システムトレイ・ネイティブ
+> 通知・インストーラーの再現であり、**open-cpu/open-directx/open-cuda/
+> aruaru-llmをブラウザ内で実行する機能は一切含まれていない**。これらは
+> ネイティブのCPU/GPU計算ライブラリであり、ブラウザのWASMサンドボックス
+> からGPU/NPUへ実際にディスパッチするには専用の仕組みが必要——これが
+> 今回の「未着手」の実体だった。
+>
+> あわせて、ユーザーが言及した`wasi:webgpu`について**技術的な訂正**を
+> 行った: `wasi:webgpu`はブラウザ**ではなく**wasmtime等の**非ブラウザ
+> 実行環境**向けのWASI提案であり、その成熟度はこちら側で変更できる
+> ものではない(外部標準化団体〈WebAssembly Community Group〉の管轄)。
+> 一方、**ブラウザは既にW3C勧告候補として安定した`WebGPU` API**を実装
+> 済み(Chrome/Edge等)——Rust側は`wgpu`クレート(wasm32-unknown-unknown+
+> WebGPUバックエンド)経由でこれを直接使える。つまり「未成熟な標準の
+> 成熟を待つ」必要は無く、既に成熟したブラウザ標準を使う経路の方が
+> 現実的、という判断に至った。
+>
+> **技術検証(実施済み、`RPoem/experiments/wgpu-browser-spike/`)**:
+> `wgpu 0.20`(`features = ["webgpu", "wgsl"]`)を`--target
+> wasm32-unknown-unknown --release`でビルドし、単純なコンピュート
+> シェーダー(1要素バッファへの加算)を呼び出す最小コードが
+> **コンパイルレベルで成功する**ことを実機確認した(`cargo check`が
+> エラー0件で完了)。**正直な開示**: 確認できたのはコンパイル成功
+> までで、実際にブラウザで`wasm-bindgen`ビルド→`navigator.gpu`経由の
+> 実行(`RequestAdapter`→計算→読み戻し)までの完全なE2E実行は、この
+> セッションでは実施していない(次回以降の検証対象)。
+>
+> **段階的導入計画(トライブリッド、3リポジトリの役割分担)**:
+> 1. **第1段階(CPU推論のみ、GPU無し)**: `aruaru-llm`側にGPT-2/
+>    distilgpt2生成ロジックを`wasm32-unknown-unknown`向けにビルドできる
+>    Cargo featureを追加し(既存のCPUパス`opencuda_cpu::CpuDevice`を
+>    流用、GPUディスパッチは含まない)、**RPoem**の`apps/desktop-wasm`
+>    (Tauri互換WASMシェル)内に、この推論ロジックを読み込む汎用の
+>    「ブラウザ内AI実行」サブモジュールとしてホストする。**open-english**
+>    のフロントエンド(`app.js`)はこのモジュールを直接読み込んで使う。
+> 2. **第2段階(WebGPU経由のGPU推論)**: 上記スパイクで実証した`wgpu`
+>    経由の経路を、`open-cuda`のGEMM/Attentionカーネルへ本格的に適用し、
+>    第1段階のCPUのみ経路をGPU対応へ拡張する(既存の`opencuda-vulkan`/
+>    `opencuda-directx`のネイティブ実装とは別に、wasm32+WebGPU専用の
+>    新規バックエンドが必要——大規模な新規エンジニアリング、複数
+>    セッションに跨る規模と見込む)。
+> 3. **暫定的な代替策(ユーザー指示により実装、既に存在する設計の再確認)**:
+>    上記1・2が完成するまでの間、「利用者がaruaru-llmをネイティブ
+>    実行ファイルとして自分の端末にダウンロード・起動し、ブラウザは
+>    `localhost:4600`へローカル接続する」という方式を暫定解とする。
+>    **これはopen-english自身の既存アーキテクチャ(CLAUDE.md冒頭
+>    「アーキテクチャ」節に既に明記済み)そのものであり、新規実装は
+>    不要——既に実現されている**。VPS上のブラウザ版(easy-web.tokyo等)
+>    はあくまで配布・入口ページとしての役割であり、実際のAI推論は
+>    利用者自身の端末で完結させる、というのが現状唯一の実用的な解。
+>
+> **次にすべきこと**: (1) 上記スパイクの完全なブラウザE2E検証
+>    (`wasm-bindgen`ビルド→実ブラウザでの`navigator.gpu`実行)、
+>    (2) 第1段階(aruaru-llmのwasm32 CPUビルド+RPoem側での読み込み+
+>    open-english側での統合)への着手、(3) 第2段階(WebGPU経由の
+>    GPU推論)は(2)の完成後、別セッションでスコープを切って着手。
+
 > **📌 保留タスク(2026-08-06、次回セッションで着手予定)/ Pending task (added 2026-08-06, to be started next session)**:
 > ユーザー指示により、**東芝の疑似量子コンピューター技術(Simulated
 > Bifurcation Machine)**と**DeepSeekの技術**(インターネットニュースだけ

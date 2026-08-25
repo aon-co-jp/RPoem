@@ -2,6 +2,13 @@
 
 > 📌 保留タスク(2026-08-06): 東芝SBM・DeepSeek技術の組み込み構想あり。詳細は[CLAUDE.md](CLAUDE.md)参照。
 
+> 📌 更新(2026-08-25): ブラウザ内AI実行(WASM+WebGPU)構想の技術検証を
+> 実施。`experiments/wgpu-browser-spike/`で`wgpu`(WebGPUバックエンド)が
+> `wasm32-unknown-unknown`向けにコンパイル可能であることを確認済み
+> (実ブラウザでの完全なE2E実行は未検証)。aruaru-llm/open-cuda等のAI/GPU
+> 計算をブラウザ内で実行する段階的導入計画を策定した——詳細は
+> [CLAUDE.md](CLAUDE.md)の2026-08-25エントリ参照。
+
 **Rust 製 GraphQL Federation プラットフォーム(Poem/Tauri/Cosmoは非依存・互換自前実装)**
 — WunderGraph Cosmo の有料版機能を OSS・Pure Rust で(Cosmo自体は着想元のみで実装非依存)。独自の自己学習 AI 搭載（外部 LLM 契約不要）。
 
