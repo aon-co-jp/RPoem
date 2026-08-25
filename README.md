@@ -92,7 +92,15 @@ tokio/hyper で自前実装しています。
 - 🍪 **Cookie/セッション + CSRF** — `X-Api-Key` に追加する認証経路、
   `POST /api/session/login`/`logout`、CSRF二重送信トークン検証
 - 🔒 **TLS終端**（`tls` feature、rustls） — リバースプロキシ不要で
-  直接HTTPS配信可能
+  直接HTTPS配信可能。`open-english`のworld-lab Phase B(受信側承認ゲート
+  +TLS)がこのTLS実装をそのまま再利用して実用化済み(2026-08-25、自己
+  署名開発証明書の自動生成・`load_tls_config`/`serve_tls`の実HTTPS
+  ハンドシェイク検証込み)。**正直な開示**: この実利用の過程で、
+  複数のrustls依存クレートが同一プロセスにリンクされるとプロセス
+  レベルの暗号プロバイダが曖昧になりパニックする実バグを発見し
+  (`open-english`側main.rsで`install_default()`呼び出しにより修正)、
+  RPoem自身のTLSテスト2件も同じ原因で失敗していたことが判明したため
+  同様に修正した(`hyper_compat::tls::tests`、183テスト全green)。
 - 🖥️ **デスクトップ管理アプリ**(Tauri非依存・互換UI、Rust → WebAssembly、
   TypeScript/Node.js 不使用)
 - 🔔 **システムトレイ + ネイティブ通知 + ネイティブインストーラー**
