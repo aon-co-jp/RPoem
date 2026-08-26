@@ -42,7 +42,7 @@ cargo build --release
 "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\open-runo-tray.iss
 ```
 
-Produces `installer\dist\open-runo-tray-setup.exe` — a real, per-user
+Produces `installer\dist\open-runo-tray-installer.exe` — a real, per-user
 (no admin elevation required), silently-uninstallable Windows installer.
 [Inno Setup](https://jrsoftware.org/isinfo.php) was used instead of the WiX
 Toolset: WiX v7+ requires accepting a commercial "Open Source Maintenance
