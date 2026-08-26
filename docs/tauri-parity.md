@@ -27,7 +27,7 @@
 | IPC (`invoke()`) | `api.rs`の`fetch()`ベースの素の非同期関数 | ✅ 代替実装済み(同一オリジンHTTP、IPCブリッジ不要) |
 | クロスプラットフォーム | ブラウザで動くWebAssembly(OS非依存) | ✅ 実質的に全OS対応(ブラウザがあれば動く) |
 | 小さいバイナリ | `opt-level = "s"` + `lto = true`でリリースビルド最適化 | 🔶 部分対応(ネイティブバイナリではなくWASMなので単純比較不可) |
-| **アプリバンドラー(インストーラー)** | PWA manifest(`manifest.json`)+`apps/desktop-tray/installer`(Inno Setup、実.exeインストーラー) | ✅ 完了(2026-07-12)。PWAインストールに加え、`apps/desktop-tray`向けの真のネイティブWindowsインストーラー(`open-runo-tray-setup.exe`)を追加。実機で`/VERYSILENT`インストール→`%LOCALAPPDATA%\Programs\open-runo-tray\`への配置→`HKCU`アンインストールエントリ登録(名前/バージョン/発行者/アンインストール文字列すべて正しい)→アンインストーラーでの完全削除まで確認済み |
+| **アプリバンドラー(インストーラー)** | PWA manifest(`manifest.json`)+`apps/desktop-tray/installer`(Inno Setup、実.exeインストーラー) | ✅ 完了(2026-07-12)。PWAインストールに加え、`apps/desktop-tray`向けの真のネイティブWindowsインストーラー(`open-runo-tray-installer.exe`)を追加。実機で`/VERYSILENT`インストール→`%LOCALAPPDATA%\Programs\open-runo-tray\`への配置→`HKCU`アンインストールエントリ登録(名前/バージョン/発行者/アンインストール文字列すべて正しい)→アンインストーラーでの完全削除まで確認済み |
 | **システムトレイ** | `apps/desktop-tray`(別バイナリ、`tray-icon`+`tao`、tauriパッケージ非依存) | ✅ 完了(2026-07-12)。実Windows環境でトレイアイコン表示(手書き32x32 RGBAアイコン)・左クリックで既定ブラウザが正しいURLで起動(`firefox.exe -osint -url http://localhost:8080/`をプロセス一覧で確認)・右クリックメニュー(Open/Quit)表示・Quitでプロセスが正常終了、をすべて実機検証済み |
 | **ネイティブ通知** | `apps/desktop-wasm/src/notifications.rs`(Web Notifications API)+ `apps/desktop-tray`(`notify-rust`、起動時に真のOSネイティブ通知) | ✅ 完了(2026-07-12)。ブラウザ内(Web Notifications API)とトレイ常駐プロセス(`notify-rust`、Windows toast/macOS Notification Center/Linux desktop通知)の二重対応。バックアップ完了・キャッシュ全パージ完了・整合性チェック完了(成功/失敗いずれも)でOSネイティブ通知を発火。権限未許可時は既存のページ内ステータス表示のみにフォールバックし失敗しない |
 | **自動アップデーター** | サーバー側バイナリを更新すれば`GET /`で常に最新UIが配信される | ✅ 実質的に自動(クライアント側の更新操作が不要という点でTauriより単純) |
