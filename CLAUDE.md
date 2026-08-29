@@ -1,5 +1,29 @@
 # 開発方針・開発環境ルール(全リポジトリ共通ヘッダー、2026-07-15追記)
 
+> ## 🎯 最重要・最優先で常に念頭に置くこと(2026-08-29、ユーザー指示に
+> よりファイル冒頭へ固定。正本はaruaru-db/CLAUDE.mdの同名エントリ、
+> 内容はそちらと同期させること)
+>
+> **RPoemは`aruaru-db`とSET(対)で使うことで初めて「REST API不要・
+> WunderGraph Cosmo有料版(Enterprise)互換」という価値が成立する
+> ——REST APIの代替をただ闇雲に作っても意味が無い、という戒めと共に
+> この特徴を絶対に忘れないこと。**
+>
+> - **【重要な訂正】WunderGraph Cosmo本体(Router・Schema Registry・
+>   Studio・CLI)は実はApache 2.0のOSSでありセルフホスト可能——
+>   **有料(Enterprise)部分はSSO(OpenID Connect)+SCIM・専有クラウド
+>   に限定される**([Cosmo Enterprise公式](https://cosmo-docs.wundergraph.com/enterprise))。
+>   このSETの価値の実体は「Cosmo自体の再実装」ではなく**RPoemが独自に
+>   実装したEnterprise限定機能(`open-runo-scim`のSCIM 2.0、
+>   `KeyGuardian`のAPIキー自動ライフサイクル管理)をOSSで持つこと**に
+>   ある。
+> - 何かをREST→GraphQL/バイナリへ移行する提案・実装をする前に、必ず
+>   「これはaruaru-dbとのSETとしての価値(SCIM/SSO相当・APIキー自動
+>   管理・VersionlessAPI互換)を強化するものか」を自問すること。
+>   詳細・具体的な実装状況(APIキー自動ライフサイクル管理・Raft/WAL
+>   バイナリ化・REST→GraphQL段階移行の進捗)はaruaru-db/CLAUDE.mdの
+>   同名エントリを参照。
+
 > **📌 2026-08-25追記: ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証完了・
 > 段階的導入計画をRPoem/aruaru-llm/open-english「トライブリッド」で確定
 > (ユーザー指示への対応、正本はこのエントリ・詳細はaruaru-llm/open-english
