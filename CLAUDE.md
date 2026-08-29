@@ -4255,3 +4255,29 @@ aruaru-dbへの実際の新規統合コードは書いていない)。
   具体的なフックポイント[ジャーナル書き込み等]が明記されていないか
   確認するところから)、(2) HANDOFFにある「アプリケーションサーバー層の
   役割」節との整合の宿題は依然未着手のまま持ち越し。
+
+## HANDOFF追記(2026-08-29) 設計方針: REST APIからの脱却は段階移行が
+既定方針(正本は`open-raid-z/CLAUDE.md`同日エントリ、RPoemはそこで
+名指しされた対象リポジトリの1つとして記録)
+
+`aruaru-db`側セッションでRaft/WAL間の通信をREST/JSON-over-HTTPから
+生TCPバイナリフレームへ完全移行し、GraphQL管理APIの固定値スタブを
+実データ接続へ修正した作業を受け、この方針をエコシステム全体の
+共通ヘッダー(`open-raid-z/CLAUDE.md`)へ記録した。要点(詳細・出典は
+そちらを参照): (a) ノード間の低レベルなワイヤプロトコルはREST禁止・
+バイナリ(またはgRPC相当の自前実装)へ、(b) 人間向け管理APIはREST/
+GraphQL併存のまま、スタブを量産せず実データ接続できたものから段階的に
+GraphQLへ寄せる、という2軸。
+
+**RPoem自身への適用状況(正直な開示)**: 本リポジトリは`open-runo-router::
+keyring::KeyGuardian`(APIキー自動発行/自動失効、`aruaru-db`が今回
+参考にした実装)・`open-runo-gateway::appserver_tenants`(REST管理API)・
+`open-runo-federation`(GraphQL Federation)を既に持つが、**ノード間
+プロトコル(`appserver_tenants`のテナント動的登録、`self_update.rs`の
+GitHub Releases問い合わせ等)自体を今回の方針に照らして見直す作業は
+未着手**——`aruaru-db`の実装例(`binary_transport.rs`)を参考に、次回
+以降で該当箇所を洗い出すこと。
+- 次にすべきこと: (1) RPoem自身のREST管理API(`appserver_tenants`等)
+  のうち、ノード間・プロセス間の低レベル通信に該当する箇所が無いか
+  棚卸しする、(2) あれば`aruaru-db`と同じ手順(調査→バイナリ実装→
+  実機検証)で移行する。
