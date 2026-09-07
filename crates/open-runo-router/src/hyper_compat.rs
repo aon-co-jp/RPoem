@@ -54,7 +54,7 @@ pub fn json_response(status: StatusCode, value: &impl serde::Serialize) -> Respo
     let body = serde_json::to_vec(value).unwrap_or_else(|_| b"{}".to_vec());
     HyperResponse::builder()
         .status(status)
-        .header("content-type", "application/json")
+        .header("content-type", "application/json; charset=utf-8")
         .body(fixed_body(Bytes::from(body)))
         .expect("building a response from a fixed set of valid headers cannot fail")
 }
@@ -1230,7 +1230,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers().get("content-type").unwrap(),
-            "application/json"
+            "application/json; charset=utf-8"
         );
     }
 
