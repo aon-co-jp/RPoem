@@ -279,7 +279,10 @@ pub(crate) fn dummy_app_exe_path() -> std::path::PathBuf {
 /// `dummy_app_exe_path`と同じ解決方法で、`open-runo-dummy-stubborn-server`
 /// (SIGTERMを無視するUnix専用の検証用サーバー、2026-08-07新設)を探す。
 /// `lib.rs`の`stop_graceful`テストから`pub(crate)`として使う。
-#[cfg(test)]
+/// 呼び出し側テストが`#[cfg(unix)]`限定のため、定義も同様に限定して
+/// 非Unixでのdead_code警告を避ける(バイナリ名解決は移植性のため
+/// windows分岐も残してある)。
+#[cfg(all(test, unix))]
 pub(crate) fn dummy_stubborn_exe_path() -> std::path::PathBuf {
     let mut dir = std::env::current_exe().expect("current_exe");
     while dir.file_name().map(|n| n != "debug" && n != "release").unwrap_or(false) {

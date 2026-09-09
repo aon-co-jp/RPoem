@@ -76,6 +76,7 @@ pub fn html_response(status: StatusCode, html: impl Into<String>) -> Response {
 }
 
 /// One Server-Sent Event: an optional `event:` type and its `data:` payload.
+#[derive(Debug, Clone)]
 pub struct SseEvent {
     pub event_type: Option<&'static str>,
     pub data: String,
@@ -298,6 +299,14 @@ async fn write_frame<W: AsyncWriteExt + Unpin>(
 /// of text/binary frames, with ping/pong/close handled transparently.
 pub struct WebSocketConnection {
     io: TokioIo<Upgraded>,
+}
+
+impl std::fmt::Debug for WebSocketConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // `TokioIo<Upgraded>` は Debug 非実装かつ内部状態を晒す意味も無いため、
+        // 型名だけの不透明表示にとどめる。
+        f.debug_struct("WebSocketConnection").finish_non_exhaustive()
+    }
 }
 
 impl WebSocketConnection {
@@ -1056,7 +1065,28 @@ struct Route {
     handler: Handler,
 }
 
-#[derive(Clone, PartialEq)]
+impl std::fmt::Debug for Route {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // `handler` (`Arc<dyn Fn ...>`) は Debug 非実装なので、
+        // メソッドと復元したパターン文字列だけを見せる。
+        let pattern: String = self
+            .segments
+            .iter()
+            .map(|s| match s {
+                Segment::Literal(l) => format!("/{l}"),
+                Segment::Param(p) => format!("/:{p}"),
+            })
+            .collect();
+        write!(
+            f,
+            "Route({} {})",
+            self.method,
+            if pattern.is_empty() { "/" } else { &pattern }
+        )
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
 enum Segment {
     Literal(String),
     Param(String),
@@ -1079,7 +1109,7 @@ fn parse_pattern(pattern: &str) -> Vec<Segment> {
 
 /// Minimal method+path router. Not a general-purpose crate replacement —
 /// just enough to dispatch open-runo-router's fixed endpoint set.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct Router {
     routes: Vec<Route>,
 }

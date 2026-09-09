@@ -265,6 +265,16 @@ impl Supervisor {
         self.state = ProcState::NotStarted;
     }
 
+    /// これまでに数えた連続失敗回数。`Backoff` 中および `GaveUp` 後は
+    /// その時点の回数、それ以外(未起動・稼働中)は 0 を返す。管理 API や
+    /// ログから「何回の連続失敗で再起動を諦めたか」を参照するために公開する。
+    pub fn failure_count(&self) -> u32 {
+        match &self.state {
+            ProcState::Backoff { failures, .. } | ProcState::GaveUp { failures } => *failures,
+            _ => 0,
+        }
+    }
+
     /// 現在稼働中の子プロセスのOS PID(無ければ`None`)。
     /// テスト・管理APIから「本当にそのプロセスを操作しているか」を検証する
     /// 目的で公開する。
@@ -596,6 +606,9 @@ mod tests {
 
         let start = Instant::now();
         let graceful = sup.stop_graceful(Duration::from_secs(5));
+        // `elapsed` を読むのは下の `#[cfg(unix)]` ブロックだけなので、
+        // 非Unixでは未使用になる。
+        #[cfg_attr(not(unix), allow(unused_variables))]
         let elapsed = start.elapsed();
         assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err(), "process must actually be gone");
 
