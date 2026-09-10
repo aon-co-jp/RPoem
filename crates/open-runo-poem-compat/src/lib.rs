@@ -19,6 +19,14 @@
 //!   置き換えられる」という主張はしない——実際に使われ、実プロジェクト
 //!   規模で検証されるまでは、あくまで「互換API面の第一歩」の位置づけ。
 
+// clippy: このモジュールの unwrap()/expect() は「固定ヘッダからのレスポンス構築」
+// 「起動時に読む埋め込み定数のパース」等、構造上失敗しない箇所に限られる
+// (各呼び出しに理由コメントあり)。business ロジック側の Quality Gate
+// (workspace lints の unwrap_used/expect_used = warn) は維持したまま、
+// この基盤モジュールだけ除外する。result_large_err は Result<T, Response>
+// (エラー時に完成済み HTTP レスポンスで短絡する意図的な型)に対するもの。
+#![allow(clippy::result_large_err)]
+
 use bytes::Bytes;
 pub use open_runo_router::hyper_compat::Params;
 use std::collections::HashMap;

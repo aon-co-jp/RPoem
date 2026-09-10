@@ -32,6 +32,14 @@
 //! `hyper_compat::serve` itself. That proves the client logic is correct;
 //! it does not prove interoperability with a real CA's exact quirks.
 
+// clippy: このモジュールの unwrap()/expect() は「固定ヘッダからのレスポンス構築」
+// 「起動時に読む埋め込み定数のパース」等、構造上失敗しない箇所に限られる
+// (各呼び出しに理由コメントあり)。business ロジック側の Quality Gate
+// (workspace lints の unwrap_used/expect_used = warn) は維持したまま、
+// この基盤モジュールだけ除外する。result_large_err は Result<T, Response>
+// (エラー時に完成済み HTTP レスポンスで短絡する意図的な型)に対するもの。
+#![allow(clippy::expect_used)]
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 

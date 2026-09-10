@@ -21,6 +21,14 @@
 //! `description`-only responses; see `docs/api-examples.md` for the plan
 //! to extend this to the rest of the surface.
 
+// clippy: このモジュールの unwrap()/expect() は「固定ヘッダからのレスポンス構築」
+// 「起動時に読む埋め込み定数のパース」等、構造上失敗しない箇所に限られる
+// (各呼び出しに理由コメントあり)。business ロジック側の Quality Gate
+// (workspace lints の unwrap_used/expect_used = warn) は維持したまま、
+// この基盤モジュールだけ除外する。result_large_err は Result<T, Response>
+// (エラー時に完成済み HTTP レスポンスで短絡する意図的な型)に対するもの。
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use crate::hyper_compat::{json_response, Handler};
 use hyper::StatusCode;
 use serde_json::{json, Map, Value};

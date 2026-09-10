@@ -44,6 +44,14 @@
 //! `hyper_compat::tls::serve_tls` uses for TLS) keeps the common path
 //! simple; gRPC-aware clients connect straight to it with prior knowledge.
 
+// clippy: このモジュールの unwrap()/expect() は「固定ヘッダからのレスポンス構築」
+// 「起動時に読む埋め込み定数のパース」等、構造上失敗しない箇所に限られる
+// (各呼び出しに理由コメントあり)。business ロジック側の Quality Gate
+// (workspace lints の unwrap_used/expect_used = warn) は維持したまま、
+// この基盤モジュールだけ除外する。result_large_err は Result<T, Response>
+// (エラー時に完成済み HTTP レスポンスで短絡する意図的な型)に対するもの。
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use bytes::{Bytes, BytesMut};
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, StreamBody};
@@ -1136,7 +1144,7 @@ mod tests {
         let body_bytes = collected.to_bytes();
         let message = decode_grpc_frame(&body_bytes)
             .expect("reflection response should be a valid gRPC-framed message");
-        let as_str = String::from_utf8_lossy(&message);
+        let as_str = String::from_utf8_lossy(message);
         assert!(
             as_str.contains("grpc.health.v1.Health"),
             "listed services should include the Health service"
@@ -1235,7 +1243,7 @@ mod tests {
         let body_bytes = collected.to_bytes();
         let message = decode_grpc_frame(&body_bytes)
             .expect("reflection response should be a valid gRPC-framed message");
-        let as_str = String::from_utf8_lossy(&message);
+        let as_str = String::from_utf8_lossy(message);
         assert!(
             as_str.contains("grpc.health.v1.Health"),
             "file descriptor response should embed the real FileDescriptorProto"
@@ -1400,7 +1408,7 @@ mod tests {
         let body_bytes = collected.to_bytes();
         let message = decode_grpc_frame(&body_bytes)
             .expect("reflection response should be a valid gRPC-framed message");
-        let as_str = String::from_utf8_lossy(&message);
+        let as_str = String::from_utf8_lossy(message);
         assert!(as_str.contains("Health"));
         assert!(as_str.contains("Check"));
         assert!(as_str.contains("Watch"));
