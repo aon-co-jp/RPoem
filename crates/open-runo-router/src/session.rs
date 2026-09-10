@@ -281,11 +281,11 @@ pub fn session_id_from_cookie_header(headers: &hyper::HeaderMap) -> Option<Strin
 }
 
 /// Build the `Set-Cookie` header value for a freshly created session.
-/// `HttpOnly` (never readable from JS, defeating XSS-driven cookie theft)
-/// + `SameSite=Strict` (the cookie itself is never sent cross-site at all,
-/// which is a stronger primitive than CSRF tokens alone — the token is a
-/// defense-in-depth layer for browsers/proxies that don't honor
-/// `SameSite`, and for `SameSite=Lax`-only environments).
+/// Sets `HttpOnly` (never readable from JS, defeating XSS-driven cookie
+/// theft) and `SameSite=Strict` (the cookie itself is never sent
+/// cross-site at all, which is a stronger primitive than CSRF tokens
+/// alone — the token is a defense-in-depth layer for browsers/proxies
+/// that don't honor `SameSite`, and for `SameSite=Lax`-only environments).
 pub fn set_cookie_header(session_id: &str) -> String {
     format!(
         "{SESSION_COOKIE_NAME}={session_id}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",

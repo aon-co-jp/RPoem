@@ -1250,7 +1250,7 @@ pub fn ai_stats_handler(
                             render_cost_secs: s.render_cost_secs,
                         })
                         .collect();
-                    patterns.sort_by(|a, b| b.requests.cmp(&a.requests));
+                    patterns.sort_by_key(|p| std::cmp::Reverse(p.requests));
                     patterns.truncate(20);
 
                     AiStatsResponse {

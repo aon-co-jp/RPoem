@@ -233,7 +233,7 @@ impl RequestMetrics {
     pub fn operations_summary(&self) -> Vec<OperationStat> {
         let ops = self.operation_stats.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut out: Vec<OperationStat> = ops.values().cloned().collect();
-        out.sort_by(|a, b| b.total_duration_ms.cmp(&a.total_duration_ms));
+        out.sort_by_key(|o| std::cmp::Reverse(o.total_duration_ms));
         out
     }
 }

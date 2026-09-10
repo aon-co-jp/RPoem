@@ -40,7 +40,7 @@ pub fn init_tracing(log_level: &str) {
 /// telemetry export is a diagnostic aid, not a hard dependency for the
 /// service to run.
 pub fn init_tracing_with_otlp(log_level: &str, otlp_endpoint: Option<&str>, service_name: &str) {
-    let env_filter = tracing_subscriber::EnvFilter::new(log_level.to_string());
+    let env_filter = tracing_subscriber::EnvFilter::new(log_level);
     let fmt_layer = tracing_subscriber::fmt::layer().json();
 
     let Some(endpoint) = otlp_endpoint else {
