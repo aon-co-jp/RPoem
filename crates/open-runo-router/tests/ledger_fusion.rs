@@ -87,13 +87,13 @@ impl WriteAheadLog for InMemoryWal {
         Ok(())
     }
     async fn mark_committed(&self, key: &str, commit_id: &str) -> anyhow::Result<()> {
-        if let Some(receipt) = self.processed.lock().unwrap().get_mut(key) {
+        if let Some(receipt) = self.processed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(key) {
             receipt.db_commit_id = Some(commit_id.to_string());
         }
         Ok(())
     }
     async fn is_already_processed(&self, key: &str) -> anyhow::Result<Option<open_web_server_core::MutationReceipt>> {
-        Ok(self.processed.lock().unwrap().get(key).cloned())
+        Ok(self.processed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(key).cloned())
     }
 }
 

@@ -259,53 +259,6 @@ fn urlencode(s: &str) -> String {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn with_query_omits_none_params() {
-        assert_eq!(
-            with_query("/api/schemas/users/history", &[("namespace", None)]),
-            "/api/schemas/users/history"
-        );
-    }
-
-    #[test]
-    fn with_query_joins_present_params() {
-        assert_eq!(
-            with_query("/api/schemas/users", &[("stage", Some("local")), ("namespace", Some("default"))]),
-            "/api/schemas/users?stage=local&namespace=default"
-        );
-    }
-
-    #[test]
-    fn urlencode_escapes_reserved_characters() {
-        assert_eq!(urlencode("a b&c=d"), "a%20b%26c%3Dd");
-        assert_eq!(urlencode("plain-service_name.v1~"), "plain-service_name.v1~");
-    }
-
-    #[test]
-    fn cli_parses_schema_register_args() {
-        let cli = Cli::parse_from([
-            "open-runo-cli",
-            "schema",
-            "register",
-            "--service",
-            "users",
-            "--sdl-file",
-            "schema.graphql",
-        ]);
-        match cli.command {
-            Command::Schema { action: SchemaCommand::Register { service, stage, .. } } => {
-                assert_eq!(service, "users");
-                assert_eq!(stage, "local");
-            }
-            _ => panic!("expected Schema::Register"),
-        }
-    }
-}
-
 async fn self_issue_key(client: &reqwest::Client, base_url: &str) -> Result<String> {
     let resp = client
         .post(format!("{base_url}/api/keys/self-issue"))
@@ -486,4 +439,51 @@ fn print_schema_version(v: &Value) {
         v.get("id").and_then(Value::as_str).unwrap_or("?"),
         v.get("created_at").and_then(Value::as_str).unwrap_or("?"),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_query_omits_none_params() {
+        assert_eq!(
+            with_query("/api/schemas/users/history", &[("namespace", None)]),
+            "/api/schemas/users/history"
+        );
+    }
+
+    #[test]
+    fn with_query_joins_present_params() {
+        assert_eq!(
+            with_query("/api/schemas/users", &[("stage", Some("local")), ("namespace", Some("default"))]),
+            "/api/schemas/users?stage=local&namespace=default"
+        );
+    }
+
+    #[test]
+    fn urlencode_escapes_reserved_characters() {
+        assert_eq!(urlencode("a b&c=d"), "a%20b%26c%3Dd");
+        assert_eq!(urlencode("plain-service_name.v1~"), "plain-service_name.v1~");
+    }
+
+    #[test]
+    fn cli_parses_schema_register_args() {
+        let cli = Cli::parse_from([
+            "open-runo-cli",
+            "schema",
+            "register",
+            "--service",
+            "users",
+            "--sdl-file",
+            "schema.graphql",
+        ]);
+        match cli.command {
+            Command::Schema { action: SchemaCommand::Register { service, stage, .. } } => {
+                assert_eq!(service, "users");
+                assert_eq!(stage, "local");
+            }
+            _ => panic!("expected Schema::Register"),
+        }
+    }
 }

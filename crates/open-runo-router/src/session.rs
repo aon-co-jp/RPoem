@@ -121,6 +121,11 @@ impl SessionStore {
     pub fn len(&self) -> usize {
         self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
     }
+
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 #[async_trait::async_trait]

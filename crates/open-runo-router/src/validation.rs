@@ -6,6 +6,14 @@
 //! either trusting the body blindly or hand-rolling field checks per
 //! handler.
 
+// clippy: このモジュールの unwrap()/expect() は「固定ヘッダからのレスポンス構築」
+// 「起動時に読む埋め込み定数のパース」等、構造上失敗しない箇所に限られる
+// (各呼び出しに理由コメントあり)。business ロジック側の Quality Gate
+// (workspace lints の unwrap_used/expect_used = warn) は維持したまま、
+// この基盤モジュールだけ除外する。result_large_err は Result<T, Response>
+// (エラー時に完成済み HTTP レスポンスで短絡する意図的な型)に対するもの。
+#![allow(clippy::expect_used)]
+
 use jsonschema::Validator;
 use once_cell::sync::Lazy;
 use serde_json::Value;
