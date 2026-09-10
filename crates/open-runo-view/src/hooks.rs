@@ -146,9 +146,12 @@ pub fn deps_hash<T: std::hash::Hash>(t: &T) -> u64 {
     h.finish()
 }
 
+/// `Runtime` が保持するコンポーネント関数の型(clippy::type_complexity 回避)。
+type ComponentFn<P> = Box<dyn Fn(&mut Ctx, &P) -> VNode>;
+
 /// ステートフル・コンポーネントのランタイム(Reactのルート相当)。
 pub struct Runtime<P> {
-    component: Box<dyn Fn(&mut Ctx, &P) -> VNode>,
+    component: ComponentFn<P>,
     store: HookStore,
     last: Option<VNode>,
 }

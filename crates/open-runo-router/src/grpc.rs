@@ -477,7 +477,7 @@ pub enum ServingStatus {
 /// `grpc.health.v1.HealthCheckResponse { ServingStatus status = 1; }`.
 fn encode_health_check_response(status: ServingStatus) -> Bytes {
     let mut out = BytesMut::new();
-    encode_varint((1 << 3) | 0, &mut out); // field 1, wire type 0 (varint)
+    encode_varint(1 << 3, &mut out); // protobuf tag: field 1 (<<3) | wire type 0 (varint)
     encode_varint(status as u64, &mut out);
     out.freeze()
 }

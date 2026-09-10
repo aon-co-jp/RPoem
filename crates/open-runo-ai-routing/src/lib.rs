@@ -38,11 +38,11 @@ pub struct Candidate {
 /// Routes a request to the best candidate for the given policy and minimum
 /// required context length. Returns [`AppError::NotFound`] if nothing
 /// qualifies.
-pub fn route<'a>(
-    candidates: &'a [Candidate],
+pub fn route(
+    candidates: &[Candidate],
     policy: RoutingPolicy,
     min_context_length: u32,
-) -> Result<&'a Candidate> {
+) -> Result<&Candidate> {
     let eligible: Vec<&Candidate> = candidates
         .iter()
         .filter(|c| c.context_length >= min_context_length)

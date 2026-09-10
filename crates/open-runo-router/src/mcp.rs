@@ -233,9 +233,7 @@ async fn dispatch(state: &Arc<AppState>, guardian: &Arc<KeyGuardian>, req: JsonR
     // A JSON-RPC *notification* has no `id` and must receive no response
     // at all (not even an empty one) -- `notifications/initialized` is
     // the one an MCP client sends after a successful `initialize`.
-    let Some(id) = req.id else {
-        return None;
-    };
+    let id = req.id?;
 
     if req.jsonrpc != "2.0" {
         return Some(err_response(id, -32600, "invalid request: jsonrpc must be \"2.0\""));

@@ -145,7 +145,7 @@ const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 /// crate for one 20-byte SHA-1 digest isn't worth a new dependency.
 fn base64_encode(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let b0 = chunk[0];
         let b1 = chunk.get(1).copied();
@@ -1160,7 +1160,7 @@ impl Router {
                 .routes
                 .iter()
                 .any(|r| r.method == Method::OPTIONS && r.segments == segments);
-            let already_queued = added.iter().any(|s| *s == segments);
+            let already_queued = added.contains(&segments);
             if already_registered || already_queued {
                 continue;
             }
