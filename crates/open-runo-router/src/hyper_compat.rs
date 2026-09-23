@@ -700,15 +700,33 @@ pub fn health_handler(state: Arc<crate::state::AppState>) -> Handler {
 /// `www/pkg/*.js`, `www/pkg/*.wasm`) directly from `open-runo-router` —
 /// no separate static-file server or Node.js tooling required.
 pub fn static_file_handler(path: std::path::PathBuf, content_type: &'static str) -> Handler {
+    static_file_handler_with_cache_control(path, content_type, None)
+}
+
+/// Like [`static_file_handler`], but lets the caller set an explicit
+/// `Cache-Control` header (2026-09-23新設、ユーザー報告「スマホでopen-
+/// englishのWEB版にアクセスしたら、何十回も更新したはずの内容がずっと
+/// 古いまま(存在しないはずの古い通知バナーが表示され続ける)実バグ」への
+/// 対応)。**根本原因**: このファイルには従来`Cache-Control`ヘッダーが
+/// 一切無く、ブラウザ標準のヒューリスティックキャッシュに任せきりに
+/// なっていた——モバイルChromeで特に積極的にキャッシュされ、デプロイの
+/// たびに更新したはずのHTML/JSが古いまま配信され続けていた(サービス
+/// ワーカー自体はnetwork-first設計で無関係だった、実機で切り分け済み)。
+/// `cache_control`に`None`を渡すと[`static_file_handler`]と同じ従来通りの
+/// 挙動(ヘッダー無し)を維持する——WASMバンドル等、ファイル名にハッシュを
+/// 含めて長期キャッシュを前提にしている既存の呼び出し元を壊さないため。
+pub fn static_file_handler_with_cache_control(path: std::path::PathBuf, content_type: &'static str, cache_control: Option<&'static str>) -> Handler {
     Arc::new(move |_req, _params| {
         let path = path.clone();
         Box::pin(async move {
             match tokio::fs::read(&path).await {
-                Ok(bytes) => HyperResponse::builder()
-                    .status(StatusCode::OK)
-                    .header("content-type", content_type)
-                    .body(fixed_body(Bytes::from(bytes)))
-                    .expect("building a response from a fixed set of valid headers cannot fail"),
+                Ok(bytes) => {
+                    let mut builder = HyperResponse::builder().status(StatusCode::OK).header("content-type", content_type);
+                    if let Some(cc) = cache_control {
+                        builder = builder.header("cache-control", cc);
+                    }
+                    builder.body(fixed_body(Bytes::from(bytes))).expect("building a response from a fixed set of valid headers cannot fail")
+                }
                 Err(_) => empty_status(StatusCode::NOT_FOUND),
             }
         })
@@ -1523,6 +1541,28 @@ mod tests {
             .await
             .expect("request should succeed");
         assert_eq!(resp.status(), reqwest::StatusCode::NOT_FOUND);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn static_file_handler_with_cache_control_sets_header_only_when_given() {
+        let dir = std::env::temp_dir().join(format!("orn-static-cc-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("hello.txt");
+        std::fs::write(&file_path, b"hello static world").unwrap();
+
+        let router = Router::new()
+            .route(Method::GET, "/no-cache.txt", static_file_handler_with_cache_control(file_path.clone(), "text/plain", Some("no-cache")))
+            .route(Method::GET, "/default.txt", static_file_handler_with_cache_control(file_path.clone(), "text/plain", None));
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+        let client = reqwest::Client::new();
+
+        let resp = client.get(format!("http://{addr}/no-cache.txt")).send().await.expect("request should succeed");
+        assert_eq!(resp.headers().get("cache-control").unwrap(), "no-cache");
+
+        let resp = client.get(format!("http://{addr}/default.txt")).send().await.expect("request should succeed");
+        assert!(resp.headers().get("cache-control").is_none(), "None must mean no header at all, matching the pre-existing static_file_handler behavior");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
