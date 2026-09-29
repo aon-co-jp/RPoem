@@ -211,7 +211,9 @@ mod tests {
         let provider = rustls::crypto::aws_lc_rs::default_provider();
         let ordered = chrome_tls13_cipher_suites(&provider.cipher_suites);
         let pos = |target: CipherSuite| ordered.iter().position(|s| s.suite() == target).unwrap();
-        assert!(pos(CipherSuite::TLS13_AES_128_GCM_SHA256) < pos(CipherSuite::TLS13_AES_256_GCM_SHA384));
+        assert!(
+            pos(CipherSuite::TLS13_AES_128_GCM_SHA256) < pos(CipherSuite::TLS13_AES_256_GCM_SHA384)
+        );
         assert!(
             pos(CipherSuite::TLS13_AES_256_GCM_SHA384)
                 < pos(CipherSuite::TLS13_CHACHA20_POLY1305_SHA256)
