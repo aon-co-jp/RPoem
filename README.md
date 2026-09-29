@@ -271,6 +271,11 @@ open-web-server本体を起動→`POST /admin/tenants`でRPoem側の
 転送・応答されることを5回連続で確認(詳細は`PORTING.md`「15.
 `tenant_bridge`の実E2E検証」節、`CLAUDE.md`の同日HANDOFF参照)。
 
+**2026-09-30再検証**: 約2ヶ月経過後、`cargo test --workspace`をRPoem・
+open-web-server双方で実行し、自動テストの範囲でリグレッションが無い
+ことを確認した(`ledger_fusion`・`tenant_router`・`proxy`のテストを
+含む全テスト成功)。詳細は`PORTING.md`「16.」参照。
+
 ## デプロイ
 
 同一バイナリが自前サーバー / VPS / AWS / Docker すべてで動きます。

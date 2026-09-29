@@ -4309,3 +4309,33 @@ GitHub Releases問い合わせ等)自体を今回の方針に照らして見直�
   のうち、ノード間・プロセス間の低レベル通信に該当する箇所が無いか
   棚卸しする、(2) あれば`aruaru-db`と同じ手順(調査→バイナリ実装→
   実機検証)で移行する。
+
+## HANDOFF追記(2026-09-30) open-web-server⇔RPoem「4層4重」連携の再検証(2026-07〜08記録の再確認、破損なし)
+
+`aruaru-vpn`側セッションでの作業中、ユーザーから「`open-web-server`を
+Apache、RPoemをTomcatのような多段Webサーバーとして機能させて」との
+指示を受けた。調査の結果、**この構成は既に2026-07-23〜08-04に実装・
+実証済み**であることが判明(README「4層4重通信・DB連携」節、PORTING.md
+「15. `tenant_bridge`の実E2E検証」節、当CLAUDE.mdの同日HANDOFF参照)。
+「記録が古く、現在も壊れていないか」との追加指示を受け、2026-09-30時点で
+再検証した:
+
+- `cargo test --workspace`(RPoem全体)を実行し、**全テスト成功**
+  (失敗0件)を確認。特に`open-runo-router/tests/ledger_fusion.rs`の
+  `ledger_commit_against_a_real_rpoem_server_actually_persists_the_mutation`
+  (`Ledger::commit()`が実際にRPoemサーバーへ届きデータが書き込まれることを
+  実証するクロスリポジトリ統合テスト)が引き続き成功することを確認。
+- `open-web-server`側も`cargo test --workspace`で全テスト成功を確認
+  (`tenant_router::tests::*`のテナント動的登録・解決系、
+  `proxy::tests::retries_once_and_recovers_from_a_transient_connect_failure`
+  等の接続レース耐性テストを含む)。
+- **未再実施のもの**: `crates/open-runo-appserver/examples/e2e_stub_app.rs`
+  を使った「2つの実バイナリを同時起動して実際にHTTPが転送される」手動
+  E2E手順(2026-08-04に5回連続で実証済み)自体は、今回は自動テストの
+  範囲外のため再実行していない。自動テスト(`ledger_fusion`・
+  `tenant_router`・`proxy`)が全て成功していることから、コードパス自体に
+  リグレッションが無いことは確認できたが、実バイナリ2プロセス間の
+  実接続そのものを今回改めて目視確認したい場合は、上記`examples/`
+  ディレクトリの手順を再実行すること。
+
+結論: **再開発は不要、既存実装は現時点(2026-09-30)でも壊れていない**。
