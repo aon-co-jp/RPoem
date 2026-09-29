@@ -1,0 +1,20 @@
+[package]
+name = "open-runo-tls-fingerprint"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "rustlsの公開APIだけで実現できる範囲のTLSクライアント指紋偽装(uTLS相当、部分的)。cipher suite順序・鍵交換グループ・ALPN・署名アルゴリズム一覧をChromeに寄せる。"
+
+[lints]
+workspace = true
+
+[dependencies]
+rustls = "0.23.45"
+x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }
+tokio-rustls = "0.26.5"
