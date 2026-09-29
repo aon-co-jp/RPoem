@@ -23,6 +23,7 @@ members = [
     "crates/open-runo-api-types",
     "crates/open-runo-feature-flags",
     "crates/open-runo-rustjson",
+    "crates/open-runo-tls-fingerprint",
 ]
 
 resolver = "2"
