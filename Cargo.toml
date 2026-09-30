@@ -24,6 +24,7 @@ members = [
     "crates/open-runo-feature-flags",
     "crates/open-runo-rustjson",
     "crates/open-runo-tls-fingerprint",
+    "crates/open-runo-voice",
 ]
 
 resolver = "2"

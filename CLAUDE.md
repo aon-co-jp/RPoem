@@ -4339,3 +4339,22 @@ Apache、RPoemをTomcatのような多段Webサーバーとして機能させて
   ディレクトリの手順を再実行すること。
 
 結論: **再開発は不要、既存実装は現時点(2026-09-30)でも壊れていない**。
+
+## HANDOFF追記(2026-09-30) 共有クレート`open-runo-voice`を新設(声の後処理、maid-cafe-seから切り出し)
+
+ユーザー指示「音声処理の共有ライブラリの置き場所はRPoem内の共有クレート」(「汎用化できるロジックはRPoemに切り出して
+他プロジェクトから参照する」恒久方針)に基づき、`aon-co-jp/maid-cafe-se`で開発した声の後処理を、
+`crates/open-runo-voice`として切り出した(命名はRPoemの`open-runo-*`規則に従った)。
+
+- **中身**: 音程と声の太さ(フォルマント)を独立に制御する変換、2人でハモる合成、無音トリム、音量(RMS)統一、EQ、
+  Kaiser窓の多相リサンプラ、WSOLA、16bit WAV読み書き、基数2のFFT。**依存クレート無しの純Rust**。詳細は`docs/voice.md`。
+- **検証**: 36テスト(単体1、`tests/audio.rs`23、`tests/formant.rs`8、`tests/golden.rs`4)が通る。`golden.rs`は旧Kotlin実装の
+  出力との数値照合(4パターンとも最大誤差0.00000)、`formant.rs`は直接合成した正解の母音との包絡距離(新1.6dB vs 旧10.3dB)。
+  CIと同じ基準を通した: `cargo clippy -p open-runo-voice --all-targets -- -D warnings`(警告0)、`cargo fmt -p open-runo-voice --check`。
+  ワークスペース全体の`cargo test --workspace`も実行し、**60スイート・490テスト・失敗0**を確認した(このクレートの36件を含む)。
+  **ワークスペース全体の`clippy --workspace`は今回は実行していない**(このクレートだけで警告0を確認。CIの結果で確認すること)。
+- **含めなかったもの**: AI帯域拡張(LavaSR、tract+ONNX、モデル約56MB)は`maid-cafe-se`の`crates/maid-cafe-enhance`に残した。
+  tractなど重い依存を、RPoem本体のCargo.lockへ持ち込まないため。
+- **使う側**: `maid-cafe-se`の`maid-cafe-core`が`open_runo_voice`を再公開している(パス依存`../RPoem/crates/open-runo-voice`)。
+  open-englishのローカル版・ミックス版のサーバー側TTSは未着手。
+- **正直な開示**: 測っているのはスペクトル包絡の近さ等の数値で、聴感品質は評価していない。この後処理は元のTTS音声の質を超えない。

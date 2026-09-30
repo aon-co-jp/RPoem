@@ -1,0 +1,15 @@
+[package]
+name = "open-runo-voice"
+description = "Voice post-processing shared by the aon-co-jp projects: pitch shift with independent formant (vocal-tract size) control, two-voice harmony, Kaiser-window polyphase resampler, WSOLA, loudness normalisation and 16-bit WAV I/O. Pure Rust, no dependencies, compiles to wasm32."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+# 依存クレート無し(純Rust)。wasm32-unknown-unknown向けにもコンパイルできる。
+[dependencies]
