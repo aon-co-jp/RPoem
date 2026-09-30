@@ -118,7 +118,10 @@ pub fn render_with_recipe(pcm: &Pcm, r: Recipe, harmony: bool, pitch_mul: f64, m
     let sr = pcm.sample_rate;
     let x = high_pass(&pcm.samples, sr, 70.0);
     // `ratio`: この声に掛ける音程倍率、`formant`: この声の目標の声の太さ倍率
-    let voice = |ratio: f64, formant: f64| -> Vec<f32> {
+    // 人らしい揺れは、高い声(メイド)だけに付ける。低い男性の声は、包絡の測定が乱れるうえ、揺らすと不安定に聞こえる
+    let human = r.pitch_ratio > 1.0;
+    // `vib`: (揺れの速さHz, 音程の揺れの深さ(比), 位相)。人の声は完全には一定の音程で出ないので、ゆるい揺れを付けて機械っぽさを消す
+    let voice = |ratio: f64, formant: f64, vib: (f64, f64, f64)| -> Vec<f32> {
         let mut v = if mode == Mode::FormantIndependent {
             pitch_shift_formant(&x, sr, ratio, formant)
         } else {
@@ -130,15 +133,23 @@ pub fn render_with_recipe(pcm: &Pcm, r: Recipe, harmony: bool, pitch_mul: f64, m
         if r.high_shelf_db != 0.0 {
             v = high_shelf(&v, sr, 4000.0, r.high_shelf_db);
         }
+        if mode == Mode::FormantIndependent && human {
+            v = humanize(&v, sr, vib.0, vib.1, vib.2);
+        }
         v
     };
-    let a = voice(pitch_ratio, r.formant_ratio);
+    let a = voice(pitch_ratio, r.formant_ratio, (5.2, 0.006, 0.0));
     let out = if harmony {
-        // 2人目は声の太さを少し変えて、別人らしくする
+        // 2人目は、声の太さ(声道)を1人目よりはっきり細くし、揺れの速さ・位相も変えて、別の人らしくする
         // 音程を大きく上げた声の声道を縮めすぎると(補正が0.85倍を下回ると)、その声のエネルギーが痩せるので、下限を設ける
         let up = pitch_ratio * major_third();
-        let b = voice(up, (r.formant_ratio * 1.04).max(up * 0.88));
-        let delay = (sr as f64 * 0.018) as usize; // 18msずらして「別の2人」の厚みを出す
+        let b = voice(
+            up,
+            (r.formant_ratio * 1.14).max(up * 0.88),
+            (4.4, 0.007, 1.9),
+        );
+        // 新方式は32msずらして(ぴったり揃えず)「別の2人」の厚みを出す。旧方式(Kotlin版との照合用)は18msのまま
+        let delay = (sr as f64 * if mode == Mode::Legacy { 0.018 } else { 0.032 }) as usize;
         let mut mixed = vec![0f32; a.len().max(b.len() + delay)];
         for (i, v) in a.iter().enumerate() {
             mixed[i] += v * 0.75;
@@ -153,6 +164,41 @@ pub fn render_with_recipe(pcm: &Pcm, r: Recipe, harmony: bool, pitch_mul: f64, m
     let mut y = normalize_loudness(&trim_silence(&out, sr, -50.0, 40), 0.18);
     fade(&mut y, sr);
     Pcm::new(y, sr)
+}
+
+/// 人の声らしい「不完全さ」を付ける: ビブラート(速い揺れ)+ゆっくりした音程のふらつき+わずかな音量の揺れ(シマー)。
+/// 合成音声は音程も音量も一定すぎて機械的に聞こえるので、それを崩す。深さは小さく(音程は±1%以内、音量は約4%)。
+pub fn humanize(x: &[f32], sr: u32, rate_hz: f64, depth: f64, phase: f64) -> Vec<f32> {
+    let v = vibrato(x, sr, rate_hz, depth, phase);
+    let v = vibrato(&v, sr, 0.8, depth * 0.6, phase * 1.3 + 0.7);
+    let w = 2.0 * PI * rate_hz * 1.15 / sr as f64;
+    v.iter()
+        .enumerate()
+        .map(|(n, s)| s * (1.0 + 0.04 * (w * n as f64 + phase * 0.5).sin()) as f32)
+        .collect()
+}
+
+/// ゆるい音程の揺れ(ビブラート)を付ける。時間変化する遅延(線形補間)で作る。`rate_hz`=揺れの速さ、`depth`=音程の揺れの幅(比、0.004=±0.4%)。
+pub fn vibrato(x: &[f32], sr: u32, rate_hz: f64, depth: f64, phase: f64) -> Vec<f32> {
+    if x.is_empty() || depth <= 0.0 {
+        return x.to_vec();
+    }
+    let w = 2.0 * PI * rate_hz / sr as f64;
+    // 遅延 d(n)=A·sin(wn+phase) のとき、音程の変化は -dd/dn = -A·w·cos(..) なので、幅 depth になる A = depth/w
+    let amp = depth / w;
+    (0..x.len())
+        .map(|n| {
+            let pos = n as f64 - amp * ((w * n as f64 + phase).sin() + 1.0);
+            if pos <= 0.0 {
+                return x[0];
+            }
+            let i = pos as usize;
+            let f = (pos - i as f64) as f32;
+            let a = x[i.min(x.len() - 1)];
+            let b = x[(i + 1).min(x.len() - 1)];
+            a + (b - a) * f
+        })
+        .collect()
 }
 
 /// 長さを保ったまま、音程を`pitch_ratio`倍・声の太さ(フォルマント)を`formant_ratio`倍にする(両者は独立)。

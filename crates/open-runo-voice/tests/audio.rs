@@ -342,3 +342,16 @@ fn pitch_mul_shifts_the_segment() {
     assert!(power(mid(&base.samples), SR, f) > 10.0 * power(mid(&base.samples), SR, f * 1.06));
     assert!(power(mid(&up.samples), SR, f * 1.06) > 10.0 * power(mid(&up.samples), SR, f));
 }
+
+#[test]
+fn humanize_keeps_length_and_loudness_but_breaks_the_perfect_regularity() {
+    let x = sine(250.0, SR, 2.0, 0.5);
+    let y = dsp::humanize(&x, SR, 5.2, 0.006, 0.0);
+    assert_eq!(x.len(), y.len());
+    assert!(y.iter().all(|v| v.is_finite()));
+    let (rx, ry) = (rms(mid(&x)), rms(mid(&y)));
+    assert!((ry / rx - 1.0).abs() < 0.06, "音量はほぼ保つ: {rx} → {ry}");
+    assert!(x.iter().zip(&y).any(|(a, b)| (a - b).abs() > 0.01), "元の音とは違う");
+    // 音程の揺れは小さい(±1%以内)ので、250Hz付近に主成分が残る
+    assert!(power(mid(&y), SR, 250.0) > 10.0 * power(mid(&y), SR, 300.0));
+}
