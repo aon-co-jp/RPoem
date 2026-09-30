@@ -43,17 +43,17 @@ pub fn recipe(style: VoiceStyle, source: SourceGender) -> Recipe {
         VoiceStyle::Maid => {
             if male {
                 Recipe {
-                    pitch_ratio: 1.45,
-                    formant_ratio: 1.22,
+                    pitch_ratio: 1.55,
+                    formant_ratio: 1.25,
                     low_shelf_db: 0.0,
-                    high_shelf_db: 3.0,
+                    high_shelf_db: 4.0,
                 }
             } else {
                 Recipe {
-                    pitch_ratio: 1.12,
-                    formant_ratio: 1.06,
+                    pitch_ratio: 1.20,
+                    formant_ratio: 1.10,
                     low_shelf_db: 0.0,
-                    high_shelf_db: 3.0,
+                    high_shelf_db: 4.0,
                 }
             }
         },
@@ -109,7 +109,11 @@ pub fn render_with(
     pitch_mul: f64,
     mode: Mode,
 ) -> Pcm {
-    let r = recipe(style, source);
+    render_with_recipe(pcm, recipe(style, source), harmony, pitch_mul, mode)
+}
+
+/// レシピを直接指定する版(旧実装との数値照合テスト用に、レシピを固定できる)。
+pub fn render_with_recipe(pcm: &Pcm, r: Recipe, harmony: bool, pitch_mul: f64, mode: Mode) -> Pcm {
     let pitch_ratio = r.pitch_ratio * pitch_mul; // セリフごとの抑揚は音程だけに掛ける(声の太さは変えない)
     let sr = pcm.sample_rate;
     let x = high_pass(&pcm.samples, sr, 70.0);
@@ -131,7 +135,9 @@ pub fn render_with(
     let a = voice(pitch_ratio, r.formant_ratio);
     let out = if harmony {
         // 2人目は声の太さを少し変えて、別人らしくする
-        let b = voice(pitch_ratio * major_third(), r.formant_ratio * 1.04);
+        // 音程を大きく上げた声の声道を縮めすぎると(補正が0.85倍を下回ると)、その声のエネルギーが痩せるので、下限を設ける
+        let up = pitch_ratio * major_third();
+        let b = voice(up, (r.formant_ratio * 1.04).max(up * 0.88));
         let delay = (sr as f64 * 0.018) as usize; // 18msずらして「別の2人」の厚みを出す
         let mut mixed = vec![0f32; a.len().max(b.len() + delay)];
         for (i, v) in a.iter().enumerate() {

@@ -95,7 +95,7 @@ fn maid_raises_pitch() {
         1.0,
     );
     let m = mid(&out.samples);
-    assert!(power(m, SR, 250.0 * 1.12) > 10.0 * power(m, SR, 250.0));
+    assert!(power(m, SR, 250.0 * 1.20) > 10.0 * power(m, SR, 250.0));
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn harmony_contains_both_voices_a_major_third_apart() {
         true,
         1.0,
     );
-    let fa = 250.0 * 1.12;
+    let fa = 250.0 * 1.20;
     let fb = fa * major_third();
     let (s, d) = (mid(&single.samples), mid(&duo.samples));
     assert!(
@@ -338,7 +338,7 @@ fn pitch_mul_shifts_the_segment() {
         false,
         1.06,
     );
-    let f = 250.0 * 1.12;
+    let f = 250.0 * 1.20;
     assert!(power(mid(&base.samples), SR, f) > 10.0 * power(mid(&base.samples), SR, f * 1.06));
     assert!(power(mid(&up.samples), SR, f * 1.06) > 10.0 * power(mid(&up.samples), SR, f));
 }

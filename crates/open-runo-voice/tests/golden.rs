@@ -3,7 +3,7 @@
 //! 旧方式(`Mode::Legacy`)との照合。既定の新方式(音程と声の太さを独立に制御)は`tests/formant.rs`で検証する。
 //! フィクスチャはKotlin版で生成したもの(Kotlin版は移行後に削除されるが、この基準は回帰防止として残す)。
 
-use open_runo_voice::dsp::{render_with, Mode, SourceGender};
+use open_runo_voice::dsp::{recipe, render_with_recipe, Mode, Recipe, SourceGender};
 use open_runo_voice::wav::Pcm;
 use open_runo_voice::VoiceStyle;
 use std::f64::consts::PI;
@@ -46,7 +46,23 @@ fn diff(a: &[f32], b: &[f32]) -> (f32, f64) {
 
 fn check(name: &str, style: VoiceStyle, src: SourceGender, harmony: bool, pitch_mul: f64) {
     let input = Pcm::new(voiced(200.0, 0.6), SR);
-    let got = render_with(&input, style, src, harmony, pitch_mul, Mode::Legacy);
+    // 旧Kotlin版と同じレシピに固定する(現在のレシピは、より可愛い声へ調整済みで、旧版とは値が違う)
+    let legacy = match (style, src) {
+        (VoiceStyle::Maid, SourceGender::Male) => Recipe {
+            pitch_ratio: 1.45,
+            formant_ratio: 1.22,
+            low_shelf_db: 0.0,
+            high_shelf_db: 3.0,
+        },
+        (VoiceStyle::Maid, _) => Recipe {
+            pitch_ratio: 1.12,
+            formant_ratio: 1.06,
+            low_shelf_db: 0.0,
+            high_shelf_db: 3.0,
+        },
+        _ => recipe(style, src),
+    };
+    let got = render_with_recipe(&input, legacy, harmony, pitch_mul, Mode::Legacy);
     let want = golden(name);
     let (max, rel) = diff(&got.samples, &want);
     eprintln!(
