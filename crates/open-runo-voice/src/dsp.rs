@@ -109,6 +109,9 @@ pub fn render_with(
     pitch_mul: f64,
     mode: Mode,
 ) -> Pcm {
+    // 端末の音声名からの性別の推定は外れる(手がかりの無い名前は「不明」になる)ので、声そのものの高さで確かめる。
+    // 男性の声に女性用の加工を掛けると、メイドの声のつもりが男性の声で鳴ってしまう
+    let source = refine_gender(&pcm.samples, pcm.sample_rate, source);
     render_with_recipe(pcm, recipe(style, source), harmony, pitch_mul, mode)
 }
 
@@ -199,6 +202,56 @@ pub fn vibrato(x: &[f32], sr: u32, rate_hz: f64, depth: f64, phase: f64) -> Vec<
             a + (b - a) * f
         })
         .collect()
+}
+
+/// 声の基本周波数(Hz)の中央値。自己相関で、有声のフレームだけから求める。有声の区間が無ければ`None`。
+pub fn estimate_f0(x: &[f32], sr: u32) -> Option<f64> {
+    let sr_f = sr as f64;
+    let (lo, hi) = ((sr_f / 400.0) as usize, (sr_f / 70.0) as usize);
+    let n = (sr_f * 0.04) as usize;
+    let hop = (sr_f * 0.02) as usize;
+    if x.len() < n + hi + 1 || lo < 2 {
+        return None;
+    }
+    let mut f0s: Vec<f64> = Vec::new();
+    let mut start = 0;
+    while start + n + hi < x.len() {
+        let a = &x[start..start + n];
+        let e0: f64 = a.iter().map(|v| (*v as f64).powi(2)).sum();
+        if e0 / n as f64 > 1e-4 {
+            let mut best = (0.0f64, 0usize);
+            for lag in lo..=hi {
+                let (mut c, mut e1) = (0.0f64, 0.0f64);
+                for i in 0..n {
+                    c += a[i] as f64 * x[start + i + lag] as f64;
+                    e1 += (x[start + i + lag] as f64).powi(2);
+                }
+                let r = c / (e0 * e1).sqrt().max(1e-12);
+                if r > best.0 {
+                    best = (r, lag);
+                }
+            }
+            if best.0 > 0.6 {
+                f0s.push(sr_f / best.1 as f64);
+            }
+        }
+        start += hop;
+    }
+    if f0s.len() < 3 {
+        return None;
+    }
+    f0s.sort_by(|a, b| a.total_cmp(b));
+    Some(f0s[f0s.len() / 2])
+}
+
+/// 名前から推定した性別`source`を、声の高さで補正する。はっきり低ければ男性、はっきり高ければ女性(140〜190Hzは曖昧なので`source`のまま)。
+/// 高さが測れなければ`source`のまま(不明なら女性の扱い)。
+pub fn refine_gender(x: &[f32], sr: u32, source: SourceGender) -> SourceGender {
+    match estimate_f0(x, sr) {
+        Some(f) if f < 140.0 => SourceGender::Male,
+        Some(f) if f > 190.0 => SourceGender::Female,
+        _ => source,
+    }
 }
 
 /// 長さを保ったまま、音程を`pitch_ratio`倍・声の太さ(フォルマント)を`formant_ratio`倍にする(両者は独立)。

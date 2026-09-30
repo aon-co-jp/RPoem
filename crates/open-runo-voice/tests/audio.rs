@@ -351,7 +351,61 @@ fn humanize_keeps_length_and_loudness_but_breaks_the_perfect_regularity() {
     assert!(y.iter().all(|v| v.is_finite()));
     let (rx, ry) = (rms(mid(&x)), rms(mid(&y)));
     assert!((ry / rx - 1.0).abs() < 0.06, "音量はほぼ保つ: {rx} → {ry}");
-    assert!(x.iter().zip(&y).any(|(a, b)| (a - b).abs() > 0.01), "元の音とは違う");
+    assert!(
+        x.iter().zip(&y).any(|(a, b)| (a - b).abs() > 0.01),
+        "元の音とは違う"
+    );
     // 音程の揺れは小さい(±1%以内)ので、250Hz付近に主成分が残る
     assert!(power(mid(&y), SR, 250.0) > 10.0 * power(mid(&y), SR, 300.0));
+}
+
+#[test]
+fn source_gender_is_judged_from_the_voice_itself_not_only_from_its_name() {
+    let low = voiced(110.0, 1.0); // 男性の高さ
+    let high = voiced(230.0, 1.0); // 女性の高さ
+    let f_low = dsp::estimate_f0(&low, SR).expect("有声");
+    let f_high = dsp::estimate_f0(&high, SR).expect("有声");
+    assert!((f_low - 110.0).abs() < 8.0, "{f_low}");
+    assert!((f_high - 230.0).abs() < 12.0, "{f_high}");
+    // 名前が「不明」でも、女性/男性が高さから決まる。名前が間違っていても、はっきりしていれば補正される
+    assert_eq!(
+        SourceGender::Male,
+        dsp::refine_gender(&low, SR, SourceGender::Unknown)
+    );
+    assert_eq!(
+        SourceGender::Male,
+        dsp::refine_gender(&low, SR, SourceGender::Female)
+    );
+    assert_eq!(
+        SourceGender::Female,
+        dsp::refine_gender(&high, SR, SourceGender::Male)
+    );
+    // 曖昧(165Hz付近)や、無音・短すぎる音は、名前からの推定をそのまま使う
+    assert_eq!(
+        SourceGender::Male,
+        dsp::refine_gender(&voiced(165.0, 1.0), SR, SourceGender::Male)
+    );
+    assert_eq!(
+        SourceGender::Female,
+        dsp::refine_gender(&vec![0.0; 22050], SR, SourceGender::Female)
+    );
+    assert_eq!(None, dsp::estimate_f0(&[0.1; 10], SR));
+}
+
+#[test]
+fn a_male_voice_mislabelled_unknown_still_gets_the_male_source_recipe() {
+    // 男性の声(110Hz)を、名前が「不明」のまま`Maid`で加工しても、男性用のレシピ(音程を大きく上げる)が使われ、女性の高さに届く
+    let low = voiced(110.0, 2.0);
+    let out = dsp::render(
+        &Pcm::new(low, SR),
+        VoiceStyle::Maid,
+        SourceGender::Unknown,
+        false,
+        1.0,
+    );
+    let f = dsp::estimate_f0(&out.samples, SR).expect("有声");
+    assert!(
+        f > 150.0,
+        "メイドの声は、男性の元の声でも女性の高さになる: {f}Hz"
+    );
 }
