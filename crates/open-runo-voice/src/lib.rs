@@ -22,7 +22,7 @@ pub mod formant;
 pub mod resampler;
 pub mod wav;
 
-pub use dsp::{recipe, render, render_with, Mode, Recipe, SourceGender};
+pub use dsp::{recipe, render, render_with, render_with_recipe, Mode, Recipe, SourceGender};
 pub use wav::{parse_wav, to_pcm16, wav_bytes, Pcm};
 
 /// 声のキャラクター。`Maid`=メイドカフェ風(高め・明るい)、`DeepMale`=太くて低い男性。

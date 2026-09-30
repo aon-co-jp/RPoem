@@ -27,7 +27,7 @@ pub fn shift_formants(x: &[f32], sr: u32, ratio: f64) -> Vec<f32> {
         .map(|i| 0.5 - 0.5 * (2.0 * PI * i as f64 / n as f64).cos())
         .collect();
     // ピッチ周期(の半分)より短いケフレンシーだけを残す=ハーモニクスの櫛を消して包絡だけにする
-    let lifter = ((sr as f64 / 500.0) as usize).clamp(8, n / 8);
+    let lifter = ((sr as f64 / 700.0) as usize).clamp(8, n / 8);
 
     let mut out = vec![0f64; x.len() + 2 * n];
     let mut norm = vec![0f64; x.len() + 2 * n];
