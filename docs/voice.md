@@ -42,8 +42,8 @@ let wav = wav_bytes(&out); // 音量統一済み、ピーク約0.9
 ## 使っているプロジェクト
 
 - `aon-co-jp/maid-cafe-se`(Windows版・Android版の声)。`maid-cafe-core`が`open_runo_voice`を再公開している。
-- `aon-co-jp/open-english`: ローカル版・ミックス版のサーバー側TTSで使う構想(未着手、同リポジトリのCLAUDE.md参照)。
-  WEB版はブラウザのWeb Speech APIが出力を取り出せず、後処理できない。
+- `aon-co-jp/open-english`(ローカル版・ミックス版のサーバー側TTS、`POST /v1/public/tts`、2026-09-30実装。Windows SAPIのWAVを本クレートで加工する)。
+  WEB版はブラウザのWeb Speech APIが出力を取り出せず、後処理できないので従来どおり。
 
 ## 関連(このクレートには含まれない)
 
