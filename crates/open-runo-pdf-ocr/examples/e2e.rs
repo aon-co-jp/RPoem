@@ -26,7 +26,7 @@ fn main() {
             eprintln!("[{:.1}s] {s}", t.elapsed().as_secs_f32());
             last = s;
         }
-    });
+    }, &|| false);
     match result {
         Ok((out, report)) => {
             std::fs::write(&args[2], out).expect("write");

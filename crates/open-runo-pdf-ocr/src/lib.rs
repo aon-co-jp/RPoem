@@ -10,6 +10,7 @@
 pub mod client;
 pub mod compose;
 pub mod fonts;
+pub mod languages;
 pub mod model;
 pub mod render;
 pub mod settings;
@@ -35,7 +36,9 @@ pub fn process(
     settings: &Settings,
     cache_dir: &Path,
     progress: &mut dyn FnMut(Progress),
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<(Vec<u8>, Report), String> {
+    let cancel_err = || "キャンセルしました / Cancelled".to_string();
     settings.validate()?;
     let client = OcrClient::new(&settings.server_url);
     let total = render::page_count(pdf)?;
@@ -49,6 +52,9 @@ pub fn process(
     let mut plans: Vec<PagePlan> = Vec::with_capacity(total);
     let mut start = 0;
     while start < total {
+        if cancelled() {
+            return Err(cancel_err());
+        }
         let end = (start + settings.batch_pages).min(total);
         progress(Progress {
             stage: Stage::Ocr,
@@ -77,6 +83,9 @@ pub fn process(
             });
         }
         start = end;
+    }
+    if cancelled() {
+        return Err(cancel_err());
     }
     progress(Progress {
         stage: Stage::Compose,
