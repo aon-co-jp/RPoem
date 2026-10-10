@@ -111,7 +111,8 @@ pub fn process(
                 .filter(|l| !l.text.trim().is_empty() && l.w > 0 && l.h > 0)
                 .map(|line| {
                     let style = style::analyze(&raster.rgba, raster.width, raster.height, line.x, line.y, line.w, line.h).classify(&line.text, line.w);
-                    let retype = line_is_reliable(&line, settings.min_confidence)
+                    let retype = settings.replace_text
+                        && line_is_reliable(&line, settings.min_confidence)
                         && style.has_ink
                         && !looks_vertical(&line);
                     if std::env::var_os("PDFOCR_DEBUG").is_some() {

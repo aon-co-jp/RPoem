@@ -37,6 +37,9 @@ pub struct Settings {
     pub languages: Vec<String>,
     /// OCR の品質。
     pub quality: Quality,
+    /// 見える文字を、元の書体に合わせた文字に置き換えるか(既定: する)。偽なら、元の画像はそのまま残し、
+    /// 検索・コピー用の見えない文字だけを追加する(誤認識で読める文字を壊したくないとき向け)。
+    pub replace_text: bool,
     /// この信頼度(0〜100)未満の行は、元の画像のまま残す(検索用の見えない文字だけ追加する)。
     pub min_confidence: f32,
     /// ページ画像の長辺ピクセル数の上限(OCR 精度と速度のバランス)。
@@ -52,6 +55,7 @@ impl Default for Settings {
             server_url: "http://127.0.0.1:4600".to_string(),
             languages: vec!["jpn".to_string(), "eng".to_string()],
             quality: Quality::Best,
+            replace_text: true,
             min_confidence: 70.0,
             render_long_side_px: 3000,
             batch_pages: 8,
