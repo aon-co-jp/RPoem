@@ -20,6 +20,10 @@ fn main() {
     if let Some(b) = args.get(6).and_then(|s| s.parse().ok()) {
         settings.batch_pages = b;
     }
+    if let Some(url) = args.get(7) {
+        settings.fill = true;
+        settings.fill_server_url = url.clone();
+    }
     let cache = std::env::temp_dir().join("pdf-r2l-e2e-cache");
     let t = std::time::Instant::now();
     let mut last = String::new();

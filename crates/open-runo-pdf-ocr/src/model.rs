@@ -46,6 +46,14 @@ pub struct Settings {
     pub render_long_side_px: u32,
     /// 1回の OCR 要求にまとめるページ数(1〜16)。大きいほど Tesseract の起動回数が減る。
     pub batch_pages: usize,
+    /// AI 文脈補完(かすれた・読めない 1〜2 文字を前後の文脈から穴埋め、既定: オフ)。サーバーに言語モデルが必要。
+    pub fill: bool,
+    /// 補完を行うサーバーの URL(空なら OCR と同じ `server_url`)。OCR は VPS、言語モデルは手元の PC、という使い分け用。
+    pub fill_server_url: String,
+    /// この信頼度(0〜100)未満の短い単語を補完の対象にする。
+    pub fill_below: f32,
+    /// 1 回の変換で補完を試す箇所の上限(言語モデルは CPU では 1 か所あたり数秒かかる)。
+    pub fill_max_spots: usize,
 }
 
 impl Default for Settings {
@@ -59,6 +67,10 @@ impl Default for Settings {
             min_confidence: 70.0,
             render_long_side_px: 3000,
             batch_pages: 8,
+            fill: false,
+            fill_server_url: String::new(),
+            fill_below: 80.0,
+            fill_max_spots: 60,
         }
     }
 }
@@ -148,4 +160,6 @@ pub struct Report {
     pub lines_retyped: usize,
     /// 置き換えず、元の画像のまま検索用の見えない文字だけ追加した行の数。
     pub lines_text_only: usize,
+    /// AI 文脈補完で、読みを直した(または欠けた文字を補った)箇所の数。
+    pub chars_filled: usize,
 }

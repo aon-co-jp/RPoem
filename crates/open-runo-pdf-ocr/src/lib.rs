@@ -8,6 +8,7 @@
 //! 画像は処理後に破棄され、保存されない。OCR・書体の推定には誤りがあり得る。
 
 pub mod client;
+pub mod complete;
 pub mod compose;
 pub mod fonts;
 pub mod languages;
@@ -68,6 +69,7 @@ pub fn process(
     client.prepare(&settings.languages, settings.quality)?;
 
     let mut plans: Vec<PagePlan> = Vec::with_capacity(total);
+    let mut filled = 0usize;
     let mut start = 0;
     while start < total {
         if cancelled() {
@@ -105,6 +107,8 @@ pub fn process(
                 pngs.iter().map(|p| p.len()).sum::<usize>() / 1024
             );
         }
+        // AI 文脈補完(設定でオンのときだけ)。読み・欠けを直したあとの文字列で、書体判定と文字化を行う。
+        filled += complete::run(&client, &mut pages, settings);
         for (raster, lines) in rasters.iter().zip(pages) {
             let lines = lines
                 .into_iter()
@@ -149,7 +153,8 @@ pub fn process(
         font_cache.insert(name.to_string(), Arc::clone(&bytes));
         Ok(bytes)
     };
-    let report = compose::compose(&mut doc, &plans, &settings.languages, &mut provider)?;
+    let mut report = compose::compose(&mut doc, &plans, &settings.languages, &mut provider)?;
+    report.chars_filled = filled;
     let mut out = Vec::new();
     doc.save_to(&mut out)
         .map_err(|e| format!("保存失敗 / Save failed: {e}"))?;

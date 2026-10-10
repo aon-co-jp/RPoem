@@ -166,6 +166,18 @@ impl OcrClient {
         Ok(resp.pages.into_iter().map(|p| p.lines).collect())
     }
 
+    /// AI 文脈補完(`POST /v1/ocr/fill`)。疑わしい箇所ごとの結果を返す。サーバーに言語モデルが無いときは `Err`。
+    pub fn fill(&self, items: &[crate::complete::FillItem]) -> Result<Vec<crate::complete::FillResult>, String> {
+        #[derive(Deserialize)]
+        struct Resp {
+            results: Vec<crate::complete::FillResult>,
+        }
+        let body = serde_json::json!({ "items": items }).to_string();
+        let text = self.post_json("/v1/ocr/fill", &body, Duration::from_secs(900))?;
+        let r: Resp = serde_json::from_str(&text).map_err(|e| format!("invalid fill response: {e}"))?;
+        Ok(r.results)
+    }
+
     /// 書体フォントを取得する。`cache_dir/fonts/<name>` にあればそれを使い、無ければサーバーから取得して保存する。
     pub fn font(&self, name: &str, cache_dir: &Path) -> Result<Vec<u8>, String> {
         if name.contains('/') || name.contains('\\') || name.contains("..") {
