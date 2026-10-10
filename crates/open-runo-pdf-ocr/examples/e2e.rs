@@ -27,6 +27,12 @@ fn main() {
     if std::env::var_os("PDFOCR_REOCR").is_some() {
         settings.reocr = true;
     }
+    if let Ok(v) = std::env::var("PDFOCR_FILL_WEB") {
+        settings.fill_web = v != "0";
+    }
+    if let Ok(v) = std::env::var("PDFOCR_FILL_VISUAL") {
+        settings.fill_visual = v != "0";
+    }
     let cache = std::env::temp_dir().join("pdf-r2l-e2e-cache");
     let t = std::time::Instant::now();
     let mut last = String::new();

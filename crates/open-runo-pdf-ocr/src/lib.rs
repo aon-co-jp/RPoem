@@ -128,8 +128,13 @@ pub fn process(
         // かすれ補正(設定でオンのときだけ): 自信の低い行を、ノイズ除去 → 拡大(AI 超解像 / 補間)→ 再 OCR で読み直す。
         if settings.reocr {
             for (raster, lines) in rasters.iter().zip(pages.iter_mut()) {
-                if let Ok(n) = enhance::reocr_lines(&client, raster, lines, settings) {
-                    reread += n;
+                match enhance::reocr_lines(&client, raster, lines, settings) {
+                    Ok(n) => reread += n,
+                    Err(e) => {
+                        if std::env::var_os("PDFOCR_DEBUG").is_some() {
+                            eprintln!("[reocr] failed: {e}");
+                        }
+                    }
                 }
             }
         }
