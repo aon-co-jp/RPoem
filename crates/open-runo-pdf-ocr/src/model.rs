@@ -1,0 +1,147 @@
+//! 設定・OCR 結果・進捗などの共通データ型。
+
+use serde::{Deserialize, Serialize};
+
+/// 1回の OCR で選べる言語数の上限(`aruaru-llm` の `MAX_LANGS` と同じ)。
+pub const MAX_LANGUAGES: usize = 12;
+
+/// OCR の品質。`Fast` は小さく速い言語データ、`Best` は高精度(大きい)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Quality {
+    /// 高精度(既定)。
+    Best,
+    /// 高速。
+    Fast,
+}
+
+impl Quality {
+    /// サーバーへ送る文字列。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Quality::Best => "best",
+            Quality::Fast => "fast",
+        }
+    }
+}
+
+/// 「テキストフォント文字化」の設定。アプリの設定画面で編集し、JSON で保存する。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    /// 文字化機能を使うか(既定: オン)。オフなら元のデータのまま。
+    pub enabled: bool,
+    /// OCR を行う `aruaru-llm` の URL(既定: 同じ PC で動く `http://127.0.0.1:4600`)。
+    pub server_url: String,
+    /// OCR する言語(1〜12個、Tesseract の言語コード)。
+    pub languages: Vec<String>,
+    /// OCR の品質。
+    pub quality: Quality,
+    /// この信頼度(0〜100)未満の行は、元の画像のまま残す(検索用の見えない文字だけ追加する)。
+    pub min_confidence: f32,
+    /// ページ画像の長辺ピクセル数の上限(OCR 精度と速度のバランス)。
+    pub render_long_side_px: u32,
+    /// 1回の OCR 要求にまとめるページ数(1〜16)。大きいほど Tesseract の起動回数が減る。
+    pub batch_pages: usize,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            enabled: true,
+            server_url: "http://127.0.0.1:4600".to_string(),
+            languages: vec!["jpn".to_string(), "eng".to_string()],
+            quality: Quality::Best,
+            min_confidence: 50.0,
+            render_long_side_px: 3508,
+            batch_pages: 8,
+        }
+    }
+}
+
+impl Settings {
+    /// 設定の検証(言語数 1〜12、URL、バッチ数)。
+    pub fn validate(&self) -> Result<(), String> {
+        if self.languages.is_empty() || self.languages.len() > MAX_LANGUAGES {
+            return Err(format!("言語は1〜{MAX_LANGUAGES}個選んでください / Select 1 to {MAX_LANGUAGES} languages (selected: {})", self.languages.len()));
+        }
+        if !(self.server_url.starts_with("http://") || self.server_url.starts_with("https://")) {
+            return Err("接続先URLは http:// または https:// で始めてください / The server URL must start with http:// or https://".to_string());
+        }
+        if self.batch_pages == 0 || self.batch_pages > 16 {
+            return Err("batch_pages must be 1..=16".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// OCR で認識した1単語(画像ピクセル座標、左上原点)。
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct OcrWord {
+    /// 認識した文字列。
+    pub text: String,
+    /// 左端(px)。
+    pub x: i32,
+    /// 上端(px)。
+    pub y: i32,
+    /// 幅(px)。
+    pub w: i32,
+    /// 高さ(px)。
+    pub h: i32,
+    /// 信頼度(0〜100)。
+    pub conf: f32,
+}
+
+/// OCR で認識した1行。
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct OcrLine {
+    /// 行の文字列。
+    pub text: String,
+    /// 左端(px)。
+    pub x: i32,
+    /// 上端(px)。
+    pub y: i32,
+    /// 幅(px)。
+    pub w: i32,
+    /// 高さ(px)。
+    pub h: i32,
+    /// 行の平均信頼度(0〜100)。
+    pub conf: f32,
+    /// 行内の単語。
+    pub words: Vec<OcrWord>,
+}
+
+/// 処理の段階(進捗表示用)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage {
+    /// 言語データの準備(初回は取得に時間がかかる)。
+    Prepare,
+    /// ページを画像にして OCR している。
+    Ocr,
+    /// 書体を取得して PDF を組み立てている。
+    Compose,
+}
+
+/// 進捗。
+#[derive(Debug, Clone, Copy)]
+pub struct Progress {
+    /// 段階。
+    pub stage: Stage,
+    /// 完了したページ数。
+    pub done: usize,
+    /// 全ページ数。
+    pub total: usize,
+}
+
+/// 処理結果の概要。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Report {
+    /// ページ数。
+    pub pages: usize,
+    /// OCR が見つけた行の数。
+    pub lines_found: usize,
+    /// 元の書体に合わせた文字へ置き換えた行の数。
+    pub lines_retyped: usize,
+    /// 置き換えず、元の画像のまま検索用の見えない文字だけ追加した行の数。
+    pub lines_text_only: usize,
+}
