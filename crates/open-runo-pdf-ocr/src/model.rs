@@ -52,8 +52,8 @@ impl Default for Settings {
             server_url: "http://127.0.0.1:4600".to_string(),
             languages: vec!["jpn".to_string(), "eng".to_string()],
             quality: Quality::Best,
-            min_confidence: 50.0,
-            render_long_side_px: 3508,
+            min_confidence: 70.0,
+            render_long_side_px: 3000,
             batch_pages: 8,
         }
     }

@@ -12,9 +12,21 @@ pub const LANGUAGES: &[Language] = &[
     ("jpn_vert", "日本語(縦書き)", "Japanese (vertical)"),
     ("eng", "英語", "English"),
     ("chi_sim", "中国語(簡体字)", "Chinese (Simplified)"),
-    ("chi_sim_vert", "中国語(簡体字・縦書き)", "Chinese (Simplified, vertical)"),
-    ("chi_tra", "中国語(繁体字・台湾/香港)", "Chinese (Traditional, Taiwan/Hong Kong)"),
-    ("chi_tra_vert", "中国語(繁体字・縦書き)", "Chinese (Traditional, vertical)"),
+    (
+        "chi_sim_vert",
+        "中国語(簡体字・縦書き)",
+        "Chinese (Simplified, vertical)",
+    ),
+    (
+        "chi_tra",
+        "中国語(繁体字・台湾/香港)",
+        "Chinese (Traditional, Taiwan/Hong Kong)",
+    ),
+    (
+        "chi_tra_vert",
+        "中国語(繁体字・縦書き)",
+        "Chinese (Traditional, vertical)",
+    ),
     ("kor", "韓国語", "Korean"),
     ("kor_vert", "韓国語(縦書き)", "Korean (vertical)"),
     ("rus", "ロシア語", "Russian"),
@@ -76,7 +88,8 @@ Only the data for the languages you choose is downloaded and cached for reuse, s
 - For Arabic, Persian, Hebrew, Hindi, etc., where letter shapes change by position, the text is not replaced; only invisible text for searching is added.";
 
 /// 品質の説明(日本語)。
-pub const QUALITY_HELP_JA: &str = "高精度: 認識が正確(言語データが大きく、やや遅い)。高速: 小さく速い(認識精度はやや低い)。";
+pub const QUALITY_HELP_JA: &str =
+    "高精度: 認識が正確(言語データが大きく、やや遅い)。高速: 小さく速い(認識精度はやや低い)。";
 /// 品質の説明(英語)。
 pub const QUALITY_HELP_EN: &str = "Best: more accurate (larger language data, slightly slower). Fast: smaller and quicker (slightly less accurate).";
 

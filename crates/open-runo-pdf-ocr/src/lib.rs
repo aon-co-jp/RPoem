@@ -24,6 +24,24 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
+/// 文字に置き換えてよいほど信頼できる行か。行の平均の信頼度がしきい値以上で、かつ単語の 8 割以上が信頼度 50 以上。
+/// (読める元の画像を、誤認識した文字で置き換えてしまう被害を減らす。言語の選び間違いなどで平均が高くても、単語ごとに見れば崩れる。)
+fn line_is_reliable(line: &OcrLine, min_confidence: f32) -> bool {
+    if line.conf < min_confidence {
+        return false;
+    }
+    let words: Vec<_> = line
+        .words
+        .iter()
+        .filter(|w| !w.text.trim().is_empty())
+        .collect();
+    if words.is_empty() {
+        return false;
+    }
+    let weak = words.iter().filter(|w| w.conf < 50.0).count();
+    weak * 5 <= words.len()
+}
+
 /// 縦書きらしい行(高さが幅より十分に大きい)か。縦書きは置き換えず、見えない文字だけにする。
 fn looks_vertical(line: &OcrLine) -> bool {
     line.text.chars().count() > 1 && (line.h as f32) > (line.w as f32) * 1.5
@@ -61,16 +79,41 @@ pub fn process(
             done: start,
             total,
         });
+        let t0 = std::time::Instant::now();
         let rasters = render::render_pages(pdf, start..end, settings.render_long_side_px)?;
-        let pngs: Vec<Vec<u8>> = rasters.iter().map(|r| r.png.clone()).collect();
-        let pages = client.ocr(&pngs, &settings.languages, settings.quality)?;
+        let t1 = std::time::Instant::now();
+        // 白紙のページは OCR に送らない。
+        let send: Vec<usize> = (0..rasters.len())
+            .filter(|&i| !rasters[i].is_blank())
+            .collect();
+        let pngs: Vec<Vec<u8>> = send.iter().map(|&i| rasters[i].png.clone()).collect();
+        let mut sent_pages = if pngs.is_empty() {
+            Vec::new()
+        } else {
+            client.ocr(&pngs, &settings.languages, settings.quality)?
+        }
+        .into_iter();
+        let mut pages: Vec<Vec<OcrLine>> = vec![Vec::new(); rasters.len()];
+        for &i in &send {
+            pages[i] = sent_pages.next().unwrap_or_default();
+        }
+        if std::env::var_os("PDFOCR_DEBUG").is_some() {
+            eprintln!(
+                "[time] pages {start}..{end}: render {:.1}s, ocr {:.1}s, png {} KB total",
+                (t1 - t0).as_secs_f32(),
+                t1.elapsed().as_secs_f32(),
+                pngs.iter().map(|p| p.len()).sum::<usize>() / 1024
+            );
+        }
         for (raster, lines) in rasters.iter().zip(pages) {
             let lines = lines
                 .into_iter()
                 .filter(|l| !l.text.trim().is_empty() && l.w > 0 && l.h > 0)
                 .map(|line| {
                     let style = style::analyze(&raster.rgba, raster.width, raster.height, line.x, line.y, line.w, line.h).classify(&line.text, line.w);
-                    let retype = line.conf >= settings.min_confidence && style.has_ink && !looks_vertical(&line);
+                    let retype = line_is_reliable(&line, settings.min_confidence)
+                        && style.has_ink
+                        && !looks_vertical(&line);
                     if std::env::var_os("PDFOCR_DEBUG").is_some() {
                         eprintln!("[ocr] conf={:.0} serif={} bold={} contrast={:.2} stem={:.3} retype={} | {}", line.conf, style.serif, style.bold, style.contrast, style.stem_ratio, retype, line.text);
                     }
@@ -115,4 +158,52 @@ pub fn process(
         total,
     });
     Ok((out, report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn word(conf: f32) -> OcrWord {
+        OcrWord {
+            text: "w".into(),
+            x: 0,
+            y: 0,
+            w: 10,
+            h: 10,
+            conf,
+        }
+    }
+
+    fn line(conf: f32, word_confs: &[f32]) -> OcrLine {
+        OcrLine {
+            text: "w w w w w".into(),
+            x: 0,
+            y: 0,
+            w: 50,
+            h: 10,
+            conf,
+            words: word_confs.iter().map(|&c| word(c)).collect(),
+        }
+    }
+
+    #[test]
+    fn reliability_needs_line_and_word_confidence() {
+        assert!(line_is_reliable(
+            &line(90.0, &[90.0, 92.0, 88.0, 95.0, 91.0]),
+            70.0
+        ));
+        assert!(
+            !line_is_reliable(&line(60.0, &[60.0; 5]), 70.0),
+            "below the line threshold"
+        );
+        assert!(
+            !line_is_reliable(&line(80.0, &[95.0, 95.0, 95.0, 30.0, 20.0]), 70.0),
+            "too many weak words"
+        );
+        assert!(
+            line_is_reliable(&line(85.0, &[95.0, 95.0, 95.0, 95.0, 30.0]), 70.0),
+            "one weak word of five is tolerated"
+        );
+    }
 }

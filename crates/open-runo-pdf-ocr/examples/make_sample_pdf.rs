@@ -26,7 +26,14 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let jpg = std::fs::read(&args[1]).expect("read jpg");
     let pages: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let rotate: i64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
     let (w, h) = jpeg_size(&jpg).expect("jpeg size");
+    // 回転 90: ページを横長にして画像を反時計回りに置く(表示すると正立する)。
+    let (mb_w, mb_h, cm) = if rotate == 90 {
+        (841.89f32, 595.28f32, "0 595.28 -841.89 0 841.89 0")
+    } else {
+        (595.28f32, 841.89f32, "595.28 0 0 841.89 0 0")
+    };
     let mut doc = Document::with_version("1.5");
     let pages_id = doc.new_object_id();
     let mut kids = Vec::new();
@@ -35,15 +42,14 @@ fn main() {
             dictionary! {"Type"=>"XObject","Subtype"=>"Image","Width"=>w,"Height"=>h,"ColorSpace"=>"DeviceRGB","BitsPerComponent"=>8,"Filter"=>"DCTDecode"},
             jpg.clone(),
         ));
-        // A4(595.28 x 841.89 pt)いっぱいに画像を置く。
         let content = doc.add_object(Stream::new(
             dictionary! {},
-            b"q 595.28 0 0 841.89 0 0 cm /Im0 Do Q".to_vec(),
+            format!("q {cm} cm /Im0 Do Q").into_bytes(),
         ));
         let page = doc.add_object(dictionary! {
             "Type"=>"Page","Parent"=>pages_id,
-            "MediaBox"=>vec![0.into(),0.into(),Object::Real(595.28),Object::Real(841.89)],
-            "Contents"=>content,
+            "MediaBox"=>vec![0.into(),0.into(),Object::Real(mb_w),Object::Real(mb_h)],
+            "Contents"=>content,"Rotate"=>rotate,
             "Resources"=>dictionary!{"XObject"=>dictionary!{"Im0"=>img}},
         });
         kids.push(page.into());

@@ -17,16 +17,25 @@ fn main() {
     if args.get(5).map(|s| s.as_str()) == Some("fast") {
         settings.quality = Quality::Fast;
     }
+    if let Some(b) = args.get(6).and_then(|s| s.parse().ok()) {
+        settings.batch_pages = b;
+    }
     let cache = std::env::temp_dir().join("pdf-r2l-e2e-cache");
     let t = std::time::Instant::now();
     let mut last = String::new();
-    let result = process(&pdf, &settings, &cache, &mut |p| {
-        let s = format!("{:?} {}/{}", p.stage, p.done, p.total);
-        if s != last {
-            eprintln!("[{:.1}s] {s}", t.elapsed().as_secs_f32());
-            last = s;
-        }
-    }, &|| false);
+    let result = process(
+        &pdf,
+        &settings,
+        &cache,
+        &mut |p| {
+            let s = format!("{:?} {}/{}", p.stage, p.done, p.total);
+            if s != last {
+                eprintln!("[{:.1}s] {s}", t.elapsed().as_secs_f32());
+                last = s;
+            }
+        },
+        &|| false,
+    );
     match result {
         Ok((out, report)) => {
             std::fs::write(&args[2], out).expect("write");

@@ -81,3 +81,73 @@ pub fn render_pages(
     }
     Ok(out)
 }
+
+impl PageRaster {
+    /// ほぼ白紙(文字・図がほとんど無い)か。白紙のページは OCR に送らず、時間と通信を節約する。
+    pub fn is_blank(&self) -> bool {
+        let step = 3usize;
+        let mut hist = [0u32; 256];
+        let mut n = 0u32;
+        let mut y = 0;
+        while y < self.height {
+            let mut x = 0;
+            while x < self.width {
+                let i = (y * self.width + x) * 4;
+                let l = (299 * self.rgba[i] as u32
+                    + 587 * self.rgba[i + 1] as u32
+                    + 114 * self.rgba[i + 2] as u32)
+                    / 1000;
+                hist[l.min(255) as usize] += 1;
+                n += 1;
+                x += step;
+            }
+            y += step;
+        }
+        if n == 0 {
+            return true;
+        }
+        // 背景(中央値)より 60 以上暗い画素が 0.02% 未満なら白紙。
+        let mut acc = 0u32;
+        let mut median = 255usize;
+        for (l, &c) in hist.iter().enumerate() {
+            acc += c;
+            if acc * 2 >= n {
+                median = l;
+                break;
+            }
+        }
+        let dark: u32 = hist.iter().take(median.saturating_sub(60)).sum();
+        (dark as f32) < n as f32 * 0.0002
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raster(rgba: Vec<u8>, w: usize, h: usize) -> PageRaster {
+        PageRaster {
+            width: w,
+            height: h,
+            rgba,
+            png: Vec::new(),
+            px_to_user: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        }
+    }
+
+    #[test]
+    fn blank_and_inked_pages() {
+        let (w, h) = (200usize, 200usize);
+        assert!(raster(vec![255; w * h * 4], w, h).is_blank());
+        let mut v = vec![255u8; w * h * 4];
+        for y in 50..60 {
+            for x in 20..180 {
+                let i = (y * w + x) * 4;
+                v[i] = 0;
+                v[i + 1] = 0;
+                v[i + 2] = 0;
+            }
+        }
+        assert!(!raster(v, w, h).is_blank());
+    }
+}
