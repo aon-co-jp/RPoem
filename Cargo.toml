@@ -27,6 +27,7 @@ members = [
     "crates/open-runo-voice",
     "crates/open-runo-pdf-ocr",
     "crates/open-runo-sr",
+    "crates/open-runo-glyph",
 ]
 
 resolver = "2"

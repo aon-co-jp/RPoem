@@ -188,6 +188,32 @@ pub fn upscale(input: &[u8], opts: Options, progress: &mut dyn FnMut(Progress), 
     Ok(Output { bytes, width: ow, height: oh, used_ai: use_ai })
 }
 
+/// 小さな切り抜き(OCR の行画像など)を `scale` 倍(整数 2〜4)に拡大する。AI 超解像(`ai`)なら 4 倍で作って `scale` へ縮小、
+/// そうでなければ高品質な補間(Lanczos3)だけ。文字のかすれ・つぶれを補ってから OCR にかける用途。
+pub fn upscale_crop(img: &RgbImage, scale: u32, ai: bool, threads: usize) -> Result<RgbImage, String> {
+    let scale = scale.clamp(2, 4);
+    let (w, h) = (img.width(), img.height());
+    if w == 0 || h == 0 {
+        return Err("empty image".to_string());
+    }
+    if !ai {
+        return Ok(image::imageops::resize(img, w * scale, h * scale, image::imageops::FilterType::Lanczos3));
+    }
+    static MODEL: std::sync::OnceLock<Result<SrModel, String>> = std::sync::OnceLock::new();
+    let model = MODEL.get_or_init(load_model).as_ref().map_err(|e| e.clone())?;
+    let r = model.scale();
+    let rgb: Vec<f32> = img.as_raw().iter().map(|&b| b as f32 / 255.0).collect();
+    let up = model::upscale_rgb_threads(model, &rgb, w as usize, h as usize, threads);
+    let bytes: Vec<u8> = up.iter().map(|s| (s * 255.0 + 0.5).clamp(0.0, 255.0) as u8).collect();
+    let big = RgbImage::from_raw(w * r as u32, h * r as u32, bytes).ok_or("failed to assemble the enlarged image")?;
+    if r as u32 == scale {
+        Ok(big)
+    } else {
+        Ok(image::imageops::resize(&big, w * scale, h * scale, image::imageops::FilterType::Lanczos3))
+    }
+}
+
+
 /// 画像を読み込まずに、出力の大きさだけを知りたいとき(画面の表示用)。
 pub fn dimensions(input: &[u8]) -> Result<(u32, u32), String> {
     let img = image::load_from_memory(input).map_err(|e| e.to_string())?;

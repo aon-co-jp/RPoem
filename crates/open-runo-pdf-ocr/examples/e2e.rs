@@ -24,6 +24,9 @@ fn main() {
         settings.fill = true;
         settings.fill_server_url = url.clone();
     }
+    if std::env::var_os("PDFOCR_REOCR").is_some() {
+        settings.reocr = true;
+    }
     let cache = std::env::temp_dir().join("pdf-r2l-e2e-cache");
     let t = std::time::Instant::now();
     let mut last = String::new();

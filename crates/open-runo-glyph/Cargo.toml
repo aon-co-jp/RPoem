@@ -1,0 +1,15 @@
+[package]
+name = "open-runo-glyph"
+description = "Glyph-grid matching for OCR: render characters from a font into small grids and score them against a (faded) page cell with normalized cross-correlation, either on the CPU or as one matrix product (sgemm) so open-cuda / open-cpu can run it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fontdue = "0.9"

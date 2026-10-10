@@ -4358,3 +4358,23 @@ Apache、RPoemをTomcatのような多段Webサーバーとして機能させて
 - **使う側**: `maid-cafe-se`の`maid-cafe-core`が`open_runo_voice`を再公開している(パス依存`../RPoem/crates/open-runo-voice`)。
   open-englishのローカル版・ミックス版のサーバー側TTSは未着手。
 - **正直な開示**: 測っているのはスペクトル包絡の近さ等の数値で、聴感品質は評価していない。この後処理は元のTTS音声の質を超えない。
+
+## 2026-10-10 開発停止時点の記録(OCR かすれ補正・AI 文脈補完) / Status at stop (faded-text rescue & AI context completion)
+
+### 日本語
+- 新設 **`crates/open-runo-glyph`**(MIT OR Apache-2.0): かすれた升目と候補の字形(fontdue で描画、明朝・ゴシック)を正規化相互相関で照合。升目の全位置を 1 回の行列積にする `windows()` / `GlyphIndex`(`matrix()` を `sgemm` の B に渡し、`reduce()` で最良位置・文字ごとの最大・上位を取る)と、CPU の参照実装 `rank_cpu()`。試験 3 件。
+- **`crates/open-runo-pdf-ocr`**: `enhance.rs`(コントラスト自動補正 `normalize_contrast`、かすれ行の超解像+再 OCR `reocr_lines`)、`complete.rs`(走査 → 疑わしい箇所 → 候補 → 採点 → 決定 → 反映。複数の単語にまたがる置換は結合)、`visual.rs`(升目の切り出しと証拠の強さ)、`client.rs`(`scan` / `propose` / `fill` / `charset` / `glyph_rank`)、設定 `reocr*` / `fill*`(`fill_server_url` で補完だけ別サーバーにできる)。試験 20 件。
+- **`crates/open-runo-sr`**: `upscale_crop()`(小さな切り抜きの拡大)を追加。Arm 向け NEON カーネルは v1.1.1 で追加済み。
+
+**試験のやり方**: 試験用画像は Python(Pillow)で作った小さく薄くぼかしたかすれ文書(正解が分かる)。`RPoem/crates/open-runo-pdf-ocr/examples/e2e.rs`(`PDFOCR_REOCR=1 PDFOCR_DEBUG=1 cargo run --release -p open-runo-pdf-ocr --example e2e -- in.pdf out.pdf <OCRサーバーURL> jpn+eng best 8 <補完サーバーURL>`)で OCR → 補完 → PDF を作り、`pdftotext` の結果を正解と比べる。`examples/vis_probe.rs` は字形の照合だけを、位置が既知の文書で測る(`JITTER=0.3` で位置ずれを与える)。OCR は VPS の `aruaru-llm`(SSH 中継 `-L 14600:127.0.0.1:4600`)、補完は手元の `aruaru-llm`(Qwen2.5-1.5B)を使った。Windows の bash から日本語を `curl` に直接渡すと文字化けするので、Python から UTF-8 で送ること。
+
+**測定結果と未了** は `pdf-r2l-rs/PORTING.md` に詳しく記録している(AI 文脈補完は実験的・既定オフ。作り直し後の通し測定が未了)。
+
+### English
+- New **`crates/open-runo-glyph`** (MIT OR Apache-2.0): matches a faded cell against candidate glyphs (rendered with fontdue, serif and sans) by normalized cross-correlation. `windows()` / `GlyphIndex` turn all positions into one matrix product (pass `matrix()` as B of `sgemm`, then `reduce()` takes the best position, the per-character maximum and the top list), plus the CPU reference `rank_cpu()`. 3 tests.
+- **`crates/open-runo-pdf-ocr`**: `enhance.rs` (automatic contrast correction `normalize_contrast`, super-resolution + re-OCR of faded lines `reocr_lines`), `complete.rs` (scan → suspect spots → candidates → scoring → decision → apply; replacements across words merge them), `visual.rs` (cell cutting and evidence strength), `client.rs` (`scan` / `propose` / `fill` / `charset` / `glyph_rank`), settings `reocr*` / `fill*` (`fill_server_url` can point only completion at another server). 20 tests.
+- **`crates/open-runo-sr`**: added `upscale_crop()` (enlarge small crops). The Arm NEON kernel landed in v1.1.1.
+
+**How it was tested**: the test images are small, faint, blurred documents made with Python (Pillow) so the ground truth is known. `RPoem/crates/open-runo-pdf-ocr/examples/e2e.rs` (`PDFOCR_REOCR=1 PDFOCR_DEBUG=1 cargo run --release -p open-runo-pdf-ocr --example e2e -- in.pdf out.pdf <OCR server URL> jpn+eng best 8 <completion server URL>`) runs OCR → completion → PDF, and the `pdftotext` result is compared with the truth. `examples/vis_probe.rs` measures glyph matching alone on a document with known positions (`JITTER=0.3` adds position drift). OCR used the VPS `aruaru-llm` (SSH forward `-L 14600:127.0.0.1:4600`); completion used a local `aruaru-llm` (Qwen2.5-1.5B). Passing Japanese text to `curl` directly from Windows bash is garbled — send it from Python as UTF-8.
+
+Measurements and open items are recorded in detail in `pdf-r2l-rs/PORTING.md` (AI context completion is experimental and off by default; the post-rework end-to-end measurement is still to do).

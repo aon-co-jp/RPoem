@@ -10,12 +10,14 @@
 pub mod client;
 pub mod complete;
 pub mod compose;
+pub mod enhance;
 pub mod fonts;
 pub mod languages;
 pub mod model;
 pub mod render;
 pub mod settings;
 pub mod style;
+pub mod visual;
 
 pub use client::{LanguageEntry, LanguageList, OcrClient};
 pub use model::{OcrLine, OcrWord, Progress, Quality, Report, Settings, Stage, MAX_LANGUAGES};
@@ -50,6 +52,9 @@ fn looks_vertical(line: &OcrLine) -> bool {
 
 /// PDF を OCR し、`settings.enabled` なら文字を置き換えた PDF を返す。
 /// `cache_dir` はフォントのキャッシュ先。`progress` で進捗を受け取る。
+///
+/// 流れ(バッチ = 数ページごと): ページを画像にする → 薄いページはコントラストを自動補正 → OCR →
+/// (設定で)かすれ補正(自信の低い行を超解像で拡大して再 OCR)→(設定で)AI 文脈補完 → 書体の判定と文字化。
 pub fn process(
     pdf: &[u8],
     settings: &Settings,
@@ -68,8 +73,17 @@ pub fn process(
     });
     client.prepare(&settings.languages, settings.quality)?;
 
+    // 字形の照合は、サーバーが対応していればサーバー(`open-cuda` の sgemm)で行う。アプリ内で計算するときだけ、フォントを取得する(遅延)。
+    let load_glyphs = || -> Option<open_runo_glyph::Glyphs> {
+        let sans = client.font("NotoSansJP-VF.ttf", cache_dir).ok();
+        let serif = client.font("NotoSerifJP-VF.ttf", cache_dir).ok();
+        let fonts: Vec<&[u8]> = [serif.as_deref(), sans.as_deref()].into_iter().flatten().collect();
+        open_runo_glyph::Glyphs::with_fonts(&fonts)
+    };
+
     let mut plans: Vec<PagePlan> = Vec::with_capacity(total);
     let mut filled = 0usize;
+    let mut reread = 0usize;
     let mut start = 0;
     while start < total {
         if cancelled() {
@@ -82,7 +96,11 @@ pub fn process(
             total,
         });
         let t0 = std::time::Instant::now();
-        let rasters = render::render_pages(pdf, start..end, settings.render_long_side_px)?;
+        // 薄い(低コントラストの)ページは、濃淡を引き伸ばす(これが無いと、薄い文書は「白紙」と判定されて OCR にすら送られない)。
+        let rasters: Vec<render::PageRaster> = render::render_pages(pdf, start..end, settings.render_long_side_px)?
+            .into_iter()
+            .map(|r| enhance::normalize_contrast(&r).unwrap_or(r))
+            .collect();
         let t1 = std::time::Instant::now();
         // 白紙のページは OCR に送らない。
         let send: Vec<usize> = (0..rasters.len())
@@ -107,8 +125,16 @@ pub fn process(
                 pngs.iter().map(|p| p.len()).sum::<usize>() / 1024
             );
         }
+        // かすれ補正(設定でオンのときだけ): 自信の低い行を、ノイズ除去 → 拡大(AI 超解像 / 補間)→ 再 OCR で読み直す。
+        if settings.reocr {
+            for (raster, lines) in rasters.iter().zip(pages.iter_mut()) {
+                if let Ok(n) = enhance::reocr_lines(&client, raster, lines, settings) {
+                    reread += n;
+                }
+            }
+        }
         // AI 文脈補完(設定でオンのときだけ)。読み・欠けを直したあとの文字列で、書体判定と文字化を行う。
-        filled += complete::run(&client, &mut pages, settings);
+        filled += complete::run(&client, &mut pages, &rasters, settings, &load_glyphs);
         for (raster, lines) in rasters.iter().zip(pages) {
             let lines = lines
                 .into_iter()
@@ -155,6 +181,7 @@ pub fn process(
     };
     let mut report = compose::compose(&mut doc, &plans, &settings.languages, &mut provider)?;
     report.chars_filled = filled;
+    report.lines_reread = reread;
     let mut out = Vec::new();
     doc.save_to(&mut out)
         .map_err(|e| format!("保存失敗 / Save failed: {e}"))?;
