@@ -1,0 +1,15 @@
+[package]
+name = "open-runo-crossui"
+description = "Write the front end once (open-runo-view VNode tree + an engine bridge) and generate the shared front end for Windows, macOS, Linux, Android and the web: SSR page, JS bridge generated from Rust, and per-OS launcher / packaging descriptors."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+open-runo-view = { path = "../open-runo-view" }

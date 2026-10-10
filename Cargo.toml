@@ -28,6 +28,7 @@ members = [
     "crates/open-runo-pdf-ocr",
     "crates/open-runo-sr",
     "crates/open-runo-glyph",
+    "crates/open-runo-crossui",
 ]
 
 resolver = "2"

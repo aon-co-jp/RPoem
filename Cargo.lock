@@ -4202,6 +4202,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "open-runo-crossui"
+version = "0.1.0"
+dependencies = [
+ "open-runo-view",
+]
+
+[[package]]
 name = "open-runo-db"
 version = "0.1.0"
 dependencies = [
