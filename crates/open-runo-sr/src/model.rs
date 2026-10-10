@@ -224,7 +224,13 @@ pub fn parse_model(param: &str, bin: &[u8]) -> Result<SrModel, String> {
 
 /// 使う計算カーネルの名前(ログ表示用)。open-cpuの検出結果に従う。
 pub fn kernel_name() -> &'static str {
-    if avx2_available() { "AVX2+FMA" } else { "scalar" }
+    if avx2_available() {
+        "AVX2+FMA"
+    } else if cfg!(target_arch = "aarch64") {
+        "NEON"
+    } else {
+        "scalar"
+    }
 }
 
 fn avx2_available() -> bool {
@@ -344,11 +350,93 @@ unsafe fn conv_avx2(inp: &[f32], out: &mut [f32], h: usize, w: usize, l: &ConvLa
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+unsafe fn conv_neon(inp: &[f32], out: &mut [f32], h: usize, w: usize, l: &ConvLayer) {
+    use std::arch::aarch64::*;
+    let (ic_n, oc_n) = (l.in_c, l.out_c);
+    let (sin, sout) = ((w + 2) * ic_n, (w + 2) * oc_n);
+    let zero = vdupq_n_f32(0.0);
+    for y in 0..h {
+        let mut ob = 0;
+        while ob < oc_n {
+            let mut b = [zero; 4];
+            let mut sl = [zero; 4];
+            for j in 0..4 {
+                b[j] = vld1q_f32(l.bias.as_ptr().add(ob + 4 * j));
+                if let Some(p) = &l.prelu {
+                    sl[j] = vld1q_f32(p.as_ptr().add(ob + 4 * j));
+                }
+            }
+            let mut x = 0;
+            // 2画素ずつ: 出力16ch×2画素=8個のアキュムレータ。
+            while x + 2 <= w {
+                let mut a = [b, b];
+                for tap in 0..9 {
+                    let (ky, kx) = (tap / 3, tap % 3);
+                    let base = inp.as_ptr().add((y + ky) * sin + (x + kx) * ic_n);
+                    let wp = l.w.as_ptr().add(tap * ic_n * oc_n + ob);
+                    for ic in 0..ic_n {
+                        let wv = [
+                            vld1q_f32(wp.add(ic * oc_n)),
+                            vld1q_f32(wp.add(ic * oc_n + 4)),
+                            vld1q_f32(wp.add(ic * oc_n + 8)),
+                            vld1q_f32(wp.add(ic * oc_n + 12)),
+                        ];
+                        for (p, ap) in a.iter_mut().enumerate() {
+                            let v = *base.add(p * ic_n + ic);
+                            for j in 0..4 {
+                                ap[j] = vfmaq_n_f32(ap[j], wv[j], v);
+                            }
+                        }
+                    }
+                }
+                for (p, ap) in a.iter().enumerate() {
+                    let dst = out.as_mut_ptr().add((y + 1) * sout + (x + p + 1) * oc_n + ob);
+                    for j in 0..4 {
+                        let acc = ap[j];
+                        let r = if l.prelu.is_some() { vfmaq_f32(vmaxq_f32(acc, zero), sl[j], vminq_f32(acc, zero)) } else { acc };
+                        vst1q_f32(dst.add(4 * j), r);
+                    }
+                }
+                x += 2;
+            }
+            while x < w {
+                let mut a = b;
+                for tap in 0..9 {
+                    let (ky, kx) = (tap / 3, tap % 3);
+                    let base = inp.as_ptr().add((y + ky) * sin + (x + kx) * ic_n);
+                    let wp = l.w.as_ptr().add(tap * ic_n * oc_n + ob);
+                    for ic in 0..ic_n {
+                        let v = *base.add(ic);
+                        for j in 0..4 {
+                            a[j] = vfmaq_n_f32(a[j], vld1q_f32(wp.add(ic * oc_n + 4 * j)), v);
+                        }
+                    }
+                }
+                let dst = out.as_mut_ptr().add((y + 1) * sout + (x + 1) * oc_n + ob);
+                for j in 0..4 {
+                    let acc = a[j];
+                    let r = if l.prelu.is_some() { vfmaq_f32(vmaxq_f32(acc, zero), sl[j], vminq_f32(acc, zero)) } else { acc };
+                    vst1q_f32(dst.add(4 * j), r);
+                }
+                x += 1;
+            }
+            ob += 16;
+        }
+    }
+}
+
 fn conv_layer(inp: &[f32], out: &mut [f32], h: usize, w: usize, l: &ConvLayer, use_avx2: bool) {
     #[cfg(target_arch = "x86_64")]
     if use_avx2 && l.out_c.is_multiple_of(16) {
         // 安全性: avx2+fmaはavx2_available()(open-cpu)で確認済み。範囲はバッファ寸法から決まる。
         unsafe { conv_avx2(inp, out, h, w, l) };
+        return;
+    }
+    #[cfg(target_arch = "aarch64")]
+    if l.out_c.is_multiple_of(16) {
+        // 安全性: NEON は aarch64 の基本機能。範囲はバッファ寸法から決まる。
+        unsafe { conv_neon(inp, out, h, w, l) };
         return;
     }
     let _ = use_avx2;
