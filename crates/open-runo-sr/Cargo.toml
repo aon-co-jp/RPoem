@@ -1,0 +1,16 @@
+[package]
+name = "open-runo-sr"
+description = "Image up-conversion for the aon-co-jp apps: CPU AI super-resolution (Real-ESRGAN realesr-general-x4v3, ported from make-disk) plus high-quality resampling to Full HD / QHD / 4K / 5K / 8K / 16K."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+include = ["src/**", "models/**", "Cargo.toml"]
+
+[lints]
+workspace = true
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

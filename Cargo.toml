@@ -26,6 +26,7 @@ members = [
     "crates/open-runo-tls-fingerprint",
     "crates/open-runo-voice",
     "crates/open-runo-pdf-ocr",
+    "crates/open-runo-sr",
 ]
 
 resolver = "2"
