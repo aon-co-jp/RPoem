@@ -113,7 +113,7 @@ async function send(k){{
   if(r.commit){{t.setRangeText(r.commit,t.selectionStart,t.selectionEnd,"end");}}
   composing=!!r.composing;
   pre.textContent=r.preedit||"";
-  c.innerHTML=(r.cands||[]).slice(0,10).map((x,i)=>'<div class="'+(r.sel===i?"sel":"")+'">'+((i+1)%10)+". "+x.replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</div>").join("");
+  c.innerHTML=(r.cands||[]).slice(0,10).map((x,i)=>'<div data-i="'+i+'" class="'+(r.sel===i?"sel":"")+'">'+((i+1)%10)+". "+x.replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</div>").join("");
   st.textContent=(r.lang||"")+(r.on===false?" (OFF)":"");
   return true;
 }}
@@ -128,7 +128,7 @@ t.addEventListener("keydown",async e=>{{
   if(r.commit){{t.setRangeText(r.commit,t.selectionStart,t.selectionEnd,"end");}}
   composing=!!r.composing;
   pre.textContent=r.preedit||"";
-  c.innerHTML=(r.cands||[]).slice(0,10).map((x,i)=>'<div class="'+(r.sel===i?"sel":"")+'">'+((i+1)%10)+". "+x.replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</div>").join("");
+  c.innerHTML=(r.cands||[]).slice(0,10).map((x,i)=>'<div data-i="'+i+'" class="'+(r.sel===i?"sel":"")+'">'+((i+1)%10)+". "+x.replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</div>").join("");
   st.textContent=(r.lang||"")+(r.on===false?" (OFF)":"");
 }});
 // スマホ・タブレットの画面キーボード(keydown が文字を教えてくれない端末): 入力された文字を beforeinput で受ける
@@ -149,6 +149,16 @@ t.addEventListener("compositionend",async e=>{{
     t.setRangeText("",t.selectionStart-n,t.selectionStart,"end");
     for(const ch of d)await send({{Char:ch}});
   }}
+}});
+// 候補をタップ・クリックで選んで確定する(スマホ・タブレット向け)
+c.addEventListener("click",async ev=>{{
+  const d=ev.target.closest&&ev.target.closest("[data-i]"); if(!d)return;
+  const r=await post(KEY.replace(/\/key$/,"/session"),{{sid,op:"choose",idx:+d.dataset.i}});
+  if(r.commit){{t.setRangeText(r.commit,t.selectionStart,t.selectionEnd,"end");}}
+  composing=!!r.composing;
+  pre.textContent=r.preedit||"";
+  c.innerHTML=(r.cands||[]).slice(0,10).map((x,i)=>'<div data-i="'+i+'" class="'+(r.sel===i?"sel":"")+'">'+((i+1)%10)+". "+x.replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</div>").join("");
+  t.focus();
 }});
 const help=document.getElementById("help");
 fetch(BASE+HEALTH).then(r=>r.text()).then(x=>{{st.textContent=x;if(help)help.hidden=true;}}).catch(e=>{{st.textContent="engine offline";if(help){{help.hidden=false;const d=document.getElementById("helpwhy");if(d)d.textContent=" ["+(e&&e.name||"error")+": "+(e&&e.message||"")+" / "+location.origin+"]";}}}});
@@ -278,7 +288,7 @@ pub const IME_CSS: &str = ":root{--bg:#111;--fg:#fff;--acc:#4a9eff}@media (prefe
 body{margin:0;background:var(--bg);color:var(--fg);font:18px system-ui,sans-serif;padding:16px}\
 textarea{width:100%;box-sizing:border-box;min-height:40vh;background:transparent;color:inherit;border:1px solid #888;border-radius:8px;padding:12px;font:inherit}\
 #pre{margin:8px 0;min-height:1.6em;color:var(--acc);text-decoration:underline}\
-#help{margin:8px 0;padding:8px 12px;border:1px solid #c66;border-radius:6px}a{color:var(--acc)}#c{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px}#c div{padding:6px 10px;border-radius:6px;font-size:1.3em}#c .sel{background:var(--acc);color:#fff}";
+#help{margin:8px 0;padding:8px 12px;border:1px solid #c66;border-radius:6px}a{color:var(--acc)}#c{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px}#c div{cursor:pointer;padding:10px 12px;border-radius:6px;font-size:1.3em}#c .sel{background:var(--acc);color:#fff}";
 
 /// aruaru-IME の標準の定義。
 pub fn ime_app(engine_url: &str, version: &str) -> AppSpec {
