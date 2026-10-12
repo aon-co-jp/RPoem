@@ -87,16 +87,40 @@ const el=i=>document.getElementById(i),t=el({input}),pre=el({pre}),c=el({cands})
 const sid="web-"+Math.random().toString(36).slice(2);
 const post=(p,b)=>fetch(BASE+p,{{method:"POST",body:JSON.stringify(b)}}).then(r=>r.json());
 let composing=false;
+// OS の IME が有効なとき(e.key が "Process" / 229)は、押した物理キー(e.code)から文字を求める
+function charOf(e){{
+  if(e.key&&e.key.length===1)return e.key;
+  const c=e.code||"";
+  if(/^Key[A-Z]$/.test(c))return e.shiftKey?c.slice(3):c.slice(3).toLowerCase();
+  if(/^Digit[0-9]$/.test(c))return c.slice(5);
+  const sym={{Minus:"-",Equal:"=",Comma:",",Period:".",Slash:"/",Semicolon:";",Quote:"'",BracketLeft:"[",BracketRight:"]",Backslash:"\\",Backquote:"`"}};
+  return sym[c]||null;
+}}
 function keyOf(e){{
   if(e.ctrlKey||e.metaKey||e.altKey)return null;
   const m={{" ":"Space","Enter":"Enter","Escape":"Esc","Backspace":"Backspace","ArrowUp":"Up","ArrowDown":"Down","ArrowLeft":"Left","ArrowRight":"Right","Tab":"Tab","Convert":"Convert","NonConvert":"NonConvert"}};
   if(m[e.key]){{ if(!composing&&["Up","Down","Left","Right","Tab","Backspace","Enter","Esc"].includes(m[e.key]))return null; return m[e.key]; }}
   if(/^F([6-9]|10)$/.test(e.key)&&composing)return {{Fn:+e.key.slice(1)}};
-  if(e.key.length===1)return {{Char:e.key}};
+  if(e.code==="Space")return "Space";
+  const ch=charOf(e);
+  if(ch)return {{Char:ch}};
   return null;
 }}
+async function send(k){{
+  const before=t.value.slice(0,t.selectionStart).slice(-40);
+  const r=await post(KEY,{{sid,key:k,before}});
+  if(!r.eaten&&!r.commit)return false;
+  if(r.commit){{t.setRangeText(r.commit,t.selectionStart,t.selectionEnd,"end");}}
+  composing=!!r.composing;
+  pre.textContent=r.preedit||"";
+  c.innerHTML=(r.cands||[]).slice(0,10).map((x,i)=>'<div class="'+(r.sel===i?"sel":"")+'">'+((i+1)%10)+". "+x.replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</div>").join("");
+  st.textContent=(r.lang||"")+(r.on===false?" (OFF)":"");
+  return true;
+}}
+// パソコンの物理キーボード
 t.addEventListener("keydown",async e=>{{
   const k=keyOf(e); if(!k)return;
+  if(e.isComposing||e.key==="Process"||e.keyCode===229){{ e.preventDefault(); }}
   const before=t.value.slice(0,t.selectionStart).slice(-40);
   const r=await post(KEY,{{sid,key:k,before}});
   if(!r.eaten&&!r.commit)return;
@@ -106,6 +130,25 @@ t.addEventListener("keydown",async e=>{{
   pre.textContent=r.preedit||"";
   c.innerHTML=(r.cands||[]).slice(0,10).map((x,i)=>'<div class="'+(r.sel===i?"sel":"")+'">'+((i+1)%10)+". "+x.replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</div>").join("");
   st.textContent=(r.lang||"")+(r.on===false?" (OFF)":"");
+}});
+// スマホ・タブレットの画面キーボード(keydown が文字を教えてくれない端末): 入力された文字を beforeinput で受ける
+t.addEventListener("beforeinput",async e=>{{
+  if(e.inputType==="insertText"&&e.data&&e.data.length===1&&!e.isComposing){{
+    e.preventDefault();
+    await send({{Char:e.data}});
+  }}else if(e.inputType==="deleteContentBackward"&&composing){{
+    e.preventDefault();
+    await send("Backspace");
+  }}
+}});
+// 画面キーボードが組み立て中(composition)の文字を出してきたときは、エンジンに渡し直す
+t.addEventListener("compositionend",async e=>{{
+  const d=e.data||"";
+  if(/^[A-Za-z0-9'\-]+$/.test(d)){{
+    const n=d.length;
+    t.setRangeText("",t.selectionStart-n,t.selectionStart,"end");
+    for(const ch of d)await send({{Char:ch}});
+  }}
 }});
 const help=document.getElementById("help");
 fetch(BASE+HEALTH).then(r=>r.text()).then(x=>{{st.textContent=x;if(help)help.hidden=true;}}).catch(e=>{{st.textContent="engine offline";if(help){{help.hidden=false;const d=document.getElementById("helpwhy");if(d)d.textContent=" ["+(e&&e.name||"error")+": "+(e&&e.message||"")+" / "+location.origin+"]";}}}});
@@ -209,7 +252,8 @@ pub const DOWNLOAD_URL: &str = "https://github.com/aon-co-jp/aruaru-IME/releases
 pub fn ime_root_with(b: &Bridge, download_url: &str, local_ui: &str) -> VNode {
     h("main")
         .child(h("h3").child(VNode::Text("aruaru-IME ".into())).child(h("small").attr("id", &b.status_id).build()).build())
-        .child(h("textarea").attr("id", &b.input_id).attr("autofocus", "").attr("placeholder", "ここに入力(ローマ字)。Space で変換、Enter で確定、数字で候補選択").build())
+        .child(h("textarea").attr("id", &b.input_id).attr("autofocus", "").attr("autocomplete", "off").attr("autocorrect", "off").attr("autocapitalize", "off").attr("spellcheck", "false").attr("enterkeyhint", "done").attr("placeholder", "ここに入力(ローマ字)。Space で変換、Enter で確定、数字で候補選択").build())
+        .child(h("p").attr("class", "tip").child(VNode::Text("ヒント: パソコンでは、OS の入力方式を「英数(直接入力)」にして使うと確実です。スマホは、キーボードを英語(ローマ字)にしてください。 / Tip: on a PC set the OS input method to direct (English); on phones use an English keyboard.".into())).build())
         .child(h("div").attr("id", &b.preedit_id).build())
         .child(h("div").attr("id", &b.cands_id).build())
         .child(
