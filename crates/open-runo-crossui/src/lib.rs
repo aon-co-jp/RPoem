@@ -61,6 +61,10 @@ pub struct AppSpec {
     pub bridge: Bridge,
     pub root: VNode,
     pub css: String,
+    /// 橋渡し JS を丸ごと差し替える(None なら IME 用の [`bridge_js`])。IME 以外のアプリ用。
+    pub script: Option<String>,
+    /// 起動スクリプトが立ち上げる常駐エンジンの実行ファイル名(拡張子なし)。
+    pub daemon: String,
 }
 
 fn js_str(s: &str) -> String {
@@ -177,7 +181,8 @@ t.addEventListener("focus",()=>{{if(help&&st.textContent==="engine offline"){{fe
 /// 全 OS 共通のページ(SSR された HTML)。`engine_base` が空なら同一オリジン(エンジン自身が配る場合)。
 pub fn page_html(app: &AppSpec, engine_base: &str) -> String {
     let head = format!("<style>{}</style>", app.css);
-    let scripts = format!("<script>{}</script>", bridge_js(&app.bridge, engine_base));
+    let js = app.script.clone().unwrap_or_else(|| bridge_js(&app.bridge, engine_base));
+    let scripts = format!("<script>{}</script>", js);
     let mut p = SsrPage::default_for(&app.root);
     p.title = &app.name;
     p.head_extra = &head;
@@ -207,26 +212,26 @@ pub fn generate(app: &AppSpec, targets: &[Target], out: &Path) -> std::io::Resul
     for t in targets {
         let d = t.dir();
         write(out, &format!("{d}/index.html"), &html, &mut files)?;
-        let (name, ver, url) = (&app.name, &app.version, &app.engine_url);
+        let (name, ver, url, dmn) = (&app.name, &app.version, &app.engine_url, &app.daemon);
         match t {
             Target::Web => {}
             Target::Windows => write(
                 out,
                 "windows/launch.cmd",
-                &format!("@echo off\r\nrem {name} {ver}\r\nstart \"\" /b \"%~dp0..\\..\\aruaru-ime-daemon.exe\"\r\nstart \"\" \"{url}/ui\"\r\n"),
+                &format!("@echo off\r\nrem {name} {ver}\r\nstart \"\" /b \"%~dp0..\\..\\{dmn}.exe\"\r\nstart \"\" \"{url}/ui\"\r\n"),
                 &mut files,
             )?,
             Target::MacOs => write(
                 out,
                 "macos/launch.command",
-                &format!("#!/bin/sh\n# {name} {ver}\ncd \"$(dirname \"$0\")\"\n(\"../../aruaru-ime-daemon\" >/dev/null 2>&1 &)\nopen \"{url}/ui\"\n"),
+                &format!("#!/bin/sh\n# {name} {ver}\ncd \"$(dirname \"$0\")\"\n(\"../../{dmn}\" >/dev/null 2>&1 &)\nopen \"{url}/ui\"\n"),
                 &mut files,
             )?,
             Target::Linux => {
                 write(
                     out,
                     "linux/launch.sh",
-                    &format!("#!/bin/sh\n# {name} {ver}\ncd \"$(dirname \"$0\")\"\n(\"../../aruaru-ime-daemon\" >/dev/null 2>&1 &)\nxdg-open \"{url}/ui\"\n"),
+                    &format!("#!/bin/sh\n# {name} {ver}\ncd \"$(dirname \"$0\")\"\n(\"../../{dmn}\" >/dev/null 2>&1 &)\nxdg-open \"{url}/ui\"\n"),
                     &mut files,
                 )?;
                 write(out, &format!("linux/{id}.desktop"), &format!("[Desktop Entry]\nType=Application\nName={name}\nExec=sh launch.sh\nTerminal=false\nCategories=Utility;\n"), &mut files)?;
@@ -293,7 +298,7 @@ textarea{width:100%;box-sizing:border-box;min-height:40vh;background:transparent
 /// aruaru-IME の標準の定義。
 pub fn ime_app(engine_url: &str, version: &str) -> AppSpec {
     let b = Bridge::default();
-    AppSpec { id: "aruaru-ime".into(), name: "aruaru-IME".into(), version: version.into(), engine_url: engine_url.into(), root: ime_root(&b), bridge: b, css: IME_CSS.into() }
+    AppSpec { id: "aruaru-ime".into(), name: "aruaru-IME".into(), version: version.into(), engine_url: engine_url.into(), root: ime_root(&b), bridge: b, css: IME_CSS.into(), script: None, daemon: "aruaru-ime-daemon".into() }
 }
 
 #[cfg(test)]
