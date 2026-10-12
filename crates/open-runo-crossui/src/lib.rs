@@ -107,7 +107,9 @@ t.addEventListener("keydown",async e=>{{
   c.innerHTML=(r.cands||[]).slice(0,10).map((x,i)=>'<div class="'+(r.sel===i?"sel":"")+'">'+((i+1)%10)+". "+x.replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</div>").join("");
   st.textContent=(r.lang||"")+(r.on===false?" (OFF)":"");
 }});
-fetch(BASE+HEALTH).then(r=>r.text()).then(x=>st.textContent=x).catch(()=>st.textContent="engine offline");
+const help=document.getElementById("help");
+fetch(BASE+HEALTH).then(r=>r.text()).then(x=>{{st.textContent=x;if(help)help.hidden=true;}}).catch(e=>{{st.textContent="engine offline";if(help){{help.hidden=false;const d=document.getElementById("helpwhy");if(d)d.textContent=" ["+(e&&e.name||"error")+": "+(e&&e.message||"")+" / "+location.origin+"]";}}}});
+t.addEventListener("focus",()=>{{if(help&&st.textContent==="engine offline"){{fetch(BASE+HEALTH).then(r=>r.text()).then(x=>{{st.textContent=x;help.hidden=true;}}).catch(()=>{{}});}}}});
 }})();"##,
         base = js_str(engine_base),
         key = js_str(&b.key_path),
@@ -197,11 +199,34 @@ pub fn generate(app: &AppSpec, targets: &[Target], out: &Path) -> std::io::Resul
 
 /// 入力欄・組み立て中・候補欄を持つ、IME 向けの標準の画面。
 pub fn ime_root(b: &Bridge) -> VNode {
+    ime_root_with(b, DOWNLOAD_URL, "http://127.0.0.1:4660/ui")
+}
+
+/// ダウンロードの場所(リリース一覧)。
+pub const DOWNLOAD_URL: &str = "https://github.com/aon-co-jp/aruaru-IME/releases";
+
+/// 入力欄に加えて、ダウンロードのリンクと、エンジンに接続できないときの案内を持つ画面。
+pub fn ime_root_with(b: &Bridge, download_url: &str, local_ui: &str) -> VNode {
     h("main")
         .child(h("h3").child(VNode::Text("aruaru-IME ".into())).child(h("small").attr("id", &b.status_id).build()).build())
         .child(h("textarea").attr("id", &b.input_id).attr("autofocus", "").attr("placeholder", "ここに入力(ローマ字)。Space で変換、Enter で確定、数字で候補選択").build())
         .child(h("div").attr("id", &b.preedit_id).build())
         .child(h("div").attr("id", &b.cands_id).build())
+        .child(
+            h("p")
+                .child(h("a").attr("href", download_url).attr("id", "dl").child(VNode::Text("ダウンロードはこちら(インストーラー) / Download the installer".into())).build())
+                .child(VNode::Text("  |  ".into()))
+                .child(h("a").attr("href", local_ui).child(VNode::Text("このPCの画面で開く / Open on this PC".into())).build())
+                .build(),
+        )
+        .child(
+            h("div")
+                .attr("id", "help")
+                .attr("hidden", "")
+                .child(VNode::Text("エンジンに接続できません。(1) aruaru-IME をインストールして起動する (2) ブラウザが「ローカルネットワークへのアクセス」の許可を求めたら許可する (3) 上の「このPCの画面で開く」から使う。 / Cannot reach the engine: install and start aruaru-IME, allow local network access when asked, or use the on-this-PC link.".into()))
+                .child(h("span").attr("id", "helpwhy").build())
+                .build(),
+        )
         .build()
 }
 
@@ -209,7 +234,7 @@ pub const IME_CSS: &str = ":root{--bg:#111;--fg:#fff;--acc:#4a9eff}@media (prefe
 body{margin:0;background:var(--bg);color:var(--fg);font:18px system-ui,sans-serif;padding:16px}\
 textarea{width:100%;box-sizing:border-box;min-height:40vh;background:transparent;color:inherit;border:1px solid #888;border-radius:8px;padding:12px;font:inherit}\
 #pre{margin:8px 0;min-height:1.6em;color:var(--acc);text-decoration:underline}\
-#c{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px}#c div{padding:6px 10px;border-radius:6px;font-size:1.3em}#c .sel{background:var(--acc);color:#fff}";
+#help{margin:8px 0;padding:8px 12px;border:1px solid #c66;border-radius:6px}a{color:var(--acc)}#c{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px}#c div{padding:6px 10px;border-radius:6px;font-size:1.3em}#c .sel{background:var(--acc);color:#fff}";
 
 /// aruaru-IME の標準の定義。
 pub fn ime_app(engine_url: &str, version: &str) -> AppSpec {
@@ -227,6 +252,7 @@ mod tests {
         assert!(h.contains("<textarea") && h.contains("id=\"t\""), "{h}");
         assert!(h.contains("fetch(BASE+HEALTH)") && h.contains("const BASE=\"\""));
         assert!(h.contains("<title>aruaru-IME</title>"));
+        assert!(h.contains("releases") && h.contains("ダウンロードはこちら") && h.contains("id=\"help\""), "ダウンロードのリンクと接続の案内");
     }
 
     #[test]
