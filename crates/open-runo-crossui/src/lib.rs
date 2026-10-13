@@ -92,10 +92,21 @@ const sid="web-"+Math.random().toString(36).slice(2);
 const post=(p,b)=>fetch(BASE+p,{{method:"POST",body:JSON.stringify(b)}}).then(r=>r.json());
 let composing=false;
 // OS の IME が有効なとき(e.key が "Process" / 229)は、押した物理キー(e.code)から文字を求める
+let jis=false; // 日本語109キーボード(IntlYen/IntlRo キーがある)を見かけたら、記号キーを JIS 配列で読む
 function charOf(e){{
   if(e.key&&e.key.length===1)return e.key;
   const c=e.code||"";
-  if(/^Key[A-Z]$/.test(c))return e.shiftKey?c.slice(3):c.slice(3).toLowerCase();
+  if(c==="IntlYen"||c==="IntlRo")jis=true;
+  const sh=e.shiftKey;
+  if(/^Key[A-Z]$/.test(c))return sh?c.slice(3):c.slice(3).toLowerCase();
+  if(jis){{
+    const dj={{Digit1:"!",Digit2:'"',Digit3:"#",Digit4:"$",Digit5:"%",Digit6:"&",Digit7:"'",Digit8:"(",Digit9:")",Digit0:""}};
+    if(sh&&dj[c]!==undefined)return dj[c]||null;
+    const j={{Minus:["-","="],Equal:["^","~"],IntlYen:["\\","|"],BracketLeft:["@","`"],BracketRight:["[","{{"],Backslash:["]","}}"],Semicolon:[";","+"],Quote:[":","*"],Comma:[",","<"],Period:[".",">"],Slash:["/","?"],IntlRo:["\\","_"]}};
+    if(/^Digit[0-9]$/.test(c))return c.slice(5);
+    if(j[c])return sh?j[c][1]:j[c][0];
+    return null;
+  }}
   if(/^Digit[0-9]$/.test(c))return c.slice(5);
   const sym={{Minus:"-",Equal:"=",Comma:",",Period:".",Slash:"/",Semicolon:";",Quote:"'",BracketLeft:"[",BracketRight:"]",Backslash:"\\",Backquote:"`"}};
   return sym[c]||null;
