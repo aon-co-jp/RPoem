@@ -122,18 +122,29 @@ async function send(k){{
   return true;
 }}
 // パソコンの物理キーボード
-t.addEventListener("keydown",async e=>{{
+let q=Promise.resolve();
+t.addEventListener("keydown",e=>{{
   const k=keyOf(e); if(!k)return;
-  if(e.isComposing||e.key==="Process"||e.keyCode===229){{ e.preventDefault(); }}
-  const before=t.value.slice(0,t.selectionStart).slice(-40);
-  const r=await post(KEY,{{sid,key:k,before}});
-  if(!r.eaten&&!r.commit)return;
+  // 既定の動作(文字や空白が直接入ること)は、応答を待たずにここで止める(あとで await すると間に合わない)
   e.preventDefault();
-  if(r.commit){{t.setRangeText(r.commit,t.selectionStart,t.selectionEnd,"end");}}
-  composing=!!r.composing;
-  pre.textContent=r.preedit||"";
-  c.innerHTML=(r.cands||[]).slice(0,10).map((x,i)=>'<div data-i="'+i+'" class="'+(r.sel===i?"sel":"")+'">'+((i+1)%10)+". "+x.replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</div>").join("");
-  st.textContent=(r.lang||"")+(r.on===false?" (OFF)":"");
+  // キーを順番どおりに処理する(速く打っても入れ替わらない)
+  q=q.then(async()=>{{
+    const before=t.value.slice(0,t.selectionStart).slice(-40);
+    let r;
+    try{{ r=await post(KEY,{{sid,key:k,before}}); }}catch(_){{ r=null; }}
+    if(!r||(!r.eaten&&!r.commit)){{
+      // エンジンが処理しないキーは、そのまま入力する
+      if(k==="Space")t.setRangeText(" ",t.selectionStart,t.selectionEnd,"end");
+      else if(k.Char)t.setRangeText(k.Char,t.selectionStart,t.selectionEnd,"end");
+      else if(k==="Enter")t.setRangeText("\n",t.selectionStart,t.selectionEnd,"end");
+      return;
+    }}
+    if(r.commit){{t.setRangeText(r.commit,t.selectionStart,t.selectionEnd,"end");}}
+    composing=!!r.composing;
+    pre.textContent=r.preedit||"";
+    c.innerHTML=(r.cands||[]).slice(0,10).map((x,i)=>'<div data-i="'+i+'" class="'+(r.sel===i?"sel":"")+'">'+((i+1)%10)+". "+x.replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</div>").join("");
+    st.textContent=(r.lang||"")+(r.on===false?" (OFF)":"");
+  }});
 }});
 // スマホ・タブレットの画面キーボード(keydown が文字を教えてくれない端末): 入力された文字を beforeinput で受ける
 t.addEventListener("beforeinput",async e=>{{
