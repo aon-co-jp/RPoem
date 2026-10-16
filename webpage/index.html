@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RPoem — ダウンロード / Download</title>
-<meta name="description" content="RPoem: Rust製GraphQL Federationプラットフォーム。Poemとブラウザ内実行機能搭載も含めたTauri両方共に、一から開発して完全互換で再現する。">
+<title>RPoem — Rust製GraphQL Federationプラットフォーム / GraphQL Federation platform in Rust</title>
+<meta name="description" content="RPoem: GraphQL Federation platform in pure Rust, compatible with Poem/Tauri/Cosmo features, with a built-in self-learning AI.">
 <style>
 :root{--bg:#fff;--fg:#14181f;--sub:#57606a;--card:#f6f8fa;--line:#d0d7de;--acc:#1f6feb;--warn:#c62828;--ok:#1a7f37}
 @media (prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--sub:#8b949e;--card:#161b22;--line:#30363d;--acc:#4a9eff;--warn:#ff7b72;--ok:#3fb950}}
@@ -29,32 +29,34 @@ footer{margin-top:40px;color:var(--sub);font-size:.88rem}
 <main>
 <h1>RPoem</h1>
 <div class="card">
-<p><b>概要 / Overview</b>(リポジトリの記載のまま / as written in the repository)</p>
-<p>Rust製GraphQL Federationプラットフォーム。Poemとブラウザ内実行機能搭載も含めたTauri両方共に、一から開発して完全互換で再現する。</p>
+<p><b>概要 / Overview</b></p>
+<p>Rust製のGraphQL Federationプラットフォーム。Poem・Tauri・WunderGraph Cosmoのいずれにもパッケージとして依存せず、互換の機能を一から自前で実装しています。独自の自己学習AIを搭載し、外部LLMの契約は不要です。配布物はルーター(`open-runo-router`)です。</p>
+<p class="en">A GraphQL Federation platform written in Rust. It does not depend on Poem, Tauri or WunderGraph Cosmo as packages; compatible features are implemented from scratch. A built-in self-learning AI means no external LLM contract is needed. The downloads are the router (open-runo-router).</p>
 </div>
 
-<h2>ダウンロード / Download <small>(v0.1.0 )</small></h2>
+<h2>ダウンロード / Download <small>(v0.1.0)</small></h2>
 <p><a class="btn" href="https://github.com/aon-co-jp/RPoem/releases/tag/v0.1.0">リリースページ(GitHub) / Release page</a></p>
 <table>
 <tr><th>対象 / For</th><th>ファイル / File</th><th>SHA-256</th></tr>
-<tr><td>Linux<br><span class="en">Linux</span></td>
- <td><a href="https://github.com/aon-co-jp/RPoem/releases/download/v0.1.0/open-runo-router-aarch64-unknown-linux-gnu.tar.gz">open-runo-router-aarch64-unknown-linux-gnu.tar.gz</a> (3.7 MB)</td>
- <td class="hash">cdea0038576cbb805864a393bfa30e319d5da0c16f8581da0128af97a7388679</td></tr>
-<tr><td>Windows<br><span class="en">Windows</span></td>
+<tr><td>Windows (64bit)</td>
  <td><a href="https://github.com/aon-co-jp/RPoem/releases/download/v0.1.0/open-runo-router-windows-x86_64.zip">open-runo-router-windows-x86_64.zip</a> (4.0 MB)</td>
  <td class="hash">08d86cdf5ade60756a01d74f1958cb4e4b88aaae6cd2c3bbc5c9d08125d0729f</td></tr>
-<tr><td>Linux<br><span class="en">Linux</span></td>
+<tr><td>Linux (64bit)</td>
  <td><a href="https://github.com/aon-co-jp/RPoem/releases/download/v0.1.0/open-runo-router-x86_64-unknown-linux-gnu.tar.gz">open-runo-router-x86_64-unknown-linux-gnu.tar.gz</a> (3.9 MB)</td>
  <td class="hash">fb01eaf49d78c63de5c020d8ae9cd697e2661f6662129d0dc7b4a7ab410a9215</td></tr>
+<tr><td>Linux (arm64)</td>
+ <td><a href="https://github.com/aon-co-jp/RPoem/releases/download/v0.1.0/open-runo-router-aarch64-unknown-linux-gnu.tar.gz">open-runo-router-aarch64-unknown-linux-gnu.tar.gz</a> (3.7 MB)</td>
+ <td class="hash">cdea0038576cbb805864a393bfa30e319d5da0c16f8581da0128af97a7388679</td></tr>
 </table>
+<p class="en">他プロジェクトへの導入は、リポジトリの PORTING.md 1枚で完結します。<br>Adopting it in another project is covered by the single PORTING.md in the repository.</p>
 <p class="en">ダウンロードしたら、上のSHA-256と一致するか確かめてください。署名のない配布物は、提供元を確かめてから実行してください。 / After downloading, check that the SHA-256 matches. Verify the source before running unsigned files.</p>
 
-<h2>詳細・既知の問題 / Details and known issues</h2>
+<h2>詳細 / Details</h2>
 <p>機能、使い方、対応OS、既知の問題は、<a href="https://github.com/aon-co-jp/RPoem#readme">README(GitHub)</a>とリリースページの説明を正としてください。このページは配布物への入口です。<br>
 <span class="en">For features, usage, supported OS and known issues, the README on GitHub and the release notes are authoritative. This page is only an entrance to the downloads.</span></p>
 
 <footer>
-<p>ライセンス / License: Apache-2.0 ・ <a href="https://github.com/aon-co-jp/RPoem">ソースコード / Source (GitHub)</a> ・ <a href="/">easy-web.tokyo</a></p>
+<p>ライセンス / License: Apache-2.0 OR MIT ・ <a href="https://github.com/aon-co-jp/RPoem">ソースコード / Source (GitHub)</a> ・ <a href="/">easy-web.tokyo</a></p>
 </footer>
 </main>
 </body>
