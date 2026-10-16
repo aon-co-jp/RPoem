@@ -112,6 +112,7 @@ function charOf(e){{
   return sym[c]||null;
 }}
 function keyOf(e){{
+  if(e.ctrlKey&&e.shiftKey&&!e.altKey&&!e.metaKey&&e.code==="KeyL")return "NextLang";
   if(e.ctrlKey||e.metaKey||e.altKey)return null;
   const m={{" ":"Space","Enter":"Enter","Escape":"Esc","Backspace":"Backspace","ArrowUp":"Up","ArrowDown":"Down","ArrowLeft":"Left","ArrowRight":"Right","Tab":"Tab","Convert":"Convert","NonConvert":"NonConvert"}};
   if(m[e.key]){{ if(!composing&&["Up","Down","Left","Right","Tab","Backspace","Enter","Esc"].includes(m[e.key]))return null; return m[e.key]; }}
