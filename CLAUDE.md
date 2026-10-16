@@ -3971,7 +3971,7 @@ RS-Git・RJSON・RS-Chiketto・RS-Blog・RS-EC。このリポジトリ自身の�
   `gateway/src/lib.rs`は598行→646行)。`open-runo-db`の差分は
   RPoem側にのみ`put_versioned`(Git-on-SQLコミット欠落の是正、
   2026-07-22発見分)が実装済み。差分箇所のコメントを読むと、
-  open-runo側は日本語コメント中の実名(石塚正浩・aon CEO)や
+  open-runo側は日本語コメント中の実名(石 塚 正 浩・aon CEO)や
   日付入り開発メモが`user`等へ汎化・簡略化されており、**open-runoは
   RPoemから派生・エクスポートされた(属性情報を落とした)スナップ
   ショットである**ことが読み取れた——RPoemがopen-runoに追いついて
