@@ -7,7 +7,7 @@ use open_runo_pdf_ocr::{enhance, render, visual};
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let pdf = std::fs::read(&a[1]).unwrap();
-    let truth: Vec<String> = serde_json::from_slice(&std::fs::read(&a[2]).unwrap()).unwrap();
+    let truth: Vec<String> = sonic_rs::from_slice(&std::fs::read(&a[2]).unwrap()).unwrap();
     // 画像上の配置(mk_faded.py と同じ): 左端 30px、行の間隔 40px、文字の幅 19px、1 行目の上端 30px。
     let (x0, lh, cwid, y0) = (30.0f32, 40.0f32, 19.0f32, 30.0f32);
     let r = render::render_pages(&pdf, 0..1, 3000).unwrap().remove(0);

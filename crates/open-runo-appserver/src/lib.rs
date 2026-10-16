@@ -525,7 +525,7 @@ mod tests {
     fn profile_roundtrips_through_json() {
         let p = RuntimeProfile::template(Stack::PythonFastapi, "api", "/srv/api", 8000);
         let s = serde_json::to_string(&p).unwrap();
-        let q: RuntimeProfile = serde_json::from_str(&s).unwrap();
+        let q: RuntimeProfile = sonic_rs::from_str(&s).unwrap();
         assert_eq!(q.name, "api");
         assert_eq!(q.stack, Stack::PythonFastapi);
     }

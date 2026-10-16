@@ -219,7 +219,7 @@ pub mod redis_backend {
                 .query_async(&mut conn)
                 .await
                 .ok()?;
-            let data: SessionData = serde_json::from_str(&json?).ok()?;
+            let data: SessionData = sonic_rs::from_str(&json?).ok()?;
             // Redis's own EX-based TTL is authoritative for expiry (the
             // key simply won't exist anymore past expiry), but this
             // extra check guards against clock skew between instances

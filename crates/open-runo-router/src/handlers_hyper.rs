@@ -483,7 +483,7 @@ pub fn db_mutate_handler(state: Arc<AppState>) -> Handler {
             // 冪等性チェック: 同じキーが既に処理済みならそのまま返す。
             match state.db.get(MUTATION_RECEIPTS_TABLE, &body.idempotency_key).await {
                 Ok(Some(existing_raw)) => {
-                    if let Ok(existing) = serde_json::from_str::<MutationReceiptWire>(&existing_raw) {
+                    if let Ok(existing) = sonic_rs::from_str::<MutationReceiptWire>(&existing_raw) {
                         return json_response(StatusCode::OK, &existing);
                     }
                 }

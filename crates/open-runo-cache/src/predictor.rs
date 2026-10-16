@@ -536,7 +536,7 @@ mod tests {
         let json = serde_json::to_string(&snap).unwrap();
 
         let restored = predictor();
-        restored.restore(serde_json::from_str(&json).unwrap());
+        restored.restore(sonic_rs::from_str(&json).unwrap());
         assert_eq!(restored.snapshot().outcomes.cache_hits, 1);
         // Learned arrival rate survives → still admitted immediately.
         assert!(restored.observe_and_decide("/hot", "/hot", now + Duration::seconds(2)));

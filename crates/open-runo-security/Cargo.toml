@@ -12,6 +12,7 @@ description = "open-runo Security Layer: authentication, authorization, API key 
 workspace = true
 
 [dependencies]
+sonic-rs = "0.3"
 open-runo-core = { workspace = true }
 serde = { workspace = true }
 chrono = { workspace = true }

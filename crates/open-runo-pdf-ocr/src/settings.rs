@@ -37,7 +37,7 @@ pub fn cache_dir(app: &str) -> PathBuf {
 pub fn load(app: &str) -> Settings {
     std::fs::read_to_string(config_dir(app).join("settings.json"))
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+        .and_then(|s| sonic_rs::from_str(&s).ok())
         .unwrap_or_default()
 }
 

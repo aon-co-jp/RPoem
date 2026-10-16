@@ -12,6 +12,7 @@ description = "open-runo cache layer: TTL response/entity cache with in-memory a
 workspace = true
 
 [dependencies]
+sonic-rs = "0.3"
 open-runo-core = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }

@@ -423,7 +423,7 @@ impl<E: Endpoint + 'static> Endpoint for HtmlCacheEndpoint<E> {
 impl<E: Endpoint + 'static> HtmlCacheEndpoint<E> {
     async fn lookup(&self, key: &str) -> Option<(Response, f64)> {
         let raw = self.cache.store.get(key).await.ok().flatten()?;
-        let page: CachedPage = serde_json::from_str(&raw).ok()?;
+        let page: CachedPage = sonic_rs::from_str(&raw).ok()?;
         let age = page.age_fraction();
         Some((
             Response::builder()

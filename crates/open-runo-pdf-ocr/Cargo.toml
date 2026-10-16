@@ -12,6 +12,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+sonic-rs = "0.3"
 lopdf = "0.34"
 hayro = { version = "0.8", features = ["embed-fonts"] }
 ureq = "3"

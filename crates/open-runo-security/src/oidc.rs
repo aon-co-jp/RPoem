@@ -56,7 +56,7 @@ impl OidcValidator {
         audience: Option<String>,
         jwks_json: &str,
     ) -> Result<Self> {
-        let set: JwkSet = serde_json::from_str(jwks_json)
+        let set: JwkSet = sonic_rs::from_str(jwks_json)
             .map_err(|e| AppError::Validation(format!("invalid JWKS document: {e}")))?;
 
         let mut keys = HashMap::new();

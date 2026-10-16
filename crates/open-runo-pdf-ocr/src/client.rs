@@ -92,7 +92,7 @@ impl OcrClient {
     }
 
     fn read_error(status: u16, body: &str) -> String {
-        match serde_json::from_str::<ErrResp>(body) {
+        match sonic_rs::from_str::<ErrResp>(body) {
             Ok(e) => format!(
                 "サーバーエラー({status}) / Server error ({status}): {}",
                 e.error
@@ -140,7 +140,7 @@ impl OcrClient {
     /// 選べる言語の一覧(日英名・取得済みか・説明)。
     pub fn languages(&self) -> Result<LanguageList, String> {
         let bytes = self.get_bytes("/v1/ocr/languages", Duration::from_secs(30))?;
-        serde_json::from_slice(&bytes).map_err(|e| format!("invalid response: {e}"))
+        sonic_rs::from_slice(&bytes).map_err(|e| format!("invalid response: {e}"))
     }
 
     /// 選んだ言語のデータを先に取得してキャッシュさせる。
@@ -164,7 +164,7 @@ impl OcrClient {
         let body = serde_json::json!({ "images_base64": images, "languages": languages, "quality": quality.as_str() }).to_string();
         let text = self.post_json("/v1/ocr", &body, Duration::from_secs(1800))?;
         let resp: OcrResp =
-            serde_json::from_str(&text).map_err(|e| format!("invalid OCR response: {e}"))?;
+            sonic_rs::from_str(&text).map_err(|e| format!("invalid OCR response: {e}"))?;
         if resp.pages.len() != pngs.len() {
             return Err(format!(
                 "OCR returned {} pages for {} images",
@@ -184,7 +184,7 @@ impl OcrClient {
         }
         let body = serde_json::json!({ "items": items, "return_all": return_all, "use_web": use_web, "lm_candidates": lm_free }).to_string();
         let text = self.post_json("/v1/ocr/fill", &body, Duration::from_secs(1800))?;
-        let r: Resp = serde_json::from_str(&text).map_err(|e| format!("invalid fill response: {e}"))?;
+        let r: Resp = sonic_rs::from_str(&text).map_err(|e| format!("invalid fill response: {e}"))?;
         Ok(r.results)
     }
 
@@ -196,7 +196,7 @@ impl OcrClient {
         }
         let body = serde_json::json!({ "items": items, "k": k }).to_string();
         let text = self.post_json("/v1/ocr/propose", &body, Duration::from_secs(900))?;
-        let r: Resp = serde_json::from_str(&text).map_err(|e| format!("invalid propose response: {e}"))?;
+        let r: Resp = sonic_rs::from_str(&text).map_err(|e| format!("invalid propose response: {e}"))?;
         Ok(r.results)
     }
 
@@ -210,7 +210,7 @@ impl OcrClient {
         let cells_json: Vec<serde_json::Value> = cells.iter().map(|m| serde_json::json!({ "map": m })).collect();
         let body = serde_json::json!({ "cells": cells_json, "query": query, "extra_chars": extra_chars, "top": top }).to_string();
         let text = self.post_json("/v1/ocr/glyph-rank", &body, Duration::from_secs(300))?;
-        let r: Resp = serde_json::from_str(&text).map_err(|e| format!("invalid glyph-rank response: {e}"))?;
+        let r: Resp = sonic_rs::from_str(&text).map_err(|e| format!("invalid glyph-rank response: {e}"))?;
         Ok(r.results)
     }
 
@@ -221,7 +221,7 @@ impl OcrClient {
             chars: String,
         }
         let bytes = self.get_bytes(&format!("/v1/ocr/charset?n={n}"), Duration::from_secs(300))?;
-        let r: Resp = serde_json::from_slice(&bytes).map_err(|e| format!("invalid charset response: {e}"))?;
+        let r: Resp = sonic_rs::from_slice(&bytes).map_err(|e| format!("invalid charset response: {e}"))?;
         Ok(r.chars.chars().collect())
     }
 
@@ -233,7 +233,7 @@ impl OcrClient {
         }
         let body = serde_json::json!({ "items": items, "threshold": -8.0, "max_spots": 4 }).to_string();
         let text = self.post_json("/v1/ocr/scan", &body, Duration::from_secs(900))?;
-        let r: Resp = serde_json::from_str(&text).map_err(|e| format!("invalid scan response: {e}"))?;
+        let r: Resp = sonic_rs::from_str(&text).map_err(|e| format!("invalid scan response: {e}"))?;
         Ok(r.results)
     }
 

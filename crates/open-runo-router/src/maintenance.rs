@@ -74,7 +74,7 @@ pub async fn save_model(state: &AppState, cache: &HtmlPageCache) -> bool {
 pub async fn restore_model(state: &AppState, cache: &HtmlPageCache) -> bool {
     let Some(predictor) = cache.predictor() else { return false };
     match state.db.get(MODEL_TABLE, MODEL_KEY).await {
-        Ok(Some(json)) => match serde_json::from_str::<Snapshot>(&json) {
+        Ok(Some(json)) => match sonic_rs::from_str::<Snapshot>(&json) {
             Ok(snapshot) => {
                 predictor.restore(snapshot);
                 tracing::info!("AI model restored: the framework woke up smart");
@@ -205,7 +205,7 @@ pub async fn import_backup(
         .await
         .map_err(|e| format!("backup read task panicked: {e}"))?
         .map_err(|e| format!("read {path}: {e}"))?;
-    let file: BackupFile = serde_json::from_str(&json).map_err(|e| format!("parse: {e}"))?;
+    let file: BackupFile = sonic_rs::from_str(&json).map_err(|e| format!("parse: {e}"))?;
     if file.format != "open-runo-backup/v1" {
         return Err(format!("unknown backup format: {}", file.format));
     }

@@ -354,7 +354,7 @@ async fn graphql_handler(
 
     if let Some(key) = &key {
         if let Ok(Some(cached)) = cache.store.get(key).await {
-            if let Ok(response) = serde_json::from_str::<async_graphql::Response>(&cached) {
+            if let Ok(response) = sonic_rs::from_str::<async_graphql::Response>(&cached) {
                 return response.into();
             }
         }

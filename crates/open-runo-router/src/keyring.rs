@@ -171,7 +171,7 @@ impl KeyGuardian {
     pub async fn revoke_owner(&self, owner: &str) -> Result<usize> {
         let mut revoked = 0;
         for rec in self.db.list(TABLE).await? {
-            if let Ok(mut record) = serde_json::from_str::<KeyRecord>(&rec.value) {
+            if let Ok(mut record) = sonic_rs::from_str::<KeyRecord>(&rec.value) {
                 if record.owner == owner && !record.revoked {
                     record.revoked = true;
                     if let Ok(json) = serde_json::to_string(&record) {
@@ -202,7 +202,7 @@ impl KeyGuardian {
             Ok(Some(raw)) => raw,
             _ => return KeyDecision::Rejected,
         };
-        let record: KeyRecord = match serde_json::from_str(&raw) {
+        let record: KeyRecord = match sonic_rs::from_str(&raw) {
             Ok(r) => r,
             Err(_) => return KeyDecision::Rejected,
         };
