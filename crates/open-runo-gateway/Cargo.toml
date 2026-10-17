@@ -36,6 +36,7 @@ uuid = { workspace = true }
 async-graphql = { workspace = true }
 async-graphql-poem = { workspace = true }
 hyper = { version = "1.10", features = ["full"] }
+reqwest = { workspace = true }
 
 [dev-dependencies]
 poem = { workspace = true, features = ["test"] }

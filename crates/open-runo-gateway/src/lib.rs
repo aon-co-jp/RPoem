@@ -18,6 +18,7 @@ pub mod appserver_processes;
 pub mod appserver_tenants;
 pub mod demo;
 pub mod graphql_hyper;
+pub mod remote_subgraphs;
 pub mod ssr;
 
 use async_graphql::{Context, Object, Schema, SimpleObject, Subscription};

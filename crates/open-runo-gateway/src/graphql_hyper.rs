@@ -14,6 +14,7 @@ use crate::{
     cache_key, is_cacheable_query, persisted_query_hash, CacheConfig, GatewayCache,
     OpenRunoSchema,
 };
+use crate::remote_subgraphs::{RemoteSubgraphs, Routed};
 use open_runo_cache::InMemoryTtlCache;
 use open_runo_persisted_queries::{EnforcementMode, PersistedQueryStore};
 use open_runo_router::hyper_compat::{html_response, json_response, read_json_body, Handler};
@@ -38,8 +39,10 @@ pub fn graphql_post_handler(
     schema: OpenRunoSchema,
     store: Arc<PersistedQueryStore>,
     cache: Arc<GatewayCache>,
+    remotes: RemoteSubgraphs,
 ) -> Handler {
     Arc::new(move |req, _params| {
+        let remotes = remotes.clone();
         let schema = schema.clone();
         let store = Arc::clone(&store);
         let cache = Arc::clone(&cache);
@@ -65,6 +68,23 @@ pub fn graphql_post_handler(
                         ]);
                         return json_response(hyper::StatusCode::OK, &resp);
                     }
+                }
+            }
+
+            // Remote subgraph forwarding (OPEN_RUNO_SUBGRAPHS): see `remote_subgraphs`.
+            match remotes
+                .route(
+                    &request.query,
+                    request.operation_name.as_deref(),
+                    serde_json::to_value(&request.variables).unwrap_or(serde_json::Value::Null),
+                )
+                .await
+            {
+                Routed::Local => {}
+                Routed::Forwarded(v) => return json_response(hyper::StatusCode::OK, &v),
+                Routed::Rejected(msg) => {
+                    let resp = async_graphql::Response::from_errors(vec![async_graphql::ServerError::new(msg, None)]);
+                    return json_response(hyper::StatusCode::OK, &resp);
                 }
             }
 
@@ -108,7 +128,7 @@ pub fn graphql_handlers(state: Arc<AppState>) -> (Handler, Handler) {
         store: Arc::new(InMemoryTtlCache::new()),
         config: CacheConfig::from_env(),
     });
-    (graphiql_handler(), graphql_post_handler(schema, store, cache))
+    (graphiql_handler(), graphql_post_handler(schema, store, cache, RemoteSubgraphs::from_env()))
 }
 
 #[cfg(test)]

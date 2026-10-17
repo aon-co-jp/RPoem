@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = build_hyper_app(state, config.rate_limit_max_requests, config.rate_limit_window_secs as i64)
         .await
         .route(hyper::Method::GET, "/graphql", graphiql)
-        .route(hyper::Method::POST, "/graphql", graphql_post)
+        .route(hyper::Method::POST, "/graphql", open_runo_router::middleware_hyper::with_cors(graphql_post))
         // Fixed, self-contained GraphQL Federation demo (§ see
         // `open_runo_gateway::demo` module doc): composes two sample
         // subgraphs with the real `open-runo-federation` core and serves
@@ -86,6 +86,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => None,
     };
+
+    // `/graphql` is registered after `build_hyper_app`, so browsers' CORS preflight needs an OPTIONS route here too.
+    let app = app.with_cors_preflight();
 
     let addr = config
         .bind_addr
