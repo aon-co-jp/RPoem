@@ -15,14 +15,14 @@
 - 実際に動く(上のテスト)。
 
 ### 費用・懸念
-- 依存が重い(初回ビルドは数分、Leptos 本体+`trunk` という追加ツール)。**WASM のサイズ・リリースビルド時間は未測定**。
+- 依存が重い(初回ビルドは数分、Leptos 本体+`trunk` という追加ツール)。**実測(2026-10-19、open-upstream-watch のダッシュボード)**: release の WASM は約 0.79 MB(`opt-level = "s"` + LTO、`wasm-opt` 無し)、初回の trunk ビルドは約 3 分。
 - 版ごとの API 変化(0.7 系で作成)。
 - **`open-runo-view` と機能が重複**し、方針(重量級フレームワークを採らない)とぶつかる。
 
 ### 結論と推奨
 1. **RPoem の本体(コア・画面)に Leptos を依存として入れない。** 方針と既存の `open-runo-view` に反するうえ、取り込む強い理由(`open-runo-view` では実現できないこと)は、まだ示されていない。
 2. Leptos は **`open-vsc-claude` の生成テンプレートの「実験的」な選択肢**として残す(生成される利用者のプロジェクトの話で、RPoem の依存ではない)。自動テストで守る。
-3. 「JS/TS を書かずに型付きで書ける」という利点は、**RPoem 自身の `open-runo-view` + `crossui` で得る**のが方針に沿う。次の一手の提案: 同じ「項目の一覧と追加」アプリを `open-runo-view` で書いたテンプレート(`rust-runo-view`)を拡張に足し、Leptos 版と **WASM サイズ・ビルド時間・コード量**を並べて測る。差が大きい場合だけ、方針の見直しを所有者に諮る。
+3. 「JS/TS を書かずに型付きで書ける」という利点は、**RPoem 自身の `open-runo-view` + `crossui` で得る**のが方針に沿う。次の一手の提案(Leptos 側の実測値は上のとおり得た): 同じ「項目の一覧と追加」アプリを `open-runo-view` で書いたテンプレート(`rust-runo-view`)を拡張に足し、Leptos 版と **WASM サイズ・ビルド時間・コード量**を並べて測る。差が大きい場合だけ、方針の見直しを所有者に諮る。
 4. **所有者への確認事項**: 「重量級フレームワークを採らない」方針は維持でよいか。
 
 ## English
@@ -38,12 +38,12 @@
 - It demonstrably works (the test above).
 
 ### Costs and concerns
-- Heavy dependency tree (first build takes minutes; Leptos plus the extra `trunk` tool). **WASM size and release build time were not measured.**
+- Heavy dependency tree (first build takes minutes; Leptos plus the extra `trunk` tool). **Measured (2026-10-19, the open-upstream-watch dashboard)**: the release WASM is about 0.79 MB (`opt-level = "s"` + LTO, no `wasm-opt`) and the first trunk build takes about 3 minutes.
 - API churn between versions (written against 0.7).
 - **Overlaps `open-runo-view`** and clashes with the policy against heavy frameworks.
 
 ### Conclusion and recommendation
 1. **Do not add Leptos as a dependency of RPoem itself (core or UI).** It goes against the policy and the existing `open-runo-view`, and no strong reason (something `open-runo-view` cannot do) has been shown yet.
 2. Keep Leptos as an **experimental option among `open-vsc-claude`'s generated templates** (it concerns the user's generated project, not an RPoem dependency), protected by the automated test.
-3. Get the "typed, no JS/TS" merit through **RPoem's own `open-runo-view` + `crossui`**, which fits the policy. Proposed next step: add a `rust-runo-view` template to the extension that implements the same "list and add items" app with `open-runo-view`, then compare it with the Leptos one on **WASM size, build time and code size**. Only if the gap is large should the policy be reconsidered with the owner.
+3. Get the "typed, no JS/TS" merit through **RPoem's own `open-runo-view` + `crossui`**, which fits the policy. Proposed next step (the Leptos-side numbers are measured above): add a `rust-runo-view` template to the extension that implements the same "list and add items" app with `open-runo-view`, then compare it with the Leptos one on **WASM size, build time and code size**. Only if the gap is large should the policy be reconsidered with the owner.
 4. **Open question for the owner**: does the "no heavy frameworks" policy stand?
