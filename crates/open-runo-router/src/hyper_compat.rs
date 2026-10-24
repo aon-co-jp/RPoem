@@ -716,21 +716,78 @@ pub fn static_file_handler(path: std::path::PathBuf, content_type: &'static str)
 /// 挙動(ヘッダー無し)を維持する——WASMバンドル等、ファイル名にハッシュを
 /// 含めて長期キャッシュを前提にしている既存の呼び出し元を壊さないため。
 pub fn static_file_handler_with_cache_control(path: std::path::PathBuf, content_type: &'static str, cache_control: Option<&'static str>) -> Handler {
-    Arc::new(move |_req, _params| {
+    Arc::new(move |req, _params| {
         let path = path.clone();
+        let accept_encoding = req.headers().get("accept-encoding").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        let if_none_match = req.headers().get("if-none-match").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
         Box::pin(async move {
-            match tokio::fs::read(&path).await {
-                Ok(bytes) => {
-                    let mut builder = HyperResponse::builder().status(StatusCode::OK).header("content-type", content_type);
-                    if let Some(cc) = cache_control {
-                        builder = builder.header("cache-control", cc);
-                    }
-                    builder.body(fixed_body(Bytes::from(bytes))).expect("building a response from a fixed set of valid headers cannot fail")
+            // 2026-10-24: ETag(更新時刻+大きさ)で304を返し、テキスト系はgzipして配る。
+            // 大量アクセス時の転送量(1MBのapp.jsが毎回丸ごと)と帯域・メモリを減らす
+            // (Apache mod_deflate / mod_cache 相当をRPoem側で持つ)。圧縮結果はメモリに1つだけ保持する。
+            let Ok(meta) = tokio::fs::metadata(&path).await else { return empty_status(StatusCode::NOT_FOUND) };
+            let mtime = meta.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
+            let etag = format!("W/\"{:x}-{:x}\"", meta.len(), mtime);
+            let gzip_ok = compressible(content_type) && meta.len() >= 1024 && accepts_gzip(&accept_encoding);
+            let tag = if gzip_ok { format!("{etag}-gz") } else { etag };
+            if if_none_match.split(',').any(|t| t.trim() == tag || t.trim() == "*") {
+                let mut b = HyperResponse::builder().status(StatusCode::NOT_MODIFIED).header("etag", &tag).header("vary", "Accept-Encoding");
+                if let Some(cc) = cache_control {
+                    b = b.header("cache-control", cc);
                 }
-                Err(_) => empty_status(StatusCode::NOT_FOUND),
+                return b.body(fixed_body(Bytes::new())).expect("valid headers");
             }
+            let Ok(bytes) = tokio::fs::read(&path).await else { return empty_status(StatusCode::NOT_FOUND) };
+            let (body, encoded) = if gzip_ok { (gzip_cached(&path, &tag, &bytes), true) } else { (Bytes::from(bytes), false) };
+            let mut builder = HyperResponse::builder()
+                .status(StatusCode::OK)
+                .header("content-type", content_type)
+                .header("etag", &tag)
+                .header("vary", "Accept-Encoding");
+            if encoded {
+                builder = builder.header("content-encoding", "gzip");
+            }
+            if let Some(cc) = cache_control {
+                builder = builder.header("cache-control", cc);
+            }
+            builder.body(fixed_body(body)).expect("building a response from a fixed set of valid headers cannot fail")
         })
     })
+}
+
+fn compressible(content_type: &str) -> bool {
+    let ct = content_type.split(';').next().unwrap_or("").trim();
+    ct.starts_with("text/") || matches!(ct, "application/javascript" | "application/json" | "image/svg+xml" | "application/xml" | "application/wasm")
+}
+
+fn accepts_gzip(accept_encoding: &str) -> bool {
+    accept_encoding.split(',').any(|e| {
+        let mut it = e.trim().split(';');
+        it.next().is_some_and(|n| n.trim().eq_ignore_ascii_case("gzip")) && !it.any(|q| q.trim().replace(' ', "") == "q=0")
+    })
+}
+
+/// gzip済みの中身を、パスごとに1つだけ(最大`GZIP_CACHE_FILES`ファイル)メモリに保持する。
+/// ファイルが更新されるとETag(`tag`)が変わるので、古い圧縮結果は自動で入れ替わる。
+fn gzip_cached(path: &std::path::Path, tag: &str, raw: &[u8]) -> Bytes {
+    use std::io::Write;
+    use std::sync::Mutex;
+    const GZIP_CACHE_FILES: usize = 64;
+    static CACHE: Mutex<Option<HashMap<std::path::PathBuf, (String, Bytes)>>> = Mutex::new(None);
+    if let Some((t, b)) = CACHE.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(path).cloned())) {
+        if t == tag {
+            return b;
+        }
+    }
+    let mut enc = flate2::write::GzEncoder::new(Vec::with_capacity(raw.len() / 3), flate2::Compression::new(6));
+    let out = if enc.write_all(raw).is_ok() { enc.finish().map(Bytes::from).unwrap_or_else(|_| Bytes::copy_from_slice(raw)) } else { Bytes::copy_from_slice(raw) };
+    if let Ok(mut g) = CACHE.lock() {
+        let m = g.get_or_insert_with(HashMap::new);
+        if m.len() >= GZIP_CACHE_FILES && !m.contains_key(path) {
+            m.clear();
+        }
+        m.insert(path.to_path_buf(), (tag.to_string(), out.clone()));
+    }
+    out
 }
 
 /// Serve `router` over a real TCP listener; returns the bound address and a
@@ -1564,6 +1621,34 @@ mod tests {
         let resp = client.get(format!("http://{addr}/default.txt")).send().await.expect("request should succeed");
         assert!(resp.headers().get("cache-control").is_none(), "None must mean no header at all, matching the pre-existing static_file_handler behavior");
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn static_files_support_etag_304_and_gzip() {
+        let dir = std::env::temp_dir().join(format!("orn-static-gz-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("big.js");
+        std::fs::write(&file_path, "console.log('hello');
+".repeat(500)).unwrap();
+        let router = Router::new().route(Method::GET, "/big.js", static_file_handler_with_cache_control(file_path, "application/javascript", Some("no-cache")));
+        let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind");
+        let client = reqwest::Client::builder().no_gzip().build().unwrap();
+        let url = format!("http://{addr}/big.js");
+
+        let plain = client.get(&url).send().await.unwrap();
+        assert!(plain.headers().get("content-encoding").is_none());
+        let plain_len = plain.bytes().await.unwrap().len();
+
+        let gz = client.get(&url).header("accept-encoding", "gzip").send().await.unwrap();
+        assert_eq!(gz.headers().get("content-encoding").unwrap(), "gzip");
+        let etag = gz.headers().get("etag").unwrap().to_str().unwrap().to_string();
+        let gz_len = gz.bytes().await.unwrap().len();
+        assert!(gz_len * 5 < plain_len, "gzip must shrink repetitive JS a lot ({gz_len} vs {plain_len})");
+
+        let again = client.get(&url).header("accept-encoding", "gzip").header("if-none-match", &etag).send().await.unwrap();
+        assert_eq!(again.status(), 304);
+        assert_eq!(again.headers().get("cache-control").unwrap(), "no-cache");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
