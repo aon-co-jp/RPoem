@@ -32,6 +32,9 @@ open-runo-feature-flags    = { workspace = true }
 schemars = { workspace = true }
 sha2 = { workspace = true }
 sha1 = { workspace = true }
+# Webhook署名検証(HMAC-SHA256、定数時間比較は`verify_slice`)。sha2 0.10系と
+# 揃えた0.12(Cargo.lockに既存)。自前のHMAC/比較は書かない。
+hmac = "0.12"
 hex = { workspace = true }
 open-runo-db               = { workspace = true }
 # UDP-IP冗長経路(即時通知/advance notice)の受信側。送信側

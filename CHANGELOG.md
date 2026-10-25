@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once a
 
 ### Added
 
+- `open-runo-router`: Axum(`multer`等)が担う領域の不足分を追加。
+  `multipart_stream`(チャンクごとのストリーミングmultipart、合計/1フィールド/件数/ヘッダの上限、
+  チャンク分割位置の総当たり試験済み)、`webhook`(GitHub/Slack/汎用のHMAC-SHA256署名検証、
+  鍵ローテーション、タイムスタンプ窓、配送IDの重複拒否)、`body_limit`(`Content-Length`先行拒否+
+  上限つき本文読み取り)、`middleware_hyper::{with_api_key_auth, with_rate_limit_by,
+  rate_limit_key_api_key_or_ip}`(APIキー別レート制限)。`open-runo-poem-compat`から再公開。
+  発端: `backup-to-discord-by-github`(大きなGit bundleの受信とWebhook駆動)。
 - Initial Rust workspace with 11 crates: `open-runo-core`, `open-runo-router`,
   `open-runo-federation`, `open-runo-schema-registry`, `open-runo-ai-routing`,
   `open-runo-versionless-api`, `open-runo-db`, `open-runo-backup`,

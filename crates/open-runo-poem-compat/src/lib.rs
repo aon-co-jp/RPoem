@@ -39,6 +39,10 @@ pub use hyper::StatusCode;
 /// 本ファサードがまだ配線していない機能は、当面この経路で直接使える。
 pub use open_runo_router::hyper_compat;
 pub use open_runo_router::middleware_hyper;
+/// 大きなアップロードをチャンクごとに受けるストリーミングmultipart、
+/// Webhookの署名検証つき受信、本文サイズ上限(Axumの`multer`/
+/// `DefaultBodyLimit`/署名検証ミドルウェアが担う領域)。
+pub use open_runo_router::{body_limit, multipart_stream, webhook};
 
 pub type Request = hyper_compat::Request;
 pub type Response = hyper_compat::Response;
