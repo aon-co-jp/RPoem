@@ -35,7 +35,7 @@
 | SSE | `hyper_compat::sse_response` + `SseEvent` | ✅ 実装済み |
 | 静的ファイル配信 | `hyper_compat::static_file_handler` | ✅ 実装済み(WASMフロントエンド配信用) |
 | テストユーティリティ | `hyper_compat::serve` + `reqwest`(実HTTP経由) | ✅ 実装済み(TestClientの代替) |
-| OpenAPI 3.0仕様生成 | `crates/open-runo-router/src/openapi.rs`(手書き静的JSON、`GET /api/openapi.json`) | ✅ 実装済み(2026-07-11追加。macro自動生成ではなく手書き) |
+| OpenAPI 3.0仕様生成 | `crates/open-runo-openapi`(型駆動ビルダー、2026-10-26)+ `open-runo-router::openapi` | ✅ 型(schemars)から自動生成に移行(手書き静的JSONを廃止)。`Operation::get("/p/:id").ok::<T>("..")`で宣言→OpenAPI 3.0.3・Swagger UI(`/api/docs`)・ReDoc(`/api/redoc`)・Cosmo互換GraphQL SDL(`/api/openapi.graphql`)・Tauri invokeマニフェスト(`/api/openapi.tauri.json`)・TypeScriptクライアント(fetch版`/api/client.ts`/invoke版`/api/client.tauri.ts`)を同じ定義から出力。パスパラメータ・クエリ構造体・nullable・enum・共通エラー(429)を自動展開。`every_registered_route_is_documented`テストがlib.rsの登録ルートの書き忘れを検出。他サービスは`open_runo_router::openapi::mount_docs`か`open_runo_poem_compat::Route::docs(prefix, spec)`の1呼び出しで同等の文書を得る(`Route::docs`は`build()`時に未宣言ルートを警告) |
 | ~~WebSocket(汎用)~~ | `hyper_compat::websocket_handler`(RFC 6455手書き実装) | ✅ 完了(2026-07-11)。`GET /api/ws-echo`(エコー)・`GET /api/ws-events`(state.eventsのWS版、認証必須)の2ルートで実証。GraphQL Subscriptions(poem版`graphql_route`)は引き続き別経路 |
 | ~~gzip/br圧縮~~ | `middleware_hyper::with_compression`(gzip、`flate2`使用) | ✅ 完了(2026-07-11、gzipのみ・brは見送り。理由は3節参照) |
 | ~~Multipart(ファイルアップロード)~~ | `hyper_compat::read_multipart_body` + `POST /api/schemas/upload` | ✅ 完了(2026-07-11)。RFC 7578手書きパーサー(`multer`等の外部crate不使用)。WASM管理UIに`<input type="file">`のアップロードUIを追加、実バイナリ+実ブラウザでファイル選択→アップロード→Schema Historyへの反映まで確認済み |

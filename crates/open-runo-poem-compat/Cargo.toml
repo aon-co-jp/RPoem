@@ -6,6 +6,7 @@ description = "外部プロジェクトがpoemクレートの代わりにRPoem�
 
 [dependencies]
 open-runo-router = { path = "../open-runo-router" }
+open-runo-openapi = { path = "../open-runo-openapi" }
 hyper = { version = "1.10", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 tokio = { workspace = true }

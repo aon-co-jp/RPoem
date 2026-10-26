@@ -118,6 +118,12 @@ pub async fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_lim
         .route(Method::GET, "/health", wrap(hyper_compat::health_handler(Arc::clone(&state))))
         .route(Method::GET, "/healthz", wrap(hyper_compat::health_handler(Arc::clone(&state))))
         .route(Method::GET, "/api/openapi.json", wrap(openapi::openapi_handler()))
+        .route(Method::GET, "/api/docs", wrap(openapi::swagger_ui_handler()))
+        .route(Method::GET, "/api/redoc", wrap(openapi::redoc_handler()))
+        .route(Method::GET, "/api/openapi.graphql", wrap(openapi::graphql_sdl_handler()))
+        .route(Method::GET, "/api/openapi.tauri.json", wrap(openapi::tauri_manifest_handler()))
+        .route(Method::GET, "/api/client.ts", wrap(openapi::typescript_handler(open_runo_openapi::TsClient::Fetch)))
+        .route(Method::GET, "/api/client.tauri.ts", wrap(openapi::typescript_handler(open_runo_openapi::TsClient::TauriInvoke)))
         .route(
             Method::GET,
             "/.well-known/acme-challenge/:token",

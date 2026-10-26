@@ -38,6 +38,8 @@ pub use hyper::StatusCode;
 /// 逃げ道として`hyper_compat`自体も再公開する——CORS/gzip/WebSocket等、
 /// 本ファサードがまだ配線していない機能は、当面この経路で直接使える。
 pub use open_runo_router::hyper_compat;
+/// 型駆動のAPIドキュメント生成(`Spec`/`Operation`、poem-openapi相当)。
+pub use open_runo_openapi as openapi;
 pub use open_runo_router::middleware_hyper;
 /// 大きなアップロードをチャンクごとに受けるストリーミングmultipart、
 /// Webhookの署名検証つき受信、本文サイズ上限(Axumの`multer`/
@@ -68,6 +70,7 @@ pub use hyper_compat::{websocket_handler, WsMessage};
 #[derive(Default)]
 pub struct Route {
     entries: Vec<(String, MethodRouter)>,
+    docs: Option<(String, openapi::Spec)>,
 }
 
 impl Route {
@@ -107,12 +110,36 @@ impl Route {
         self
     }
 
+    /// poem-openapi相当: 型付きの `Spec` から OpenAPI 3.0 / Swagger UI / ReDoc /
+    /// Cosmo互換GraphQL SDL / Tauriマニフェスト / TypeScriptクライアントを
+    /// `prefix`(例: `"/api"`)の下で配信する。`build()` 時に、ここへ登録した
+    /// ルートで `spec` に宣言が無いものを標準エラーへ警告する(書き忘れ検出)。
+    pub fn docs(mut self, prefix: &str, spec: openapi::Spec) -> Self {
+        self.docs = Some((prefix.to_string(), spec));
+        self
+    }
+
     pub fn build(self) -> hyper_compat::Router {
         let mut router = hyper_compat::Router::new();
+        if let Some((_, spec)) = &self.docs {
+            let routes: Vec<(String, String)> = self
+                .entries
+                .iter()
+                .flat_map(|(p, mr)| mr.handlers.iter().map(move |(m, _)| (m.as_str().to_string(), p.clone())))
+                .filter(|(m, _)| m != "OPTIONS" && m != "HEAD")
+                .collect();
+            let missing = spec.undocumented(routes.iter().map(|(m, p)| (m.as_str(), p.as_str())));
+            for m in missing {
+                eprintln!("[open-runo-poem-compat] APIドキュメント未宣言のルート: {m}");
+            }
+        }
         for (path, mr) in self.entries {
             for (method, handler) in mr.handlers {
                 router = router.route(method, &path, handler);
             }
+        }
+        if let Some((prefix, spec)) = self.docs {
+            router = open_runo_router::openapi::mount_docs(router, &prefix, spec);
         }
         router.with_cors_preflight()
     }
@@ -383,6 +410,30 @@ mod tests {
         let (addr, handle) = spawn(app).await;
         let resp = send(addr, Method::GET, "/healthz").await;
         assert_eq!(resp.status(), SC::OK);
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn docs_mounts_openapi_swagger_and_graphql_over_real_tcp() {
+        use openapi::{Operation, Spec};
+        let spec = Spec::new("poem-compat demo", "1.0.0")
+            .op(Operation::get("/ping").summary("ping").public().response_empty(200, "pong"));
+        let app = Route::new()
+            .at("/ping", get(handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::OK) })))
+            .docs("/api", spec);
+        let (addr, handle) = spawn(app).await;
+        for (path, needle) in [
+            ("/api/openapi.json", "poem-compat demo"),
+            ("/api/docs", "SwaggerUIBundle"),
+            ("/api/redoc", "Redoc"),
+            ("/api/openapi.graphql", "getPing"),
+            ("/api/client.ts", "getPing"),
+        ] {
+            let resp = send(addr, Method::GET, path).await;
+            assert_eq!(resp.status(), SC::OK, "{path}");
+            let body = resp.into_body().collect().await.unwrap().to_bytes();
+            assert!(String::from_utf8_lossy(&body).contains(needle), "{path}");
+        }
         handle.abort();
     }
 }
