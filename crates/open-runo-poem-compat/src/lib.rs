@@ -119,18 +119,37 @@ impl Route {
         self
     }
 
+    /// `docs` の最小形: 型付きの宣言を1つも書かず、登録済みルートから
+    /// 文書を自動で組み立てる(段階的に `docs` へ移行できる)。
+    pub fn docs_auto(self, prefix: &str, title: &str, version: &str) -> Self {
+        self.docs(prefix, openapi::Spec::new(title, version))
+    }
+
     pub fn build(self) -> hyper_compat::Router {
         let mut router = hyper_compat::Router::new();
-        if let Some((_, spec)) = &self.docs {
-            let routes: Vec<(String, String)> = self
-                .entries
-                .iter()
-                .flat_map(|(p, mr)| mr.handlers.iter().map(move |(m, _)| (m.as_str().to_string(), p.clone())))
-                .filter(|(m, _)| m != "OPTIONS" && m != "HEAD")
-                .collect();
-            let missing = spec.undocumented(routes.iter().map(|(m, p)| (m.as_str(), p.as_str())));
-            for m in missing {
-                eprintln!("[open-runo-poem-compat] APIドキュメント未宣言のルート: {m}");
+        let mut docs = self.docs;
+        if let Some((_, spec)) = docs.as_mut() {
+            // 型付き宣言の無いルートは、メソッドとパスだけの最小限の操作として自動で足す
+            // (文書から漏れない。型を付けたくなったら `Spec` 側で宣言すれば置き換わる)。
+            for (path, mr) in &self.entries {
+                for (m, _) in &mr.handlers {
+                    let method = match m.as_str() {
+                        "GET" => openapi::Method::Get,
+                        "POST" => openapi::Method::Post,
+                        "PUT" => openapi::Method::Put,
+                        "PATCH" => openapi::Method::Patch,
+                        "DELETE" => openapi::Method::Delete,
+                        _ => continue,
+                    };
+                    if !spec.undocumented([(m.as_str(), path.as_str())]).is_empty() {
+                        eprintln!("[open-runo-poem-compat] APIドキュメント未宣言のルート(自動で最小限の操作を追加): {m} {path}");
+                        let op = openapi::Operation::new(method, path)
+                            .summary(&format!("{m} {path}"))
+                            .tag(path.trim_start_matches('/').split('/').next().unwrap_or("root"))
+                            .response_empty(200, "OK");
+                        *spec = std::mem::replace(spec, openapi::Spec::new("", "")).op(op);
+                    }
+                }
             }
         }
         for (path, mr) in self.entries {
@@ -138,7 +157,7 @@ impl Route {
                 router = router.route(method, &path, handler);
             }
         }
-        if let Some((prefix, spec)) = self.docs {
+        if let Some((prefix, spec)) = docs {
             router = open_runo_router::openapi::mount_docs(router, &prefix, spec);
         }
         router.with_cors_preflight()
@@ -434,6 +453,26 @@ mod tests {
             let body = resp.into_body().collect().await.unwrap().to_bytes();
             assert!(String::from_utf8_lossy(&body).contains(needle), "{path}");
         }
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn docs_auto_documents_every_registered_route_and_keeps_typed_ones() {
+        use openapi::{Operation, Spec};
+        let h = || handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::OK) });
+        // /typed は型付き宣言(summaryが保たれる)、/auto/:id は宣言なし(自動追加)。
+        let spec = Spec::new("mix", "1").op(Operation::get("/typed").summary("typed one").public().response_empty(200, "ok"));
+        let app = Route::new()
+            .at("/typed", get(h()))
+            .at("/auto/:id", get(h()).post(h()))
+            .docs("/api", spec);
+        let (addr, handle) = spawn(app).await;
+        let resp = send(addr, Method::GET, "/api/openapi.json").await;
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let doc: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(doc["paths"]["/typed"]["get"]["summary"], "typed one");
+        assert!(doc["paths"]["/auto/{id}"]["get"].is_object() && doc["paths"]["/auto/{id}"]["post"].is_object());
+        assert_eq!(doc["paths"]["/auto/{id}"]["get"]["parameters"][0]["name"], "id");
         handle.abort();
     }
 }
