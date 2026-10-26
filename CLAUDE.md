@@ -4414,3 +4414,8 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 **Adoption**: in `Cargo.toml`, `rust-json = { path = "../RS-JSON", features = ["fast"] }`. Example in `RS-JSON/README.md`.
 
 **Status in this repository**: Not yet applied (policy only). Code will be switched over place by place, starting where measurements show large or frequent JSON reads.
+
+## 2026-10-26 型駆動APIドキュメント自動生成(open-runo-openapi)
+- 新クレート`crates/open-runo-openapi`(poem-openapi相当、フレームワーク非依存)。`Operation::get("/p/:id").ok::<T>("..")`で宣言→OpenAPI 3.0.3・Swagger UI/ReDoc・Cosmo(WunderGraph)互換GraphQL SDL・Tauri invokeマニフェスト・TypeScriptクライアント(fetch版/invoke版)を同じ定義から出力。`Spec::lint()`/`Spec::undocumented()`で書き忘れ検出。
+- `open-runo-router::openapi`は手書きJSONを廃止して上記で生成(`document()`が正本、`every_registered_route_is_documented`テストがlib.rsの登録ルート漏れを検出)。他サービスは`openapi::mount_docs(router, "/api", spec)`または`open_runo_poem_compat::Route::docs(prefix, spec)`/`docs_auto(prefix, title, version)`(宣言の無いルートは最小限の操作を自動追加)。
+- 反映済み利用側: aruaru-llm・open-english/server・open-cg-cad/server・open-raid-z/web(`docs_auto("/api", ..)`)、backup-to-discord-by-github(型なし宣言+`mount_docs`)。**未反映**: aruaru-search・realdata.pro(`.deps/RPoem`の固定コピーを参照するため、コピー更新時に`docs_auto`を足す)。型付き宣言への段階的移行が今後の課題(現状の利用側は全ルートが`JSON`型の最小文書)。

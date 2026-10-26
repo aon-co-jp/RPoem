@@ -161,6 +161,9 @@ fn normalize_path(path: &str) -> (String, Vec<String>) {
 /// 例: `GET /api/db/{table}/{key}` → `getApiDbByTableByKey`
 fn default_operation_id(method: Method, path: &str) -> String {
     let mut id = method.key().to_owned();
+    if path.split('/').all(str::is_empty) {
+        id.push_str("Root");
+    }
     for seg in path.split('/').filter(|s| !s.is_empty()) {
         let is_param = seg.starts_with('{');
         let seg = seg.trim_matches(|c| c == '{' || c == '}');

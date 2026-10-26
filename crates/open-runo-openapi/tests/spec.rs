@@ -132,3 +132,10 @@ fn docs_html_escapes_and_embeds_url() {
     assert!(h.contains("a&lt;b") && h.contains("\"/api/openapi.json\""));
     assert!(docs_html(DocsUi::Redoc, "t", "/x").contains("Redoc.init"));
 }
+
+#[test]
+fn root_path_gets_a_readable_operation_id() {
+    let s = Spec::new("r", "1").op(Operation::get("/").summary("top").response_empty(200, "ok"));
+    assert_eq!(s.operations()[0].operation_id(), "getRoot");
+    assert!(s.to_graphql_sdl().contains("getRoot: JSON"));
+}
