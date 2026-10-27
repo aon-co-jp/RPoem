@@ -40,6 +40,12 @@ pub use hyper::StatusCode;
 pub use open_runo_router::hyper_compat;
 /// 型駆動のAPIドキュメント生成(`Spec`/`Operation`、poem-openapi相当)。
 pub use open_runo_openapi as openapi;
+
+/// 型駆動のAPIハンドラ(`api::json`/`api::query`/`api::plain` 等)と `ApiError`/`Ctx`。
+pub mod api;
+pub use api::{ApiError, ApiResult, Ctx};
+/// 実サーバーを立ててHTTPで叩く、テスト用のクライアント。
+pub mod testing;
 pub use open_runo_router::middleware_hyper;
 /// 大きなアップロードをチャンクごとに受けるストリーミングmultipart、
 /// Webhookの署名検証つき受信、本文サイズ上限(Axumの`multer`/
@@ -71,6 +77,9 @@ pub use hyper_compat::{websocket_handler, WsMessage};
 pub struct Route {
     entries: Vec<(String, MethodRouter)>,
     docs: Option<(String, openapi::Spec)>,
+    api_ops: Vec<openapi::Operation>,
+    data: std::collections::HashMap<std::any::TypeId, Arc<dyn std::any::Any + Send + Sync>>,
+    max_body: Option<usize>,
 }
 
 impl Route {
@@ -83,8 +92,71 @@ impl Route {
     /// 内部でマージするが、本シムでは単純化のため後勝ちにはせず、
     /// 呼び出し側が1パス1回で組み立てる前提とする——正直な簡略化)。
     pub fn at(mut self, path: &str, method_router: MethodRouter) -> Self {
-        self.entries.push((path.to_string(), method_router));
+        self.add_entry(path, method_router);
         self
+    }
+
+    /// 同一パスは1エントリにまとめる(poemと同じ。`.at("/x", get(a)).at("/x", post(b))` が両方効く)。
+    fn add_entry(&mut self, path: &str, method_router: MethodRouter) {
+        if let Some((_, existing)) = self.entries.iter_mut().find(|(p, _)| p == path) {
+            existing.handlers.extend(method_router.handlers);
+        } else {
+            self.entries.push((path.to_string(), method_router));
+        }
+    }
+
+    /// 型駆動のハンドラを登録する(`api::json` 等)。メソッド・パスは宣言(`Operation`)から取り、
+    /// 文書(`.docs(..)`)には引数・戻り値の型からそのまま載る。
+    pub fn api(mut self, h: api::ApiHandler) -> Self {
+        let method = api::to_hyper_method(h.op.http_method());
+        let pattern = h.op.route_pattern();
+        self.add_entry(&pattern, MethodRouter { handlers: vec![(method, h.handler)] });
+        self.api_ops.push(h.op);
+        self
+    }
+
+    /// `prefix` の下に別の `Route` をまとめて載せる(poemの`nest`)。型付きの宣言も
+    /// パスに接頭辞を付けて引き継ぐ。入れ子側の `.docs(..)` は無視され、外側の文書に載る。
+    pub fn nest(mut self, prefix: &str, inner: Route) -> Self {
+        let p = prefix.trim_end_matches('/');
+        for (path, mr) in inner.entries {
+            let full = if path == "/" { if p.is_empty() { "/".to_string() } else { p.to_string() } } else { format!("{p}{path}") };
+            self.add_entry(&full, mr);
+        }
+        for op in inner.api_ops {
+            self.api_ops.push(op.prefixed(p));
+        }
+        self
+    }
+
+    /// 型駆動ハンドラ(`api::json` 等)が読むJSON本文の上限(バイト、既定2MiB)。
+    /// 超えると413。
+    pub fn max_body(mut self, bytes: usize) -> Self {
+        self.max_body = Some(bytes);
+        self
+    }
+
+    /// アプリ共有の値を登録する(同じ型は後勝ち)。ハンドラ内で `ctx.data::<T>()` / `ctx.state::<T>()?` で取り出す。
+    /// `Arc` の複製をクロージャへ配る手間が要らない。
+    pub fn data<T: Send + Sync + 'static>(mut self, value: T) -> Self {
+        self.data.insert(std::any::TypeId::of::<T>(), Arc::new(value));
+        self
+    }
+
+    /// 登録済みの全ハンドラへミドルウェア(`Handler -> Handler`)を適用する。
+    /// 例: `.with(|h| middleware_hyper::with_tracing(h))`。
+    pub fn with(mut self, mw: impl Fn(Handler) -> Handler) -> Self {
+        for (_, mr) in self.entries.iter_mut() {
+            for (_, handler) in mr.handlers.iter_mut() {
+                *handler = mw(handler.clone());
+            }
+        }
+        self
+    }
+
+    /// リクエストごとの開始/終了ログ(`middleware_hyper::with_tracing`)。
+    pub fn with_tracing(self) -> Self {
+        self.with(middleware_hyper::with_tracing)
     }
 
     /// poemの`.with(Cors::new())`相当。登録済みの全ハンドラを
@@ -129,6 +201,13 @@ impl Route {
         let mut router = hyper_compat::Router::new();
         let mut docs = self.docs;
         if let Some((_, spec)) = docs.as_mut() {
+            // 型駆動ハンドラ(`Route::api`)の宣言を先に文書へ入れる(引数・戻り値の型がそのまま載る)。
+            for op in &self.api_ops {
+                let m = api::to_hyper_method(op.http_method());
+                if !spec.undocumented([(m.as_str(), op.route_pattern().as_str())]).is_empty() {
+                    *spec = std::mem::replace(spec, openapi::Spec::new("", "")).op(op.clone());
+                }
+            }
             // 型付き宣言の無いルートは、メソッドとパスだけの最小限の操作として自動で足す
             // (文書から漏れない。型を付けたくなったら `Spec` 側で宣言すれば置き換わる)。
             for (path, mr) in &self.entries {
@@ -152,8 +231,25 @@ impl Route {
                 }
             }
         }
+        let mut data_map = self.data;
+        if let Some(n) = self.max_body {
+            data_map.insert(std::any::TypeId::of::<api::BodyLimit>(), Arc::new(api::BodyLimit(n)));
+        }
+        let data = if data_map.is_empty() { None } else { Some(Arc::new(data_map)) };
         for (path, mr) in self.entries {
             for (method, handler) in mr.handlers {
+                let handler = match &data {
+                    Some(d) => {
+                        let d = Arc::clone(d);
+                        let inner = handler;
+                        let wrapped: Handler = Arc::new(move |mut req: Request, p: Params| {
+                            req.extensions_mut().insert(api::DataExt(Arc::clone(&d)));
+                            inner(req, p)
+                        });
+                        wrapped
+                    }
+                    None => handler,
+                };
                 router = router.route(method, &path, handler);
             }
         }

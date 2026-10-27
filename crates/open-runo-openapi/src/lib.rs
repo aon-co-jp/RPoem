@@ -323,6 +323,27 @@ impl Operation {
         );
         self
     }
+    pub fn http_method(&self) -> Method {
+        self.method
+    }
+    /// OpenAPI形式(`{id}`)の正規化済みパス。
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+    /// ルーター用のパターン(`/items/:id` 形式)。
+    pub fn route_pattern(&self) -> String {
+        self.path
+            .split('/')
+            .map(|s| if s.len() > 2 && s.starts_with('{') && s.ends_with('}') { format!(":{}", &s[1..s.len() - 1]) } else { s.to_owned() })
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+    /// パスの先頭に `prefix` を付けた操作にする(`Route::nest` 用)。
+    pub fn prefixed(mut self, prefix: &str) -> Self {
+        let p = prefix.trim_end_matches('/');
+        self.path = format!("{p}{}", self.path);
+        self
+    }
     pub fn operation_id(&self) -> String {
         self.id
             .clone()

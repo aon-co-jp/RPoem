@@ -1302,12 +1302,13 @@ impl Router {
             .routes
             .iter()
             .any(|r| self.match_path(r, &path).is_some());
-        let status = if path_exists {
-            StatusCode::METHOD_NOT_ALLOWED
+        let (status, msg) = if path_exists {
+            (StatusCode::METHOD_NOT_ALLOWED, "method not allowed")
         } else {
-            StatusCode::NOT_FOUND
+            (StatusCode::NOT_FOUND, "not found")
         };
-        Box::pin(async move { empty_status(status) })
+        // APIとして扱いやすいよう、JSON本文(`{"error": ..}`)を付ける。
+        Box::pin(async move { json_response(status, &serde_json::json!({ "error": msg })) })
     }
 }
 

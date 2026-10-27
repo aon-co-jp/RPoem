@@ -4419,3 +4419,13 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 - 新クレート`crates/open-runo-openapi`(poem-openapi相当、フレームワーク非依存)。`Operation::get("/p/:id").ok::<T>("..")`で宣言→OpenAPI 3.0.3・Swagger UI/ReDoc・Cosmo(WunderGraph)互換GraphQL SDL・Tauri invokeマニフェスト・TypeScriptクライアント(fetch版/invoke版)を同じ定義から出力。`Spec::lint()`/`Spec::undocumented()`で書き忘れ検出。
 - `open-runo-router::openapi`は手書きJSONを廃止して上記で生成(`document()`が正本、`every_registered_route_is_documented`テストがlib.rsの登録ルート漏れを検出)。他サービスは`openapi::mount_docs(router, "/api", spec)`または`open_runo_poem_compat::Route::docs(prefix, spec)`/`docs_auto(prefix, title, version)`(宣言の無いルートは最小限の操作を自動追加)。
 - 反映済み利用側: aruaru-llm・open-english/server・open-cg-cad/server・open-raid-z/web(`docs_auto("/api", ..)`)、backup-to-discord-by-github(型なし宣言+`mount_docs`)。**未反映**: aruaru-search・realdata.pro(`.deps/RPoem`の固定コピーを参照するため、コピー更新時に`docs_auto`を足す)。型付き宣言への段階的移行が今後の課題(現状の利用側は全ルートが`JSON`型の最小文書)。
+
+## 2026-10-28 poem-compatのフレームワークとしての使いやすさ向上(型駆動ハンドラ)
+- `open_runo_poem_compat::api`: **1つの宣言でルーティング・入力抽出・JSON化・エラー応答・APIドキュメントを同時に得る**(poem-openapiの`#[oai]`相当)。`api::json`/`json_created`/`json_no_content`(JSON本文)・`api::query`(クエリ構造体)・`api::plain`(入力なし)・`api::no_content`。`Route::api(handler)`で登録すると、メソッド・パスは`Operation`宣言から、本文/戻り値/クエリ/エラーの型は`schemars`の型から文書(OpenAPI・Swagger/ReDoc・Cosmo SDL・Tauri・TSクライアント)に載る(ハンドラと文書がずれない)。
+- `ApiError`(`bad_request`/`unauthorized`/`not_found`/…、`with_body`で独自のエラー形)、`ApiHandler::error(status, 説明)`/`error_as::<T>`で返しうるエラーを文書へ。`Ctx`: `param`(%復号済み)/`param_as::<T>`/`header`/`bearer_token`/`query::<Q>`/`data::<T>`/`state::<T>()?`。
+- `Route`: `data(v)`(アプリ共有値、`Arc`複製が不要)・`max_body(n)`(JSON本文の上限、既定2MiB、超過は413)・`nest(prefix, Route)`・`with(mw)`/`with_tracing()`。**同一パスの複数`.at()`はマージ**(従来は別エントリで、同じパスのGETとPOSTを別々に書くと壊れる制約があった)。
+- `testing::TestServer`: 一時ポートで実サーバーを起動し`get/post_json/delete/request/try_request`で叩く(ミドルウェアやCORSも本番と同じ経路)。
+- ルーター(`hyper_compat::Router`)の未登録パス404・メソッド違い405に`{"error": ..}`のJSON本文を付けた(従来は空本文)。
+- 端のケース試験で見つけて直した不具合: パスパラメータが%復号されない/JSON本文に上限が無い(20MBが通る)/404・405が空本文。巨大本文はサーバーが413を返して接続を閉じる(クライアントは送信エラーになり得る。`try_request`はその場合も`Err`で受ける)。
+- 実サービスでの検証: `open-raid-z/web`の`/healthz`と`/api/create`を型駆動ハンドラへ置き換え、実バイナリで200/400/401/500と文書(200/400/401/403/500/502/503)を確認。使用例は`crates/open-runo-poem-compat/tests/api_handlers.rs`。
+- 未対応・今後: クエリの配列(`?a=1&a=2`)・multipartの型駆動版・WebSocket/SSEの型付き宣言・`State`を型引数で受ける形(現状は`ctx.state::<T>()?`)。
