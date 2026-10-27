@@ -139,3 +139,13 @@ fn root_path_gets_a_readable_operation_id() {
     assert_eq!(s.operations()[0].operation_id(), "getRoot");
     assert!(s.to_graphql_sdl().contains("getRoot: JSON"));
 }
+
+#[test]
+fn text_responses_are_declared_as_text_not_json() {
+    let s = Spec::new("t", "1").op(Operation::post("/ok").summary("plain ok").public().response_text(200, "ok", "text/plain"));
+    let d = s.build();
+    assert_eq!(d["paths"]["/ok"]["post"]["responses"]["200"]["content"]["text/plain"]["schema"]["type"], "string");
+    assert!(d["paths"]["/ok"]["post"]["responses"]["200"]["content"]["application/json"].is_null());
+    assert!(s.to_graphql_sdl().contains("postOk: String"));
+    assert!(s.to_typescript(TsClient::Fetch).contains("Promise<string>"));
+}

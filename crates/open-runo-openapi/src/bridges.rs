@@ -50,7 +50,15 @@ fn first_success_schema(op: &Operation) -> Option<&Value> {
     op.responses
         .iter()
         .find(|(k, _)| k.starts_with('2'))
-        .and_then(|(_, v)| v.pointer("/content/application~1json/schema"))
+        .and_then(|(_, v)| {
+            // JSONを優先し、無ければ最初のコンテンツ種別(text/plain等)のスキーマ。
+            v.pointer("/content/application~1json/schema").or_else(|| {
+                v.get("content")
+                    .and_then(Value::as_object)
+                    .and_then(|c| c.values().next())
+                    .and_then(|m| m.get("schema"))
+            })
+        })
 }
 
 fn body_schema(op: &Operation) -> Option<&Value> {

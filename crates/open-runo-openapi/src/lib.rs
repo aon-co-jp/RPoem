@@ -313,6 +313,16 @@ impl Operation {
             .insert(status.to_string(), json!({ "description": description }));
         self
     }
+    /// プレーンテキスト(または `content_type` 指定のテキスト)のレスポンス。
+    /// 例: `response_text(200, "ok", "text/plain")`。JSONではないことが
+    /// ドキュメント・TypeScriptクライアント(`string`)・GraphQL(`String`)に出る。
+    pub fn response_text(mut self, status: u16, description: &str, content_type: &str) -> Self {
+        self.responses.insert(
+            status.to_string(),
+            json!({ "description": description, "content": { content_type: { "schema": { "type": "string" } } } }),
+        );
+        self
+    }
     pub fn operation_id(&self) -> String {
         self.id
             .clone()
