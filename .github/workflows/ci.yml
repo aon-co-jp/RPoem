@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: 兄弟リポジトリを取得(パス依存のopen-web-serverとその依存)
         run: |
-          for r in open-web-server RS-SmartTCP open-cpu open-raid-z; do
+          for r in open-web-server RS-SmartTCP open-cpu open-raid-z RS-JSON; do
             git clone --quiet --depth 1 "https://github.com/aon-co-jp/$r.git" "../$r"
           done
       - uses: dtolnay/rust-toolchain@stable
