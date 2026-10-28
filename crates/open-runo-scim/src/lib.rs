@@ -195,7 +195,7 @@ impl ScimUserStore {
         for rec in self.db.list(TABLE).await? {
             let user: User = sonic_rs::from_str(&rec.value)
                 .map_err(|e| AppError::Internal(format!("corrupt SCIM record: {e}")))?;
-            if user_name_filter.map_or(true, |f| user.user_name == f) {
+            if user_name_filter.is_none_or(|f| user.user_name == f) {
                 users.push(user);
             }
         }
@@ -222,7 +222,6 @@ impl ScimUserStore {
         self.db.put(TABLE, &user.id, &json).await
     }
 }
-
 
 // ── Groups (RFC 7643 §4.2) ──────────────────────────────────────────────────
 
@@ -363,7 +362,7 @@ impl ScimGroupStore {
         for rec in self.db.list(GROUP_TABLE).await? {
             let group: Group = sonic_rs::from_str(&rec.value)
                 .map_err(|e| AppError::Internal(format!("corrupt SCIM group record: {e}")))?;
-            if display_name_filter.map_or(true, |f| group.display_name == f) {
+            if display_name_filter.is_none_or(|f| group.display_name == f) {
                 groups.push(group);
             }
         }
@@ -402,7 +401,10 @@ mod tests {
             user_name: "alice@example.com".into(),
             display_name: Some("Alice".into()),
             active: true,
-            emails: vec![Email { value: "alice@example.com".into(), primary: true }],
+            emails: vec![Email {
+                value: "alice@example.com".into(),
+                primary: true,
+            }],
             roles: vec!["developer".into()],
         }
     }
@@ -476,7 +478,10 @@ mod tests {
             ScimUserStore::parse_user_name_filter(r#"userName eq "alice@example.com""#),
             Some("alice@example.com".to_string())
         );
-        assert_eq!(ScimUserStore::parse_user_name_filter("active eq true"), None);
+        assert_eq!(
+            ScimUserStore::parse_user_name_filter("active eq true"),
+            None
+        );
     }
 
     // ── Groups ─────────────────────────────────────────────────────────
@@ -488,7 +493,10 @@ mod tests {
     fn engineering() -> GroupInput {
         GroupInput {
             display_name: "engineering".into(),
-            members: vec![GroupMember { value: "user-1".into(), display: Some("Alice".into()) }],
+            members: vec![GroupMember {
+                value: "user-1".into(),
+                display: Some("Alice".into()),
+            }],
         }
     }
 
@@ -522,8 +530,14 @@ mod tests {
                 GroupInput {
                     display_name: "engineering".into(),
                     members: vec![
-                        GroupMember { value: "user-1".into(), display: None },
-                        GroupMember { value: "user-2".into(), display: None },
+                        GroupMember {
+                            value: "user-1".into(),
+                            display: None,
+                        },
+                        GroupMember {
+                            value: "user-2".into(),
+                            display: None,
+                        },
                     ],
                 },
             )
@@ -537,9 +551,12 @@ mod tests {
     async fn group_delete_and_list_filter() {
         let s = group_store();
         let g1 = s.create(engineering()).await.unwrap();
-        s.create(GroupInput { display_name: "sales".into(), members: vec![] })
-            .await
-            .unwrap();
+        s.create(GroupInput {
+            display_name: "sales".into(),
+            members: vec![],
+        })
+        .await
+        .unwrap();
 
         let filtered = s.list(Some("engineering")).await.unwrap();
         assert_eq!(filtered.len(), 1);
@@ -555,6 +572,9 @@ mod tests {
             ScimGroupStore::parse_display_name_filter(r#"displayName eq "engineering""#),
             Some("engineering".to_string())
         );
-        assert_eq!(ScimGroupStore::parse_display_name_filter("id eq \"x\""), None);
+        assert_eq!(
+            ScimGroupStore::parse_display_name_filter("id eq \"x\""),
+            None
+        );
     }
 }

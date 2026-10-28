@@ -1,8 +1,8 @@
 //! かすれた・薄い文字の読み取りを助ける前処理と再 OCR。
 //!
-//! 1. [`normalize_contrast`]: ページ全体が低コントラスト(薄いインク)のとき、濃淡を引き伸ばす(自動、常に安全)。
+//! 1. [`normalize_contrast`] — ページ全体が低コントラスト(薄いインク)のとき、濃淡を引き伸ばす(自動、常に安全)。
 //!    これが無いと、薄い文書は「白紙」と判定されて OCR にすら送られないことがある。
-//! 2. [`reocr_lines`]: 自信の低い行を切り出し、コントラストを整えて **AI 超解像(`open-runo-sr`)で 4 倍に拡大**してから、
+//! 2. [`reocr_lines`] — 自信の低い行を切り出し、コントラストを整えて **AI 超解像(`open-runo-sr`)で 4 倍に拡大**してから、
 //!    もう一度 OCR にかける。信頼度が明確に上がった行だけ採用する(設定 `reocr` でオン。CPU を使うため既定はオフ)。
 
 use crate::client::OcrClient;
@@ -43,9 +43,13 @@ fn levels(rgba: &[u8], w: usize, h: usize) -> (u8, u8) {
 
 fn encode_png(rgba: &[u8], w: usize, h: usize) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
-    image::codecs::png::PngEncoder::new_with_quality(&mut out, image::codecs::png::CompressionType::Fast, image::codecs::png::FilterType::Adaptive)
-        .write_image(rgba, w as u32, h as u32, image::ExtendedColorType::Rgba8)
-        .map_err(|e| format!("PNG encode: {e}"))?;
+    image::codecs::png::PngEncoder::new_with_quality(
+        &mut out,
+        image::codecs::png::CompressionType::Fast,
+        image::codecs::png::FilterType::Adaptive,
+    )
+    .write_image(rgba, w as u32, h as u32, image::ExtendedColorType::Rgba8)
+    .map_err(|e| format!("PNG encode: {e}"))?;
     Ok(out)
 }
 
@@ -60,7 +64,7 @@ pub fn normalize_contrast(r: &PageRaster) -> Option<PageRaster> {
     }
     let (lo, hi) = (ink as f32, bg as f32);
     let mut rgba = r.rgba.clone();
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0.iter_mut() {
         for c in px.iter_mut().take(3) {
             let v = ((*c as f32 - lo) / (hi - lo)).clamp(0.0, 1.0);
             // 少しだけ暗部を持ち上げず、背景は白へ。
@@ -68,7 +72,13 @@ pub fn normalize_contrast(r: &PageRaster) -> Option<PageRaster> {
         }
     }
     let png = encode_png(&rgba, r.width, r.height).ok()?;
-    Some(PageRaster { width: r.width, height: r.height, rgba, png, px_to_user: r.px_to_user })
+    Some(PageRaster {
+        width: r.width,
+        height: r.height,
+        rgba,
+        png,
+        px_to_user: r.px_to_user,
+    })
 }
 
 /// 切り抜きの濃淡を引き伸ばす(行ごとに、背景とインクの差を最大に)。
@@ -87,7 +97,11 @@ fn stretch(img: &mut RgbImage) {
 }
 
 fn is_weak(line: &OcrLine, below: f32) -> bool {
-    let words: Vec<&OcrWord> = line.words.iter().filter(|w| !w.text.trim().is_empty()).collect();
+    let words: Vec<&OcrWord> = line
+        .words
+        .iter()
+        .filter(|w| !w.text.trim().is_empty())
+        .collect();
     if words.is_empty() {
         return true;
     }
@@ -104,7 +118,18 @@ struct Variant {
 
 /// 既定は 2 通りで読み、信頼度の高いほうを採る: AI 超解像で 3 倍(細部を補う)/ 高品質な補間で 3 倍(AI の作り込みを避ける)。
 /// どちらもノイズを軽くならしてから拡大する(紙のざらつきを字形と取り違えないため)。実測(薄くぼけた文書)で、この組が最良だった。
-const VARIANTS: [Variant; 2] = [Variant { ai: true, scale: 3, denoise: 1.2 }, Variant { ai: false, scale: 3, denoise: 1.0 }];
+const VARIANTS: [Variant; 2] = [
+    Variant {
+        ai: true,
+        scale: 3,
+        denoise: 1.2,
+    },
+    Variant {
+        ai: false,
+        scale: 3,
+        denoise: 1.0,
+    },
+];
 
 /// 1 行ぶんの切り抜き(周りに少し余白を足したもの)。
 fn crop_line(raster: &PageRaster, l: &OcrLine) -> Option<(RgbImage, i32, i32)> {
@@ -121,7 +146,11 @@ fn crop_line(raster: &PageRaster, l: &OcrLine) -> Option<(RgbImage, i32, i32)> {
     for yy in 0..ch {
         for xx in 0..cw {
             let p = (((y0 as u32 + yy) as usize * raster.width) + (x0 as u32 + xx) as usize) * 4;
-            crop.put_pixel(xx, yy, image::Rgb([raster.rgba[p], raster.rgba[p + 1], raster.rgba[p + 2]]));
+            crop.put_pixel(
+                xx,
+                yy,
+                image::Rgb([raster.rgba[p], raster.rgba[p + 1], raster.rgba[p + 2]]),
+            );
         }
     }
     Some((crop, x0, y0))
@@ -142,22 +171,37 @@ fn prepare(crop: &RgbImage, v: Variant) -> Result<Vec<u8>, String> {
     let mut framed = RgbImage::from_pixel(bw, bh, image::Rgb([255, 255, 255]));
     image::imageops::replace(&mut framed, &big, BORDER as i64, BORDER as i64);
     let mut png = Vec::new();
-    image::codecs::png::PngEncoder::new_with_quality(&mut png, image::codecs::png::CompressionType::Fast, image::codecs::png::FilterType::Adaptive)
-        .write_image(framed.as_raw(), bw, bh, image::ExtendedColorType::Rgb8)
-        .map_err(|e| format!("PNG encode: {e}"))?;
+    image::codecs::png::PngEncoder::new_with_quality(
+        &mut png,
+        image::codecs::png::CompressionType::Fast,
+        image::codecs::png::FilterType::Adaptive,
+    )
+    .write_image(framed.as_raw(), bw, bh, image::ExtendedColorType::Rgb8)
+    .map_err(|e| format!("PNG encode: {e}"))?;
     Ok(png)
 }
 
 /// 自信の低い行を、ノイズ除去 → 拡大(AI 超解像 / 補間)→ 再 OCR で読み直す。採用した行の数を返す。
 /// 行の位置・大きさは元のまま、文字列・単語・信頼度だけを置き換える。複数の読み方のうち最も信頼度が高いものを、
 /// 元の読みより明確に良い(信頼度 +3 以上、文字数が極端に違わない)ときだけ採用する。
-pub fn reocr_lines(client: &OcrClient, raster: &PageRaster, lines: &mut [OcrLine], settings: &Settings) -> Result<usize, String> {
+pub fn reocr_lines(
+    client: &OcrClient,
+    raster: &PageRaster,
+    lines: &mut [OcrLine],
+    settings: &Settings,
+) -> Result<usize, String> {
     let debug = std::env::var_os("PDFOCR_DEBUG").is_some();
-    let weak: Vec<usize> = (0..lines.len()).filter(|&i| is_weak(&lines[i], settings.reocr_below)).take(settings.reocr_max_lines).collect();
+    let weak: Vec<usize> = (0..lines.len())
+        .filter(|&i| is_weak(&lines[i], settings.reocr_below))
+        .take(settings.reocr_max_lines)
+        .collect();
     if weak.is_empty() {
         return Ok(0);
     }
-    let crops: Vec<(usize, RgbImage, i32, i32)> = weak.iter().filter_map(|&i| crop_line(raster, &lines[i]).map(|(c, x0, y0)| (i, c, x0, y0))).collect();
+    let crops: Vec<(usize, RgbImage, i32, i32)> = weak
+        .iter()
+        .filter_map(|&i| crop_line(raster, &lines[i]).map(|(c, x0, y0)| (i, c, x0, y0)))
+        .collect();
     // 各行について、全ての読み方の結果から、最も信頼度の高いものを選ぶ。
     let mut best: Vec<Option<(OcrLine, Variant, i32, i32)>> = vec![None; crops.len()];
     for v in VARIANTS {
@@ -176,12 +220,19 @@ pub fn reocr_lines(client: &OcrClient, raster: &PageRaster, lines: &mut [OcrLine
                 let Some(pick) = found
                     .into_iter()
                     .filter(|f| !f.text.trim().is_empty())
-                    .min_by(|a, b| (a.y as f32 + a.h as f32 / 2.0 - center_y).abs().total_cmp(&(b.y as f32 + b.h as f32 / 2.0 - center_y).abs()))
+                    .min_by(|a, b| {
+                        (a.y as f32 + a.h as f32 / 2.0 - center_y)
+                            .abs()
+                            .total_cmp(&(b.y as f32 + b.h as f32 / 2.0 - center_y).abs())
+                    })
                 else {
                     continue;
                 };
                 if debug {
-                    eprintln!("[reocr] line {li} ai={} x{} conf={:.0} {:?}", v.ai, v.scale, pick.conf, pick.text);
+                    eprintln!(
+                        "[reocr] line {li} ai={} x{} conf={:.0} {:?}",
+                        v.ai, v.scale, pick.conf, pick.text
+                    );
                 }
                 if best[idx].as_ref().is_none_or(|(b, ..)| pick.conf > b.conf) {
                     best[idx] = Some((pick, v, *x0, *y0));
@@ -196,7 +247,10 @@ pub fn reocr_lines(client: &OcrClient, raster: &PageRaster, lines: &mut [OcrLine
         };
         let li = crops[idx].0;
         let old = &lines[li];
-        let (old_n, new_n) = (old.text.chars().count() as f32, pick.text.chars().count() as f32);
+        let (old_n, new_n) = (
+            old.text.chars().count() as f32,
+            pick.text.chars().count() as f32,
+        );
         let plausible_len = old_n == 0.0 || (new_n >= old_n * 0.6 && new_n <= old_n * 1.6);
         let better = pick.conf >= old.conf + 3.0 || old.text.trim().is_empty();
         if !(plausible_len && better) {
@@ -208,7 +262,14 @@ pub fn reocr_lines(client: &OcrClient, raster: &PageRaster, lines: &mut [OcrLine
         let words: Vec<OcrWord> = pick
             .words
             .iter()
-            .map(|w| OcrWord { text: w.text.clone(), x: map_x(w.x), y: map_y(w.y), w: (w.w as f32 / s).round() as i32, h: (w.h as f32 / s).round() as i32, conf: w.conf })
+            .map(|w| OcrWord {
+                text: w.text.clone(),
+                x: map_x(w.x),
+                y: map_y(w.y),
+                w: (w.w as f32 / s).round() as i32,
+                h: (w.h as f32 / s).round() as i32,
+                conf: w.conf,
+            })
             .collect();
         let l = &mut lines[li];
         l.text = pick.text.clone();
@@ -226,7 +287,7 @@ mod tests {
     fn raster(bg: u8, ink: u8) -> PageRaster {
         let (w, h) = (100usize, 100usize);
         let mut rgba = vec![bg; w * h * 4];
-        for px in rgba.chunks_exact_mut(4) {
+        for px in rgba.as_chunks_mut::<4>().0.iter_mut() {
             px[3] = 255;
         }
         // 細い線(全体の 1% 強)を引く。
@@ -238,7 +299,13 @@ mod tests {
                 rgba[p + 2] = ink;
             }
         }
-        PageRaster { width: w, height: h, rgba, png: Vec::new(), px_to_user: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] }
+        PageRaster {
+            width: w,
+            height: h,
+            rgba,
+            png: Vec::new(),
+            px_to_user: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        }
     }
 
     #[test]
@@ -249,14 +316,23 @@ mod tests {
         assert!(out.rgba[p] < 30, "ink becomes dark: {}", out.rgba[p]);
         assert!(out.rgba[0] > 240, "background stays white");
         assert!(!out.png.is_empty());
-        assert!(normalize_contrast(&raster(250, 20)).is_none(), "a normal page is not touched");
-        assert!(normalize_contrast(&raster(255, 252)).is_none(), "an empty page stays empty");
+        assert!(
+            normalize_contrast(&raster(250, 20)).is_none(),
+            "a normal page is not touched"
+        );
+        assert!(
+            normalize_contrast(&raster(255, 252)).is_none(),
+            "an empty page stays empty"
+        );
     }
 
     #[test]
     fn a_normalized_faint_page_is_no_longer_blank() {
         let faint = raster(240, 195);
-        assert!(faint.is_blank(), "the faint page looks blank to the plain detector");
+        assert!(
+            faint.is_blank(),
+            "the faint page looks blank to the plain detector"
+        );
         let out = normalize_contrast(&faint).unwrap();
         assert!(!out.is_blank());
     }

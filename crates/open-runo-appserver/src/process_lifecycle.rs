@@ -96,7 +96,11 @@ impl ProcessLifecycleManager {
 
     /// 直近の観測状態(管理API相当、ロック待ちのみで即座に返る)。
     pub fn status(&self) -> HealthState {
-        self.shared.health.lock().expect("health lock poisoned").clone()
+        self.shared
+            .health
+            .lock()
+            .expect("health lock poisoned")
+            .clone()
     }
 
     /// 稼働中の子プロセスのOS PID(無ければ`None`)。テスト・監査用。
@@ -144,7 +148,11 @@ impl ProcessLifecycleManager {
     /// (運用者が原因を修正した後の再挑戦に使う想定)。
     pub fn restart(&self) {
         {
-            let mut sup = self.shared.supervisor.lock().expect("supervisor lock poisoned");
+            let mut sup = self
+                .shared
+                .supervisor
+                .lock()
+                .expect("supervisor lock poisoned");
             sup.reset();
         }
         self.shared.stopped.store(false, Ordering::SeqCst);
@@ -186,7 +194,7 @@ fn monitor_loop(shared: Arc<Shared>) {
         match tick_result {
             Health::Starting => {
                 *shared.health.lock().expect("health lock poisoned") = HealthState::Starting;
-            }
+            },
             Health::Up => {
                 let ok = {
                     let sup = shared.supervisor.lock().expect("supervisor lock poisoned");
@@ -197,20 +205,20 @@ fn monitor_loop(shared: Arc<Shared>) {
                 } else {
                     HealthState::Unhealthy
                 };
-            }
+            },
             Health::Crashed(_) => {
                 *shared.health.lock().expect("health lock poisoned") = HealthState::Crashed;
-            }
+            },
             Health::BackingOff => {
                 *shared.health.lock().expect("health lock poisoned") = HealthState::BackingOff;
-            }
+            },
             Health::GaveUp => {
                 *shared.health.lock().expect("health lock poisoned") = HealthState::GaveUp;
                 // GaveUpは`restart()`が明示的に呼ばれるまで変化しない終端状態。
                 // 無駄な高頻度ポーリングを避けるため長めに待つ。
                 thread::sleep(Duration::from_millis(200));
                 continue;
-            }
+            },
         }
 
         thread::sleep(shared.poll_interval);
@@ -229,7 +237,10 @@ fn http_health_check(profile: &RuntimeProfile, timeout: Duration) -> bool {
     if stream.set_read_timeout(Some(timeout)).is_err() {
         return false;
     }
-    let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n", profile.port);
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+        profile.port
+    );
     if stream.write_all(request.as_bytes()).is_err() {
         return false;
     }
@@ -258,7 +269,11 @@ pub(crate) fn dummy_app_exe_path() -> std::path::PathBuf {
     let mut dir = std::env::current_exe().expect("current_exe");
     // .../target/debug/deps/open_runo_appserver-<hash>.exe から
     // .../target/debug/ まで遡る。
-    while dir.file_name().map(|n| n != "debug" && n != "release").unwrap_or(false) {
+    while dir
+        .file_name()
+        .map(|n| n != "debug" && n != "release")
+        .unwrap_or(false)
+    {
         if !dir.pop() {
             break;
         }
@@ -285,7 +300,11 @@ pub(crate) fn dummy_app_exe_path() -> std::path::PathBuf {
 #[cfg(all(test, unix))]
 pub(crate) fn dummy_stubborn_exe_path() -> std::path::PathBuf {
     let mut dir = std::env::current_exe().expect("current_exe");
-    while dir.file_name().map(|n| n != "debug" && n != "release").unwrap_or(false) {
+    while dir
+        .file_name()
+        .map(|n| n != "debug" && n != "release")
+        .unwrap_or(false)
+    {
         if !dir.pop() {
             break;
         }
@@ -320,7 +339,8 @@ mod tests {
 
     fn dummy_app_profile(port: u16) -> RuntimeProfile {
         let exe = super::dummy_app_exe_path();
-        let mut profile = RuntimeProfile::template(Stack::Custom("dummy".into()), "dummy", ".", port);
+        let mut profile =
+            RuntimeProfile::template(Stack::Custom("dummy".into()), "dummy", ".", port);
         profile.command = exe.to_string_lossy().to_string();
         profile.args.clear();
         profile.health_path = Some("/health".into());
@@ -356,7 +376,8 @@ mod tests {
             Duration::from_millis(50),
         );
         assert!(
-            wait_for(Duration::from_secs(5), || mgr.status() == HealthState::Healthy),
+            wait_for(Duration::from_secs(5), || mgr.status()
+                == HealthState::Healthy),
             "expected Healthy within 5s, last status = {:?}",
             mgr.status()
         );
@@ -372,7 +393,8 @@ mod tests {
             fast_policy(),
             Duration::from_millis(50),
         );
-        assert!(wait_for(Duration::from_secs(5), || mgr.status() == HealthState::Healthy));
+        assert!(wait_for(Duration::from_secs(5), || mgr.status()
+            == HealthState::Healthy));
         let pid_before = mgr.pid().expect("running process must have a pid");
 
         // 実際に /crash を叩いてプロセスを異常終了させる(モック無し)。
@@ -393,12 +415,16 @@ mod tests {
         // crash-loop backoffを経て自動的に再起動し、再度Healthyになる
         // ことを確認(新しいPIDで、同じポートに再bindされる)。
         assert!(
-            wait_for(Duration::from_secs(10), || mgr.status() == HealthState::Healthy),
+            wait_for(Duration::from_secs(10), || mgr.status()
+                == HealthState::Healthy),
             "expected automatic restart to become Healthy again, last status = {:?}",
             mgr.status()
         );
         let pid_after = mgr.pid().expect("restarted process must have a pid");
-        assert_ne!(pid_before, pid_after, "restart must spawn a genuinely new process");
+        assert_ne!(
+            pid_before, pid_after,
+            "restart must spawn a genuinely new process"
+        );
 
         mgr.stop();
     }
@@ -411,7 +437,8 @@ mod tests {
             fast_policy(),
             Duration::from_millis(50),
         );
-        assert!(wait_for(Duration::from_secs(5), || mgr.status() == HealthState::Healthy));
+        assert!(wait_for(Duration::from_secs(5), || mgr.status()
+            == HealthState::Healthy));
 
         mgr.stop();
         assert_eq!(mgr.status(), HealthState::Stopped);
@@ -424,7 +451,8 @@ mod tests {
 
         mgr.restart();
         assert!(
-            wait_for(Duration::from_secs(5), || mgr.status() == HealthState::Healthy),
+            wait_for(Duration::from_secs(5), || mgr.status()
+                == HealthState::Healthy),
             "expected explicit restart to bring the process back healthy"
         );
     }
@@ -440,16 +468,23 @@ mod tests {
             fast_policy(),
             Duration::from_millis(50),
         );
-        assert!(wait_for(Duration::from_secs(5), || mgr.status() == HealthState::Healthy));
+        assert!(wait_for(Duration::from_secs(5), || mgr.status()
+            == HealthState::Healthy));
 
         let graceful = mgr.stop_graceful(Duration::from_secs(5));
         assert_eq!(mgr.status(), HealthState::Stopped);
         assert!(TcpStream::connect(("127.0.0.1", port)).is_err());
 
         #[cfg(unix)]
-        assert!(graceful, "dummy server has no SIGTERM handler and should exit gracefully");
+        assert!(
+            graceful,
+            "dummy server has no SIGTERM handler and should exit gracefully"
+        );
         #[cfg(windows)]
-        assert!(!graceful, "Windows always falls back to force-kill (documented limitation)");
+        assert!(
+            !graceful,
+            "Windows always falls back to force-kill (documented limitation)"
+        );
 
         // stop_graceful後も自動再起動されないこと(stop()と同じ意味論)を確認。
         thread::sleep(Duration::from_millis(300));
@@ -457,7 +492,8 @@ mod tests {
 
         // 明示的restart()で復帰できること。
         mgr.restart();
-        assert!(wait_for(Duration::from_secs(5), || mgr.status() == HealthState::Healthy));
+        assert!(wait_for(Duration::from_secs(5), || mgr.status()
+            == HealthState::Healthy));
         mgr.stop();
     }
 
@@ -482,7 +518,8 @@ mod tests {
         };
         let mgr = ProcessLifecycleManager::start(profile, policy, Duration::from_millis(5));
         assert!(
-            wait_for(Duration::from_secs(10), || mgr.status() == HealthState::GaveUp),
+            wait_for(Duration::from_secs(10), || mgr.status()
+                == HealthState::GaveUp),
             "expected crash-looping process to eventually give up, last status = {:?}",
             mgr.status()
         );

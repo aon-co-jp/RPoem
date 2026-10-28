@@ -85,16 +85,39 @@ struct DemoProduct {
 
 fn sample_users() -> Vec<DemoUser> {
     vec![
-        DemoUser { id: "1".into(), name: "Alice".into(), email: "alice@example.com".into() },
-        DemoUser { id: "2".into(), name: "Bob".into(), email: "bob@example.com".into() },
+        DemoUser {
+            id: "1".into(),
+            name: "Alice".into(),
+            email: "alice@example.com".into(),
+        },
+        DemoUser {
+            id: "2".into(),
+            name: "Bob".into(),
+            email: "bob@example.com".into(),
+        },
     ]
 }
 
 fn sample_products() -> Vec<DemoProduct> {
     vec![
-        DemoProduct { id: "1".into(), title: "Widget".into(), price: 9.99, owner_id: "1".into() },
-        DemoProduct { id: "2".into(), title: "Gadget".into(), price: 19.99, owner_id: "2".into() },
-        DemoProduct { id: "3".into(), title: "Gizmo".into(), price: 29.99, owner_id: "1".into() },
+        DemoProduct {
+            id: "1".into(),
+            title: "Widget".into(),
+            price: 9.99,
+            owner_id: "1".into(),
+        },
+        DemoProduct {
+            id: "2".into(),
+            title: "Gadget".into(),
+            price: 19.99,
+            owner_id: "2".into(),
+        },
+        DemoProduct {
+            id: "3".into(),
+            title: "Gizmo".into(),
+            price: 29.99,
+            owner_id: "1".into(),
+        },
     ]
 }
 
@@ -177,10 +200,16 @@ impl DemoQueryRoot {
     }
 }
 
-pub type DemoSchema = Schema<DemoQueryRoot, async_graphql::EmptyMutation, async_graphql::EmptySubscription>;
+pub type DemoSchema =
+    Schema<DemoQueryRoot, async_graphql::EmptyMutation, async_graphql::EmptySubscription>;
 
 pub fn build_demo_schema() -> DemoSchema {
-    Schema::build(DemoQueryRoot, async_graphql::EmptyMutation, async_graphql::EmptySubscription).finish()
+    Schema::build(
+        DemoQueryRoot,
+        async_graphql::EmptyMutation,
+        async_graphql::EmptySubscription,
+    )
+    .finish()
 }
 
 /// `GET /demo` — a GraphiQL playground pre-pointed at `/demo/graphql`, with
@@ -247,7 +276,11 @@ mod tests {
         let router = Router::new().route(hyper::Method::GET, "/demo", get_h);
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
 
-        let resp = reqwest::Client::new().get(format!("http://{addr}/demo")).send().await.unwrap();
+        let resp = reqwest::Client::new()
+            .get(format!("http://{addr}/demo"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
         let body = resp.text().await.unwrap();
         assert!(body.contains("/demo/graphql"));
@@ -315,8 +348,12 @@ mod tests {
             .collect();
         assert!(services.contains(&"users-service"));
         assert!(services.contains(&"products-service"));
-        let types: Vec<&str> =
-            status["typeNames"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        let types: Vec<&str> = status["typeNames"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
         assert!(types.contains(&"User"));
         assert!(types.contains(&"Product"));
         // User(id,name,email) + Product(id,title,price,ownerId) = 7 fields.
@@ -326,7 +363,10 @@ mod tests {
     #[test]
     fn compose_demo_schema_uses_the_real_federation_core() {
         let composed = compose_demo_schema();
-        assert_eq!(composed.contributing_services, vec!["users-service", "products-service"]);
+        assert_eq!(
+            composed.contributing_services,
+            vec!["users-service", "products-service"]
+        );
         assert!(composed.types.contains_key("User"));
         assert!(composed.types.contains_key("Product"));
     }

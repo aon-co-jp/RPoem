@@ -61,7 +61,7 @@ pub fn route(
         }),
         RoutingPolicy::LatencyOptimized => {
             eligible.into_iter().min_by_key(|c| c.estimated_latency_ms)
-        }
+        },
         RoutingPolicy::LocalFirst | RoutingPolicy::PrivacyFirst => eligible
             .iter()
             .find(|c| c.is_local)
@@ -72,7 +72,8 @@ pub fn route(
     // `eligible` was checked non-empty above, so every match arm above
     // yields `Some`; we still surface a proper error instead of
     // panicking in case that invariant is ever broken by a future edit.
-    chosen.ok_or_else(|| AppError::Internal("routing candidate selection produced no result".into()))
+    chosen
+        .ok_or_else(|| AppError::Internal("routing candidate selection produced no result".into()))
 }
 
 #[cfg(test)]

@@ -45,7 +45,10 @@ struct FakeVersionedBackend {
 
 impl FakeVersionedBackend {
     fn new() -> Self {
-        Self { inner: InMemoryBackend::new(), next_commit: AtomicU64::new(1) }
+        Self {
+            inner: InMemoryBackend::new(),
+            next_commit: AtomicU64::new(1),
+        }
     }
 }
 
@@ -66,7 +69,13 @@ impl DbBackend for FakeVersionedBackend {
     async fn list(&self, table: &str) -> open_runo_core::Result<Vec<Record>> {
         self.inner.list(table).await
     }
-    async fn put_versioned(&self, table: &str, key: &str, value: &str, _commit_message: &str) -> open_runo_core::Result<Option<String>> {
+    async fn put_versioned(
+        &self,
+        table: &str,
+        key: &str,
+        value: &str,
+        _commit_message: &str,
+    ) -> open_runo_core::Result<Option<String>> {
         self.inner.put(table, key, value).await?;
         let id = self.next_commit.fetch_add(1, Ordering::Relaxed);
         Ok(Some(format!("fake-commit-{id}")))
@@ -87,13 +96,26 @@ impl WriteAheadLog for InMemoryWal {
         Ok(())
     }
     async fn mark_committed(&self, key: &str, commit_id: &str) -> anyhow::Result<()> {
-        if let Some(receipt) = self.processed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(key) {
+        if let Some(receipt) = self
+            .processed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_mut(key)
+        {
             receipt.db_commit_id = Some(commit_id.to_string());
         }
         Ok(())
     }
-    async fn is_already_processed(&self, key: &str) -> anyhow::Result<Option<open_web_server_core::MutationReceipt>> {
-        Ok(self.processed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(key).cloned())
+    async fn is_already_processed(
+        &self,
+        key: &str,
+    ) -> anyhow::Result<Option<open_web_server_core::MutationReceipt>> {
+        Ok(self
+            .processed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(key)
+            .cloned())
     }
 }
 
@@ -134,7 +156,10 @@ async fn ledger_commit_against_a_real_rpoem_server_actually_persists_the_mutatio
         .expect("Ledger::commit against a real RPoem server must succeed");
     assert!(receipt.committed);
     assert!(
-        receipt.db_commit_id.as_deref().is_some_and(|id| id.starts_with("fake-commit-")),
+        receipt
+            .db_commit_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with("fake-commit-")),
         "receipt must carry the commit_id RPoem's put_versioned produced: {:?}",
         receipt.db_commit_id
     );
@@ -147,5 +172,8 @@ async fn ledger_commit_against_a_real_rpoem_server_actually_persists_the_mutatio
         .await
         .expect("get should succeed")
         .expect("mutation written via Ledger must be visible through RPoem's own DbBackend");
-    assert!(stored.contains("sword"), "stored value should contain the mutated payload: {stored}");
+    assert!(
+        stored.contains("sword"),
+        "stored value should contain the mutated payload: {stored}"
+    );
 }

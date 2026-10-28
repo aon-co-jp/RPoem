@@ -121,11 +121,11 @@ fn main() {
             Health::Crashed(code) => {
                 saw_crashed = true;
                 println!("  -> クラッシュ検知 (exit code = {code:?})");
-            }
+            },
             Health::Starting => {
                 saw_restart = true;
-            }
-            _ => {}
+            },
+            _ => {},
         }
         if saw_crashed && saw_restart {
             break;
@@ -133,7 +133,10 @@ fn main() {
         std::thread::sleep(Duration::from_millis(100));
     }
     assert!(saw_crashed, "Supervisor did not detect the crash");
-    assert!(saw_restart, "Supervisor did not automatically restart after the crash");
+    assert!(
+        saw_restart,
+        "Supervisor did not automatically restart after the crash"
+    );
     println!("=== クラッシュ検知 + 自動再起動を確認 ===");
 
     let up_again = wait_until(
@@ -152,7 +155,10 @@ fn main() {
         || http_get(port, "/health").is_none(),
         Duration::from_secs(3),
     );
-    assert!(still_down, "process should be down immediately after stop()");
+    assert!(
+        still_down,
+        "process should be down immediately after stop()"
+    );
 
     // stop()後は明示的にtick()を呼ばない限りSupervisorは何もしない
     // (呼び出し側がpollループを止めれば再起動されない、というのが

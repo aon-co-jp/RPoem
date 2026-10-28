@@ -38,9 +38,17 @@ pub fn cell(raster: &PageRaster, cx: f32, cy: f32, side: f32) -> Option<Cell> {
                 for sx in 0..2 {
                     let px = (x0 + (gx as f32 + 0.25 + 0.5 * sx as f32) * step).floor() as i32;
                     let py = (y0 + (gy as f32 + 0.25 + 0.5 * sy as f32) * step).floor() as i32;
-                    if px >= 0 && py >= 0 && (px as usize) < raster.width && (py as usize) < raster.height {
+                    if px >= 0
+                        && py >= 0
+                        && (px as usize) < raster.width
+                        && (py as usize) < raster.height
+                    {
                         let i = (py as usize * raster.width + px as usize) * 4;
-                        let l = (299 * raster.rgba[i] as u32 + 587 * raster.rgba[i + 1] as u32 + 114 * raster.rgba[i + 2] as u32) as f32 / 1000.0;
+                        let l = (299 * raster.rgba[i] as u32
+                            + 587 * raster.rgba[i + 1] as u32
+                            + 114 * raster.rgba[i + 2] as u32)
+                            as f32
+                            / 1000.0;
                         s += 1.0 - l / 255.0;
                         c += 1.0;
                     }
@@ -58,8 +66,14 @@ pub fn cell(raster: &PageRaster, cx: f32, cy: f32, side: f32) -> Option<Cell> {
     let span = hi - lo;
     // 証拠: 升目の中に、背景よりはっきり濃い部分があるか(ざらつきだけの升目は、ここが小さい)。
     let evidence = ((span - 0.3) / 0.3).clamp(0.0, 1.0);
-    let map: Vec<f32> = dark.iter().map(|d| ((d - lo) / span.max(1e-3)).clamp(0.0, 1.0)).collect();
-    Some(Cell { map: open_runo_glyph::blur3(&map, N), evidence })
+    let map: Vec<f32> = dark
+        .iter()
+        .map(|d| ((d - lo) / span.max(1e-3)).clamp(0.0, 1.0))
+        .collect();
+    Some(Cell {
+        map: open_runo_glyph::blur3(&map, N),
+        evidence,
+    })
 }
 
 #[cfg(test)]
@@ -69,7 +83,10 @@ mod tests {
 
     fn font() -> Option<Glyphs> {
         // 試験用: 手元にあるフォントがあれば使う(無ければ、この試験は何もしない)。
-        for p in ["F:/tessdata-jpn/fonts/NotoSansJP-VF.ttf", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"] {
+        for p in [
+            "F:/tessdata-jpn/fonts/NotoSansJP-VF.ttf",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        ] {
             if let Ok(b) = std::fs::read(p) {
                 if let Some(g) = Glyphs::with_fonts(&[&b[..]]) {
                     return Some(g);
@@ -87,8 +104,18 @@ mod tests {
         let mut seed = 12345u32;
         for y in 0..h {
             for x in 0..w {
-                let (gx, gy) = ((x / scale) as i32 - off as i32, (y / scale) as i32 - off as i32);
-                let v = if (0..G as i32).contains(&gx) && (0..G as i32).contains(&gy) && !map.is_empty() { map[gy as usize * G + gx as usize] } else { 0.0 };
+                let (gx, gy) = (
+                    (x / scale) as i32 - off as i32,
+                    (y / scale) as i32 - off as i32,
+                );
+                let v = if (0..G as i32).contains(&gx)
+                    && (0..G as i32).contains(&gy)
+                    && !map.is_empty()
+                {
+                    map[gy as usize * G + gx as usize]
+                } else {
+                    0.0
+                };
                 // 紙のざらつき(±0.1 程度)を足す。
                 seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
                 let noise = ((seed >> 16) as f32 / 65535.0 - 0.5) * 0.2;
@@ -99,7 +126,13 @@ mod tests {
                 rgba[i + 2] = g;
             }
         }
-        PageRaster { width: w, height: h, rgba, png: Vec::new(), px_to_user: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] }
+        PageRaster {
+            width: w,
+            height: h,
+            rgba,
+            png: Vec::new(),
+            px_to_user: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        }
     }
 
     #[test]
@@ -112,17 +145,36 @@ mod tests {
         for truth in ['日', '毎', '朝', '持'] {
             // 字形の格子はぼかし済みで薄いので、強めに引き伸ばして「コントラスト補正後の字」にする。
             let page = raster_of(&g.render(0, truth).unwrap(), 3, 3.5);
-            let cell = cell(&page, page.width as f32 / 2.0, page.height as f32 / 2.0, page.width as f32).unwrap();
-            assert!(cell.evidence > 0.5, "{truth}: faded ink is still evidence ({})", cell.evidence);
+            let cell = cell(
+                &page,
+                page.width as f32 / 2.0,
+                page.height as f32 / 2.0,
+                page.width as f32,
+            )
+            .unwrap();
+            assert!(
+                cell.evidence > 0.5,
+                "{truth}: faded ink is still evidence ({})",
+                cell.evidence
+            );
             let (top, _) = index.rank_cpu(&cell.map, 1, &[]);
-            assert_eq!(top[0].1, truth, "{truth} should be the best match, got {top:?}");
+            assert_eq!(
+                top[0].1, truth,
+                "{truth} should be the best match, got {top:?}"
+            );
         }
     }
 
     #[test]
     fn an_empty_cell_has_no_evidence() {
         let page = raster_of(&vec![0.0; G * G], 3, 1.0); // ざらつきだけ
-        let c = cell(&page, page.width as f32 / 2.0, page.height as f32 / 2.0, page.width as f32).unwrap();
+        let c = cell(
+            &page,
+            page.width as f32 / 2.0,
+            page.height as f32 / 2.0,
+            page.width as f32,
+        )
+        .unwrap();
         assert!(c.evidence < 0.05, "{}", c.evidence);
     }
 }

@@ -17,9 +17,15 @@ pub enum TsClient {
 fn ident(s: &str) -> String {
     let mut out: String = s
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    if out.chars().next().map_or(true, |c| c.is_ascii_digit()) {
+    if out.chars().next().is_none_or(|c| c.is_ascii_digit()) {
         out.insert(0, '_');
     }
     out
@@ -43,7 +49,10 @@ fn snake(s: &str) -> String {
 }
 
 fn ref_name(schema: &Value) -> Option<&str> {
-    schema.get("$ref")?.as_str()?.strip_prefix("#/components/schemas/")
+    schema
+        .get("$ref")?
+        .as_str()?
+        .strip_prefix("#/components/schemas/")
 }
 
 fn first_success_schema(op: &Operation) -> Option<&Value> {
@@ -62,7 +71,10 @@ fn first_success_schema(op: &Operation) -> Option<&Value> {
 }
 
 fn is_multipart(op: &Operation) -> bool {
-    op.request_body.as_ref().and_then(|b| b.pointer("/content/multipart~1form-data")).is_some()
+    op.request_body
+        .as_ref()
+        .and_then(|b| b.pointer("/content/multipart~1form-data"))
+        .is_some()
 }
 
 /// SSE/WebSocketの操作で、サーバーから流れてくる1メッセージのスキーマ。
@@ -92,11 +104,19 @@ fn is_nullable(s: &Value) -> bool {
 
 fn gql_type(s: &Value, input: bool) -> String {
     if let Some(n) = ref_name(s) {
-        return if input { format!("{}Input", ident(n)) } else { ident(n) };
+        return if input {
+            format!("{}Input", ident(n))
+        } else {
+            ident(n)
+        };
     }
     if let Some(Value::Array(v)) = s.get("allOf") {
         if let Some(n) = v.first().and_then(ref_name) {
-            return if input { format!("{}Input", ident(n)) } else { ident(n) };
+            return if input {
+                format!("{}Input", ident(n))
+            } else {
+                ident(n)
+            };
         }
     }
     match s.get("type").and_then(Value::as_str) {
@@ -105,9 +125,11 @@ fn gql_type(s: &Value, input: bool) -> String {
         Some("number") => "Float".into(),
         Some("boolean") => "Boolean".into(),
         Some("array") => {
-            let inner = s.get("items").map_or("JSON".into(), |i| gql_field_type(i, true, input));
+            let inner = s
+                .get("items")
+                .map_or("JSON".into(), |i| gql_field_type(i, true, input));
             format!("[{inner}]")
-        }
+        },
         _ => "JSON".into(),
     }
 }
@@ -122,18 +144,23 @@ fn gql_field_type(s: &Value, required: bool, input: bool) -> String {
 }
 
 fn gql_objects(spec_doc: &Value, input_names: &BTreeSet<String>, out: &mut String) {
-    let Some(schemas) = spec_doc.pointer("/components/schemas").and_then(Value::as_object) else {
+    let Some(schemas) = spec_doc
+        .pointer("/components/schemas")
+        .and_then(Value::as_object)
+    else {
         return;
     };
     for (name, s) in schemas {
         let Some(props) = s.get("properties").and_then(Value::as_object) else {
             if let Some(Value::Array(vals)) = s.get("enum") {
-                let names: Vec<String> = vals
-                    .iter()
-                    .filter_map(|v| v.as_str().map(ident))
-                    .collect();
+                let names: Vec<String> =
+                    vals.iter().filter_map(|v| v.as_str().map(ident)).collect();
                 if !names.is_empty() {
-                    out.push_str(&format!("enum {} {{ {} }}\n\n", ident(name), names.join(" ")));
+                    out.push_str(&format!(
+                        "enum {} {{ {} }}\n\n",
+                        ident(name),
+                        names.join(" ")
+                    ));
                 }
             }
             continue;
@@ -188,20 +215,34 @@ impl Spec {
                 .map(|p| format!("{}: String!", ident(p)))
                 .collect();
             for p in &op.params {
-                let (Some(name), Some(sch)) = (p.get("name").and_then(Value::as_str), p.get("schema")) else {
+                let (Some(name), Some(sch)) =
+                    (p.get("name").and_then(Value::as_str), p.get("schema"))
+                else {
                     continue;
                 };
                 let req = p.get("required").and_then(Value::as_bool) == Some(true);
-                args.push(format!("{}: {}", ident(name), gql_field_type(sch, req, true)));
+                args.push(format!(
+                    "{}: {}",
+                    ident(name),
+                    gql_field_type(sch, req, true)
+                ));
             }
             if let Some(b) = body_schema(op) {
                 args.push(format!("input: {}", gql_field_type(b, true, true)));
             } else if op.request_body.is_some() {
                 args.push("input: String!".into());
             }
-            let ret_schema = if op.stream.is_some() { stream_event_schema(op) } else { first_success_schema(op) };
+            let ret_schema = if op.stream.is_some() {
+                stream_event_schema(op)
+            } else {
+                first_success_schema(op)
+            };
             let ret = ret_schema.map_or("JSON".to_owned(), |s| gql_field_type(s, false, false));
-            let arglist = if args.is_empty() { String::new() } else { format!("({})", args.join(", ")) };
+            let arglist = if args.is_empty() {
+                String::new()
+            } else {
+                format!("({})", args.join(", "))
+            };
             let line = format!(
                 "  \"\"\"{} {}\"\"\"\n  {}{}: {}\n",
                 op.method.key().to_uppercase(),
@@ -274,9 +315,16 @@ impl Spec {
     pub fn to_typescript(&self, client: TsClient) -> String {
         let doc = self.build();
         let mut out = String::from("// 自動生成(open-runo-openapi)。手で編集しない。\n\n");
-        if let Some(schemas) = doc.pointer("/components/schemas").and_then(Value::as_object) {
+        if let Some(schemas) = doc
+            .pointer("/components/schemas")
+            .and_then(Value::as_object)
+        {
             for (name, s) in schemas {
-                out.push_str(&format!("export type {} = {};\n\n", ident(name), ts_type(s)));
+                out.push_str(&format!(
+                    "export type {} = {};\n\n",
+                    ident(name),
+                    ts_type(s)
+                ));
             }
         }
         match client {
@@ -307,17 +355,28 @@ impl Spec {
                     "  // SSE/WebSocketはブラウザの仕組み上ヘッダを付けられない(認証はクエリ等で)。\n",
                     "  return {\n"
                 ));
-            }
+            },
             TsClient::TauriInvoke => {
-                out.push_str("import { invoke } from '@tauri-apps/api/core';\n\nexport const api = {\n");
-            }
+                out.push_str(
+                    "import { invoke } from '@tauri-apps/api/core';\n\nexport const api = {\n",
+                );
+            },
         }
         for op in self.operations() {
             let id = ident(&op.operation_id());
-            let mut fields: Vec<String> = op.path_params.iter().map(|p| format!("{}: string", ident(p))).collect();
+            let mut fields: Vec<String> = op
+                .path_params
+                .iter()
+                .map(|p| format!("{}: string", ident(p)))
+                .collect();
             for p in &op.params {
-                if let (Some(n), Some(s)) = (p.get("name").and_then(Value::as_str), p.get("schema")) {
-                    let opt = if p.get("required").and_then(Value::as_bool) == Some(true) { "" } else { "?" };
+                if let (Some(n), Some(s)) = (p.get("name").and_then(Value::as_str), p.get("schema"))
+                {
+                    let opt = if p.get("required").and_then(Value::as_bool) == Some(true) {
+                        ""
+                    } else {
+                        "?"
+                    };
                     fields.push(format!("{}{opt}: {}", ident(n), ts_type(s)));
                 }
             }
@@ -329,36 +388,65 @@ impl Spec {
                 fields.push("body: string | Uint8Array".into());
             }
             let ret = first_success_schema(op).map_or("unknown".to_owned(), ts_type);
-            let args = if fields.is_empty() { String::new() } else { format!("args: {{ {} }}", fields.join("; ")) };
+            let args = if fields.is_empty() {
+                String::new()
+            } else {
+                format!("args: {{ {} }}", fields.join("; "))
+            };
             if let Some(kind) = op.stream {
                 // 長く続く接続は、Promiseではなくコールバックで受ける(Tauriのinvokeでは扱えない)。
                 if client == TsClient::Fetch {
                     let mut path = format!("`{}`", op.path);
                     for p in &op.path_params {
-                        path = path.replace(&format!("{{{p}}}"), &format!("${{encodeURIComponent(args.{})}}", ident(p)));
+                        path = path.replace(
+                            &format!("{{{p}}}"),
+                            &format!("${{encodeURIComponent(args.{})}}", ident(p)),
+                        );
                     }
                     let qkeys: Vec<String> = op
                         .params
                         .iter()
                         .filter_map(|p| p.get("name").and_then(Value::as_str))
-                        .map(|n| format!("{}: args.{}", serde_json::to_string(n).unwrap_or_default(), ident(n)))
+                        .map(|n| {
+                            format!(
+                                "{}: args.{}",
+                                serde_json::to_string(n).unwrap_or_default(),
+                                ident(n)
+                            )
+                        })
                         .collect();
                     let summary = op.summary.clone().unwrap_or_else(|| op.route_label());
                     let ev = stream_event_schema(op).map_or("unknown".to_owned(), ts_type);
-                    let a = if fields.is_empty() { String::new() } else { format!("{args}, ") };
+                    let a = if fields.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{args}, ")
+                    };
                     match kind {
                         StreamKind::Sse => {
                             let names: Vec<String> = op
                                 .extensions
                                 .get("x-sse-events")
                                 .and_then(Value::as_array)
-                                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                                .map(|a| {
+                                    a.iter()
+                                        .filter_map(|v| v.as_str().map(str::to_owned))
+                                        .collect()
+                                })
                                 .unwrap_or_default();
                             // イベント名つきは名前ごとに購読し、第1引数でイベント名も渡す。
                             let (cb, listen) = if names.is_empty() {
-                                (format!("onEvent: (e: {ev}) => void"), "      es.onmessage = (m) => onEvent(JSON.parse(m.data));\n".to_owned())
+                                (
+                                    format!("onEvent: (e: {ev}) => void"),
+                                    "      es.onmessage = (m) => onEvent(JSON.parse(m.data));\n"
+                                        .to_owned(),
+                                )
                             } else {
-                                let union = names.iter().map(|n| serde_json::to_string(n).unwrap_or_default()).collect::<Vec<_>>().join(" | ");
+                                let union = names
+                                    .iter()
+                                    .map(|n| serde_json::to_string(n).unwrap_or_default())
+                                    .collect::<Vec<_>>()
+                                    .join(" | ");
                                 let mut l = String::new();
                                 for n in &names {
                                     let q = serde_json::to_string(n).unwrap_or_default();
@@ -370,25 +458,41 @@ impl Spec {
                                 "    /** {summary}(SSE) 戻り値の関数で切断する */\n    {id}: ({a}{cb}, onError?: (e: Event) => void): (() => void) => {{\n      const es = new EventSource(url({path}, {{ {} }}));\n{listen}      if (onError) es.onerror = onError;\n      return () => es.close();\n    }},\n",
                                 qkeys.join(", ")
                             ));
-                        }
+                        },
                         StreamKind::WebSocket => {
                             let sent = ws_client_schema(op).map_or("unknown".to_owned(), ts_type);
                             let bin = op.extensions.get("x-websocket-binary");
-                            let to_server = bin.and_then(|b| b.get("client")).is_some_and(|v| !v.is_null());
-                            let from_server = bin.and_then(|b| b.get("server")).is_some_and(|v| !v.is_null());
-                            let on_bin = if from_server { ", onBinary?: (data: ArrayBuffer) => void" } else { "" };
-                            let send_bin = if to_server { "; sendBinary: (data: ArrayBuffer | Uint8Array) => void" } else { "" };
+                            let to_server = bin
+                                .and_then(|b| b.get("client"))
+                                .is_some_and(|v| !v.is_null());
+                            let from_server = bin
+                                .and_then(|b| b.get("server"))
+                                .is_some_and(|v| !v.is_null());
+                            let on_bin = if from_server {
+                                ", onBinary?: (data: ArrayBuffer) => void"
+                            } else {
+                                ""
+                            };
+                            let send_bin = if to_server {
+                                "; sendBinary: (data: ArrayBuffer | Uint8Array) => void"
+                            } else {
+                                ""
+                            };
                             let recv = if from_server {
                                 "      ws.binaryType = 'arraybuffer';\n      ws.onmessage = (m) => (typeof m.data === 'string' ? onMessage(JSON.parse(m.data)) : onBinary?.(m.data as ArrayBuffer));\n"
                             } else {
                                 "      ws.onmessage = (m) => onMessage(JSON.parse(m.data));\n"
                             };
-                            let send_impl = if to_server { ", sendBinary: (d) => ws.send(d)" } else { "" };
+                            let send_impl = if to_server {
+                                ", sendBinary: (d) => ws.send(d)"
+                            } else {
+                                ""
+                            };
                             out.push_str(&format!(
                                 "    /** {summary}(WebSocket) */\n    {id}: ({a}onMessage: (m: {ev}) => void, onClose?: () => void{on_bin}): {{ send: (m: {sent}) => void; close: () => void{send_bin} }} => {{\n      const ws = new WebSocket(url({path}, {{ {} }}).replace(/^http/, 'ws'));\n{recv}      if (onClose) ws.onclose = onClose;\n      return {{ send: (m) => ws.send(JSON.stringify(m)), close: () => ws.close(){send_impl} }};\n    }},\n",
                                 qkeys.join(", ")
                             ));
-                        }
+                        },
                     }
                 }
                 continue;
@@ -401,26 +505,39 @@ impl Spec {
                         op.summary.clone().unwrap_or_else(|| op.route_label()),
                         snake(&op.operation_id())
                     ));
-                }
+                },
                 TsClient::Fetch => {
                     let mut path = format!("`{}`", op.path);
                     for p in &op.path_params {
-                        path = path.replace(&format!("{{{p}}}"), &format!("${{encodeURIComponent(args.{})}}", ident(p)));
+                        path = path.replace(
+                            &format!("{{{p}}}"),
+                            &format!("${{encodeURIComponent(args.{})}}", ident(p)),
+                        );
                     }
                     let qkeys: Vec<String> = op
                         .params
                         .iter()
                         .filter_map(|p| p.get("name").and_then(Value::as_str))
-                        .map(|n| format!("{}: args.{}", serde_json::to_string(n).unwrap_or_default(), ident(n)))
+                        .map(|n| {
+                            format!(
+                                "{}: args.{}",
+                                serde_json::to_string(n).unwrap_or_default(),
+                                ident(n)
+                            )
+                        })
                         .collect();
-                    let body = if op.request_body.is_some() { ", args.body" } else { "" };
+                    let body = if op.request_body.is_some() {
+                        ", args.body"
+                    } else {
+                        ""
+                    };
                     out.push_str(&format!(
                         "    /** {} */\n    {id}: ({args}): Promise<{ret}> => call('{}', {path}, {{ {} }}{body}),\n",
                         op.summary.clone().unwrap_or_else(|| op.route_label()),
                         op.method.key().to_uppercase(),
                         qkeys.join(", ")
                     ));
-                }
+                },
             }
         }
         out.push_str(match client {
@@ -456,7 +573,10 @@ fn ts_type(s: &Value) -> String {
         Some("string") => "string".into(),
         Some("integer") | Some("number") => "number".to_string(),
         Some("boolean") => "boolean".into(),
-        Some("array") => format!("Array<{}>", s.get("items").map_or("unknown".into(), ts_type)),
+        Some("array") => format!(
+            "Array<{}>",
+            s.get("items").map_or("unknown".into(), ts_type)
+        ),
         Some("object") => match s.get("properties").and_then(Value::as_object) {
             Some(props) if !props.is_empty() => {
                 let required: BTreeSet<&str> = s
@@ -467,12 +587,20 @@ fn ts_type(s: &Value) -> String {
                 let fields: Vec<String> = props
                     .iter()
                     .map(|(k, v)| {
-                        let opt = if required.contains(k.as_str()) { "" } else { "?" };
-                        format!("{}{opt}: {}", serde_json::to_string(k).unwrap_or_default(), ts_type(v))
+                        let opt = if required.contains(k.as_str()) {
+                            ""
+                        } else {
+                            "?"
+                        };
+                        format!(
+                            "{}{opt}: {}",
+                            serde_json::to_string(k).unwrap_or_default(),
+                            ts_type(v)
+                        )
                     })
                     .collect();
                 format!("{{ {} }}", fields.join("; "))
-            }
+            },
             _ => match s.get("additionalProperties") {
                 Some(a) if a.is_object() => format!("Record<string, {}>", ts_type(a)),
                 _ => "Record<string, unknown>".into(),
@@ -484,5 +612,9 @@ fn ts_type(s: &Value) -> String {
 }
 
 fn wrap_nullable(s: &Value, t: String) -> String {
-    if is_nullable(s) { format!("{t} | null") } else { t }
+    if is_nullable(s) {
+        format!("{t} | null")
+    } else {
+        t
+    }
 }

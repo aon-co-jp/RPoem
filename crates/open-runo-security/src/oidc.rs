@@ -64,30 +64,46 @@ impl OidcValidator {
             if jwk.kty != "RSA" {
                 continue;
             }
-            let (Some(n), Some(e)) = (&jwk.n, &jwk.e) else { continue };
+            let (Some(n), Some(e)) = (&jwk.n, &jwk.e) else {
+                continue;
+            };
             let key = jsonwebtoken::DecodingKey::from_rsa_components(n, e)
                 .map_err(|err| AppError::Validation(format!("invalid RSA JWK: {err}")))?;
             keys.insert(jwk.kid.unwrap_or_default(), key);
         }
 
         if keys.is_empty() {
-            return Err(AppError::Validation("JWKS contains no usable RSA signing keys".into()));
+            return Err(AppError::Validation(
+                "JWKS contains no usable RSA signing keys".into(),
+            ));
         }
 
-        Ok(Self { issuer: issuer.into(), audience, keys })
+        Ok(Self {
+            issuer: issuer.into(),
+            audience,
+            keys,
+        })
     }
 
     /// Load from env: `OPEN_RUNO_OIDC_ISSUER` + `OPEN_RUNO_OIDC_JWKS_FILE`
     /// (path to a JWKS JSON file) and optional `OPEN_RUNO_OIDC_AUDIENCE`.
     /// Returns `None` (OIDC disabled) when the vars are unset.
     pub fn from_env() -> Option<Result<Self>> {
-        let issuer = std::env::var("OPEN_RUNO_OIDC_ISSUER").ok().filter(|s| !s.is_empty())?;
-        let jwks_path = std::env::var("OPEN_RUNO_OIDC_JWKS_FILE").ok().filter(|s| !s.is_empty())?;
-        let audience = std::env::var("OPEN_RUNO_OIDC_AUDIENCE").ok().filter(|s| !s.is_empty());
+        let issuer = std::env::var("OPEN_RUNO_OIDC_ISSUER")
+            .ok()
+            .filter(|s| !s.is_empty())?;
+        let jwks_path = std::env::var("OPEN_RUNO_OIDC_JWKS_FILE")
+            .ok()
+            .filter(|s| !s.is_empty())?;
+        let audience = std::env::var("OPEN_RUNO_OIDC_AUDIENCE")
+            .ok()
+            .filter(|s| !s.is_empty());
 
         Some(match std::fs::read_to_string(&jwks_path) {
             Ok(json) => Self::from_jwks_json(issuer, audience, &json),
-            Err(e) => Err(AppError::Validation(format!("cannot read JWKS file {jwks_path}: {e}"))),
+            Err(e) => Err(AppError::Validation(format!(
+                "cannot read JWKS file {jwks_path}: {e}"
+            ))),
         })
     }
 
@@ -190,7 +206,10 @@ mod tests {
 
     #[test]
     fn missing_kid_falls_back_when_single_key() {
-        let token = sign(&json!({ "sub": "bob", "iss": ISSUER, "exp": exp_in(3600) }), None);
+        let token = sign(
+            &json!({ "sub": "bob", "iss": ISSUER, "exp": exp_in(3600) }),
+            None,
+        );
         assert_eq!(validator().decode(&token).unwrap().sub, "bob");
     }
 

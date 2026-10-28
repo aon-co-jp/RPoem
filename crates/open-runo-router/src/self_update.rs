@@ -71,7 +71,11 @@ pub(crate) struct LatestRelease {
 pub(crate) fn parse_version(raw: &str) -> (u64, u64, u64) {
     let trimmed = raw.trim().trim_start_matches('v');
     let mut parts = trimmed.split('.').map(|s| s.parse::<u64>().unwrap_or(0));
-    (parts.next().unwrap_or(0), parts.next().unwrap_or(0), parts.next().unwrap_or(0))
+    (
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+    )
 }
 
 pub(crate) fn is_newer(remote: &str, local: &str) -> bool {
@@ -79,9 +83,15 @@ pub(crate) fn is_newer(remote: &str, local: &str) -> bool {
 }
 
 async fn fetch_latest_release() -> anyhow::Result<LatestRelease> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(10)).build()?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
     let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
-    let res = client.get(&url).header("User-Agent", "open-runo-router-self-updater").send().await?;
+    let res = client
+        .get(&url)
+        .header("User-Agent", "open-runo-router-self-updater")
+        .send()
+        .await?;
     if !res.status().is_success() {
         anyhow::bail!("GitHub releases API returned HTTP {}", res.status());
     }
@@ -89,11 +99,17 @@ async fn fetch_latest_release() -> anyhow::Result<LatestRelease> {
 }
 
 fn windows_zip_asset(release: &LatestRelease) -> Option<&ReleaseAsset> {
-    release.assets.iter().find(|a| a.name.to_lowercase().ends_with(".zip") && a.name.to_lowercase().contains("windows"))
+    release.assets.iter().find(|a| {
+        a.name.to_lowercase().ends_with(".zip") && a.name.to_lowercase().contains("windows")
+    })
 }
 
 fn linux_tarball_asset(release: &LatestRelease) -> Option<&ReleaseAsset> {
-    let arch = if cfg!(target_arch = "aarch64") { "aarch64" } else { "x86_64" };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x86_64"
+    };
     release.assets.iter().find(|a| {
         let name = a.name.to_lowercase();
         name.ends_with(".tar.gz") && name.contains("linux") && name.contains(arch)
@@ -102,7 +118,13 @@ fn linux_tarball_asset(release: &LatestRelease) -> Option<&ReleaseAsset> {
 
 async fn download_to(url: &str, dest: &std::path::Path) -> anyhow::Result<()> {
     let client = reqwest::Client::builder().build()?;
-    let bytes = client.get(url).header("User-Agent", "open-runo-router-self-updater").send().await?.bytes().await?;
+    let bytes = client
+        .get(url)
+        .header("User-Agent", "open-runo-router-self-updater")
+        .send()
+        .await?
+        .bytes()
+        .await?;
     std::fs::write(dest, &bytes)?;
     Ok(())
 }
@@ -122,7 +144,10 @@ pub(crate) fn set_executable_permission(_path: &std::path::Path) -> std::io::Res
 
 pub(crate) async fn health_check(addr: &SocketAddr) -> bool {
     let url = format!("http://{addr}/healthz");
-    let Ok(client) = reqwest::Client::builder().timeout(Duration::from_secs(3)).build() else {
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+    else {
         return false;
     };
     match client.get(&url).send().await {
@@ -135,7 +160,9 @@ async fn health_check_with_wait(child: &mut tokio::process::Child, addr: &Socket
     for _ in 0..HEALTH_CHECK_SECS {
         tokio::time::sleep(Duration::from_secs(1)).await;
         if let Ok(Some(status)) = child.try_wait() {
-            tracing::warn!("open-runo-router self-update: new version exited immediately (status: {status})");
+            tracing::warn!(
+                "open-runo-router self-update: new version exited immediately (status: {status})"
+            );
             return false;
         }
     }
@@ -156,7 +183,10 @@ fn real_bind_addr() -> SocketAddr {
 /// プロセス(このプロセス自身)は一度も止めずに動作を継続する。
 async fn apply_update_unix(tarball_path: &std::path::Path) -> anyhow::Result<()> {
     let exe = std::env::current_exe()?;
-    let install_dir = exe.parent().ok_or_else(|| anyhow::anyhow!("could not resolve install directory"))?.to_path_buf();
+    let install_dir = exe
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("could not resolve install directory"))?
+        .to_path_buf();
 
     let backup_path = install_dir.join("open-runo-router.bak");
     std::fs::copy(&exe, &backup_path)?;
@@ -165,7 +195,11 @@ async fn apply_update_unix(tarball_path: &std::path::Path) -> anyhow::Result<()>
     let _ = std::fs::remove_dir_all(&extract_dir);
     std::fs::create_dir_all(&extract_dir)?;
 
-    let status = tokio::process::Command::new("tar").args(["xzf", &tarball_path.to_string_lossy(), "-C"]).arg(&extract_dir).status().await?;
+    let status = tokio::process::Command::new("tar")
+        .args(["xzf", &tarball_path.to_string_lossy(), "-C"])
+        .arg(&extract_dir)
+        .status()
+        .await?;
     if !status.success() {
         anyhow::bail!("tar extraction failed with status {status}");
     }
@@ -181,11 +215,17 @@ async fn apply_update_unix(tarball_path: &std::path::Path) -> anyhow::Result<()>
     let real_addr = real_bind_addr();
     let probe_addr = SocketAddr::new(real_addr.ip(), real_addr.port().wrapping_add(1));
 
-    let mut probe_child = tokio::process::Command::new(&new_exe).current_dir(&install_dir).env("OPEN_RUNO_ROUTER_BIND", probe_addr.to_string()).spawn()?;
+    let mut probe_child = tokio::process::Command::new(&new_exe)
+        .current_dir(&install_dir)
+        .env("OPEN_RUNO_ROUTER_BIND", probe_addr.to_string())
+        .spawn()?;
 
     if health_check_with_wait(&mut probe_child, &probe_addr).await {
         let _ = probe_child.kill().await;
-        tokio::process::Command::new(&new_exe).current_dir(&install_dir).env("OPEN_RUNO_ROUTER_BIND", real_addr.to_string()).spawn()?;
+        tokio::process::Command::new(&new_exe)
+            .current_dir(&install_dir)
+            .env("OPEN_RUNO_ROUTER_BIND", real_addr.to_string())
+            .spawn()?;
         tracing::info!("open-runo-router self-update: new version passed health check, switching over and exiting");
         std::process::exit(0);
     }
@@ -203,7 +243,11 @@ async fn apply_update_unix(tarball_path: &std::path::Path) -> anyhow::Result<()>
 /// ファイルロックを解放する。
 async fn apply_update_windows(zip_path: &std::path::Path) -> anyhow::Result<()> {
     let exe = std::env::current_exe()?;
-    let exe_name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("open-runo-router.exe").to_string();
+    let exe_name = exe
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("open-runo-router.exe")
+        .to_string();
     let real_addr = real_bind_addr();
 
     let extract_dir = std::env::temp_dir().join("open-runo-router-self-update-extract");
@@ -212,14 +256,22 @@ async fn apply_update_windows(zip_path: &std::path::Path) -> anyhow::Result<()> 
     let mut script = String::from("@echo off\r\nping 127.0.0.1 -n 3 > nul\r\n");
     script += &format!("taskkill /IM \"{exe_name}\" /F >nul 2>nul\r\n");
     script += "ping 127.0.0.1 -n 2 > nul\r\n";
-    script += &format!("copy /Y \"{}\" \"{}.bak\"\r\n", exe.display(), exe.display());
+    script += &format!(
+        "copy /Y \"{}\" \"{}.bak\"\r\n",
+        exe.display(),
+        exe.display()
+    );
     script += &format!("rd /S /Q \"{}\" >nul 2>nul\r\n", extract_dir.display());
     script += &format!(
         "powershell -NoProfile -Command \"Expand-Archive -Path '{}' -DestinationPath '{}' -Force\"\r\n",
         zip_path.display(),
         extract_dir.display()
     );
-    script += &format!("copy /Y \"{}\\open-runo-router.exe\" \"{}\"\r\n", extract_dir.display(), exe.display());
+    script += &format!(
+        "copy /Y \"{}\\open-runo-router.exe\" \"{}\"\r\n",
+        extract_dir.display(),
+        exe.display()
+    );
     script += &format!("start \"\" \"{}\"\r\n", exe.display());
     script += &format!("ping 127.0.0.1 -n {} > nul\r\n", HEALTH_CHECK_SECS + 3);
     script += &format!(
@@ -228,13 +280,19 @@ async fn apply_update_windows(zip_path: &std::path::Path) -> anyhow::Result<()> 
     script += "if %errorlevel% neq 0 (\r\n";
     script += &format!("  taskkill /IM \"{exe_name}\" /F >nul 2>nul\r\n");
     script += "  ping 127.0.0.1 -n 2 > nul\r\n";
-    script += &format!("  copy /Y \"{}.bak\" \"{}\"\r\n", exe.display(), exe.display());
+    script += &format!(
+        "  copy /Y \"{}.bak\" \"{}\"\r\n",
+        exe.display(),
+        exe.display()
+    );
     script += &format!("  start \"\" \"{}\"\r\n", exe.display());
     script += ")\r\n";
     script += &format!("del \"{}\"\r\n", script_path.display());
     std::fs::write(&script_path, script)?;
 
-    tokio::process::Command::new("cmd").args(["/C", "start", "", script_path.to_string_lossy().as_ref()]).spawn()?;
+    tokio::process::Command::new("cmd")
+        .args(["/C", "start", "", script_path.to_string_lossy().as_ref()])
+        .spawn()?;
 
     tracing::info!("open-runo-router self-update: launched replace+healthcheck script, exiting to release file locks");
     std::process::exit(0);
@@ -244,7 +302,9 @@ async fn apply_update_windows(zip_path: &std::path::Path) -> anyhow::Result<()> 
 /// `OPEN_RUNO_ROUTER_SELF_UPDATE=true`が設定されている場合のみ動作する
 /// (既定オフ、モジュールdoc「正直な開示」参照)。
 pub async fn check_and_apply_update() {
-    let enabled = std::env::var("OPEN_RUNO_ROUTER_SELF_UPDATE").map(|v| v == "true" || v == "1").unwrap_or(false);
+    let enabled = std::env::var("OPEN_RUNO_ROUTER_SELF_UPDATE")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
     if !enabled {
         tracing::debug!("open-runo-router self-update: disabled (set OPEN_RUNO_ROUTER_SELF_UPDATE=true to enable)");
         return;
@@ -259,35 +319,52 @@ pub async fn check_and_apply_update() {
         Err(e) => {
             tracing::warn!("open-runo-router self-update: could not check GitHub releases ({e}) — continuing without updating");
             return;
-        }
+        },
     };
 
     let local = env!("CARGO_PKG_VERSION");
     if !is_newer(&release.tag_name, local) {
-        tracing::info!("open-runo-router self-update: up to date (local {local}, latest release {})", release.tag_name);
+        tracing::info!(
+            "open-runo-router self-update: up to date (local {local}, latest release {})",
+            release.tag_name
+        );
         return;
     }
 
     let is_windows = cfg!(target_os = "windows");
-    let asset = if is_windows { windows_zip_asset(&release) } else { linux_tarball_asset(&release) };
+    let asset = if is_windows {
+        windows_zip_asset(&release)
+    } else {
+        linux_tarball_asset(&release)
+    };
     let Some(asset) = asset else {
         tracing::warn!("open-runo-router self-update: newer release {} found but no matching asset attached — skipping", release.tag_name);
         return;
     };
 
-    tracing::info!("open-runo-router self-update: newer release {} found (local {local}), downloading {}", release.tag_name, asset.name);
+    tracing::info!(
+        "open-runo-router self-update: newer release {} found (local {local}), downloading {}",
+        release.tag_name,
+        asset.name
+    );
 
     let dest = std::env::temp_dir().join(&asset.name);
     match download_to(&asset.browser_download_url, &dest).await {
         Ok(()) => {
-            let result = if is_windows { apply_update_windows(&dest).await } else { apply_update_unix(&dest).await };
+            let result = if is_windows {
+                apply_update_windows(&dest).await
+            } else {
+                apply_update_unix(&dest).await
+            };
             if let Err(e) = result {
                 tracing::warn!("open-runo-router self-update: failed to launch update ({e})");
             }
-        }
+        },
         Err(e) => {
-            tracing::warn!("open-runo-router self-update: download failed ({e}) — continuing without updating");
-        }
+            tracing::warn!(
+                "open-runo-router self-update: download failed ({e}) — continuing without updating"
+            );
+        },
     }
 }
 
@@ -313,12 +390,24 @@ mod tests {
         let release = LatestRelease {
             tag_name: "v0.2.0".into(),
             assets: vec![
-                ReleaseAsset { name: "open-runo-router-x86_64-unknown-linux-gnu.tar.gz".into(), browser_download_url: "https://example.com/l".into() },
-                ReleaseAsset { name: "open-runo-router-aarch64-unknown-linux-gnu.tar.gz".into(), browser_download_url: "https://example.com/a".into() },
-                ReleaseAsset { name: "open-runo-router-windows-x86_64.zip".into(), browser_download_url: "https://example.com/w".into() },
+                ReleaseAsset {
+                    name: "open-runo-router-x86_64-unknown-linux-gnu.tar.gz".into(),
+                    browser_download_url: "https://example.com/l".into(),
+                },
+                ReleaseAsset {
+                    name: "open-runo-router-aarch64-unknown-linux-gnu.tar.gz".into(),
+                    browser_download_url: "https://example.com/a".into(),
+                },
+                ReleaseAsset {
+                    name: "open-runo-router-windows-x86_64.zip".into(),
+                    browser_download_url: "https://example.com/w".into(),
+                },
             ],
         };
-        assert_eq!(windows_zip_asset(&release).unwrap().name, "open-runo-router-windows-x86_64.zip");
+        assert_eq!(
+            windows_zip_asset(&release).unwrap().name,
+            "open-runo-router-windows-x86_64.zip"
+        );
         assert!(linux_tarball_asset(&release).is_some());
     }
 }

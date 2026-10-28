@@ -178,8 +178,13 @@ enum ProcState {
         /// このプロセスに至るまでの連続即死回数(healthy_after 生存でリセット)。
         prior_failures: u32,
     },
-    Backoff { until: Instant, failures: u32 },
-    GaveUp { failures: u32 },
+    Backoff {
+        until: Instant,
+        failures: u32,
+    },
+    GaveUp {
+        failures: u32,
+    },
 }
 
 /// プロファイル1件を監視するスーパーバイザ。
@@ -236,12 +241,12 @@ impl Supervisor {
                     let code = status.code();
                     self.enter_backoff(failures, now);
                     Health::Crashed(code)
-                }
+                },
                 Err(_) => {
                     let failures = prior_failures.saturating_add(1);
                     self.enter_backoff(failures, now);
                     Health::Crashed(None)
-                }
+                },
             },
             ProcState::Backoff { until, failures } => {
                 if *failures >= self.policy.max_rapid_failures {
@@ -254,7 +259,7 @@ impl Supervisor {
                 } else {
                     Health::BackingOff
                 }
-            }
+            },
             ProcState::GaveUp { .. } => Health::GaveUp,
         }
     }
@@ -333,13 +338,13 @@ impl Supervisor {
                 Ok(Some(_)) => {
                     self.state = ProcState::NotStarted;
                     return true;
-                }
+                },
                 Ok(None) => {
                     if Instant::now() >= deadline {
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(20).min(timeout));
-                }
+                },
                 Err(_) => break,
             }
         }
@@ -360,11 +365,11 @@ impl Supervisor {
                     prior_failures,
                 };
                 Health::Starting
-            }
+            },
             Err(_) => {
                 self.enter_backoff(prior_failures + 1, Instant::now());
                 Health::Crashed(None)
-            }
+            },
         }
     }
 
@@ -473,7 +478,10 @@ impl SharedDispatcher {
 
     /// 登録を削除する(未登録でも冪等に成功、Apacheの`a2dissite`相当)。
     pub fn remove(&self, host: &str) {
-        self.routes.write().expect("SharedDispatcher lock poisoned").remove(&host.to_ascii_lowercase());
+        self.routes
+            .write()
+            .expect("SharedDispatcher lock poisoned")
+            .remove(&host.to_ascii_lowercase());
     }
 
     /// 登録済みの全ホスト一覧(管理API・監査用)。
@@ -497,7 +505,11 @@ impl SharedDispatcher {
 impl Dispatcher for SharedDispatcher {
     fn resolve(&self, host: &str) -> Option<UpstreamAddr> {
         let h = host.split(':').next().unwrap_or(host).to_ascii_lowercase();
-        self.routes.read().expect("SharedDispatcher lock poisoned").get(&h).cloned()
+        self.routes
+            .read()
+            .expect("SharedDispatcher lock poisoned")
+            .get(&h)
+            .cloned()
     }
 }
 
@@ -552,7 +564,7 @@ mod tests {
                 Health::GaveUp => {
                     saw_gave_up = true;
                     break;
-                }
+                },
                 // 即死プロセスの exit 待ちで tick を浪費しないよう毎回少し待つ。
                 _ => std::thread::sleep(Duration::from_millis(2)),
             }
@@ -569,7 +581,10 @@ mod tests {
         // コマンドへ`cfg!(windows)`で分岐する。
         let (command, args): (String, Vec<String>) = if cfg!(windows) {
             // `ping -n 30 127.0.0.1`はWindows標準コマンドで約30秒かかる。
-            ("ping".into(), vec!["-n".into(), "30".into(), "127.0.0.1".into()])
+            (
+                "ping".into(),
+                vec!["-n".into(), "30".into(), "127.0.0.1".into()],
+            )
         } else {
             ("sleep".into(), vec!["30".into()])
         };
@@ -592,17 +607,23 @@ mod tests {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
         drop(l);
-        let mut profile = RuntimeProfile::template(Stack::Custom("dummy".into()), "dummy", ".", port);
+        let mut profile =
+            RuntimeProfile::template(Stack::Custom("dummy".into()), "dummy", ".", port);
         profile.command = exe.to_string_lossy().to_string();
         profile.args.clear();
         let mut sup = Supervisor::new(profile, RestartPolicy::default());
         assert_eq!(sup.tick(), Health::Starting);
         // 実際に接続できるまで待つ(起動完了の確認)。
         let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline && std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
+        while Instant::now() < deadline
+            && std::net::TcpStream::connect(("127.0.0.1", port)).is_err()
+        {
             std::thread::sleep(Duration::from_millis(20));
         }
-        assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_ok(), "dummy server must be up before stop_graceful");
+        assert!(
+            std::net::TcpStream::connect(("127.0.0.1", port)).is_ok(),
+            "dummy server must be up before stop_graceful"
+        );
 
         let start = Instant::now();
         let graceful = sup.stop_graceful(Duration::from_secs(5));
@@ -610,12 +631,18 @@ mod tests {
         // 非Unixでは未使用になる。
         #[cfg_attr(not(unix), allow(unused_variables))]
         let elapsed = start.elapsed();
-        assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err(), "process must actually be gone");
+        assert!(
+            std::net::TcpStream::connect(("127.0.0.1", port)).is_err(),
+            "process must actually be gone"
+        );
 
         #[cfg(unix)]
         {
             assert!(graceful, "a process with no SIGTERM handler must exit on SIGTERM (default disposition), not require SIGKILL");
-            assert!(elapsed < Duration::from_secs(2), "must not wait for the full 5s timeout, took {elapsed:?}");
+            assert!(
+                elapsed < Duration::from_secs(2),
+                "must not wait for the full 5s timeout, took {elapsed:?}"
+            );
         }
         // Windowsでは実際にSIGTERM相当を送る手段が無いため、常に
         // タイムアウト経過後の強制終了(graceful=false)になる
@@ -638,24 +665,36 @@ mod tests {
             let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let port = l.local_addr().unwrap().port();
             drop(l);
-            let mut profile = RuntimeProfile::template(Stack::Custom("stubborn".into()), "stubborn", ".", port);
+            let mut profile =
+                RuntimeProfile::template(Stack::Custom("stubborn".into()), "stubborn", ".", port);
             profile.command = exe.to_string_lossy().to_string();
             profile.args.clear();
             let mut sup = Supervisor::new(profile, RestartPolicy::default());
             assert_eq!(sup.tick(), Health::Starting);
             let deadline = Instant::now() + Duration::from_secs(5);
-            while Instant::now() < deadline && std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
+            while Instant::now() < deadline
+                && std::net::TcpStream::connect(("127.0.0.1", port)).is_err()
+            {
                 std::thread::sleep(Duration::from_millis(20));
             }
-            assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_ok(), "stubborn server must be up before stop_graceful");
+            assert!(
+                std::net::TcpStream::connect(("127.0.0.1", port)).is_ok(),
+                "stubborn server must be up before stop_graceful"
+            );
 
             let start = Instant::now();
             let graceful = sup.stop_graceful(Duration::from_millis(300));
             let elapsed = start.elapsed();
 
-            assert!(!graceful, "a process that ignores SIGTERM must be force-killed, not counted as graceful");
+            assert!(
+                !graceful,
+                "a process that ignores SIGTERM must be force-killed, not counted as graceful"
+            );
             assert!(elapsed >= Duration::from_millis(280), "must actually wait out (approximately) the timeout before force-killing, took {elapsed:?}");
-            assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err(), "process must be gone after the force-kill fallback");
+            assert!(
+                std::net::TcpStream::connect(("127.0.0.1", port)).is_err(),
+                "process must be gone after the force-kill fallback"
+            );
         }
     }
 
@@ -672,7 +711,13 @@ mod tests {
     #[test]
     fn shared_dispatcher_resolves_host_with_and_without_port_case_insensitively() {
         let d = SharedDispatcher::new();
-        d.upsert("Shop.Example.JP", UpstreamAddr { host: "127.0.0.1".into(), port: 4100 });
+        d.upsert(
+            "Shop.Example.JP",
+            UpstreamAddr {
+                host: "127.0.0.1".into(),
+                port: 4100,
+            },
+        );
         assert_eq!(d.resolve("shop.example.jp").unwrap().port, 4100);
         assert_eq!(d.resolve("SHOP.EXAMPLE.JP:443").unwrap().port, 4100);
         assert!(d.resolve("other.example.jp").is_none());
@@ -681,7 +726,13 @@ mod tests {
     #[test]
     fn shared_dispatcher_remove_is_idempotent() {
         let d = SharedDispatcher::new();
-        d.upsert("shop.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 4100 });
+        d.upsert(
+            "shop.example.jp",
+            UpstreamAddr {
+                host: "127.0.0.1".into(),
+                port: 4100,
+            },
+        );
         assert!(d.contains("shop.example.jp"));
         d.remove("shop.example.jp");
         assert!(!d.contains("shop.example.jp"));
@@ -693,11 +744,26 @@ mod tests {
     #[test]
     fn shared_dispatcher_list_reports_all_registered_tenants() {
         let d = SharedDispatcher::new();
-        d.upsert("a.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 4100 });
-        d.upsert("b.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 4200 });
+        d.upsert(
+            "a.example.jp",
+            UpstreamAddr {
+                host: "127.0.0.1".into(),
+                port: 4100,
+            },
+        );
+        d.upsert(
+            "b.example.jp",
+            UpstreamAddr {
+                host: "127.0.0.1".into(),
+                port: 4200,
+            },
+        );
         let mut hosts: Vec<String> = d.list().into_iter().map(|(h, _)| h).collect();
         hosts.sort();
-        assert_eq!(hosts, vec!["a.example.jp".to_string(), "b.example.jp".to_string()]);
+        assert_eq!(
+            hosts,
+            vec!["a.example.jp".to_string(), "b.example.jp".to_string()]
+        );
     }
 
     /// これが本質的な検証: 「分身の術」構想が実際に成立するかどうかは、
@@ -713,7 +779,13 @@ mod tests {
         let writer = {
             let dispatcher = Arc::clone(&dispatcher);
             std::thread::spawn(move || {
-                dispatcher.upsert("new-tenant.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 5100 });
+                dispatcher.upsert(
+                    "new-tenant.example.jp",
+                    UpstreamAddr {
+                        host: "127.0.0.1".into(),
+                        port: 5100,
+                    },
+                );
             })
         };
         writer.join().unwrap();

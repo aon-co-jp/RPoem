@@ -58,17 +58,27 @@ impl RemoteSubgraphs {
     pub fn new(entries: Vec<(String, String)>) -> Self {
         let subgraphs = entries
             .into_iter()
-            .map(|(name, url)| Subgraph { name, url, fields: HashSet::new(), last_attempt: None })
+            .map(|(name, url)| Subgraph {
+                name,
+                url,
+                fields: HashSet::new(),
+                last_attempt: None,
+            })
             .collect();
         Self {
             inner: Arc::new(Mutex::new(subgraphs)),
-            client: reqwest::Client::builder().timeout(Duration::from_secs(30)).build().unwrap_or_default(),
+            client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .unwrap_or_default(),
         }
     }
 
     /// `OPEN_RUNO_SUBGRAPHS="items=http://localhost:4001/graphql,users=http://..."`
     pub fn from_env() -> Self {
-        Self::new(parse_env(&std::env::var("OPEN_RUNO_SUBGRAPHS").unwrap_or_default()))
+        Self::new(parse_env(
+            &std::env::var("OPEN_RUNO_SUBGRAPHS").unwrap_or_default(),
+        ))
     }
 
     pub async fn is_empty(&self) -> bool {
@@ -77,15 +87,25 @@ impl RemoteSubgraphs {
 
     async fn discover(&self, sg: &mut Subgraph) {
         sg.last_attempt = Some(Instant::now());
-        let resp = self.client.post(&sg.url).json(&serde_json::json!({ "query": INTROSPECTION })).send().await;
+        let resp = self
+            .client
+            .post(&sg.url)
+            .json(&serde_json::json!({ "query": INTROSPECTION }))
+            .send()
+            .await;
         let Ok(resp) = resp else {
             tracing::warn!(subgraph = %sg.name, url = %sg.url, "subgraph introspection failed (unreachable)");
             return;
         };
-        let Ok(v) = resp.json::<serde_json::Value>().await else { return };
+        let Ok(v) = resp.json::<serde_json::Value>().await else {
+            return;
+        };
         let mut fields = HashSet::new();
         for root in ["queryType", "mutationType"] {
-            if let Some(list) = v.pointer(&format!("/data/__schema/{root}/fields")).and_then(|f| f.as_array()) {
+            if let Some(list) = v
+                .pointer(&format!("/data/__schema/{root}/fields"))
+                .and_then(|f| f.as_array())
+            {
                 for f in list {
                     if let Some(n) = f.get("name").and_then(|n| n.as_str()) {
                         fields.insert(n.to_string());
@@ -106,7 +126,9 @@ impl RemoteSubgraphs {
         operation_name: Option<&str>,
         variables: serde_json::Value,
     ) -> Routed {
-        let Ok(doc) = parse_query(query) else { return Routed::Local };
+        let Ok(doc) = parse_query(query) else {
+            return Routed::Local;
+        };
         let roots = root_fields(&doc, operation_name);
         if roots.is_empty() {
             return Routed::Local;
@@ -115,11 +137,18 @@ impl RemoteSubgraphs {
         let mut guard = self.inner.lock().await;
         // (Re)discover subgraphs that have no fields yet (e.g. started after the gateway).
         for i in 0..guard.len() {
-            let stale = guard[i].last_attempt.map_or(true, |t| t.elapsed() > REDISCOVER_AFTER);
+            let stale = guard[i]
+                .last_attempt
+                .is_none_or(|t| t.elapsed() > REDISCOVER_AFTER);
             if guard[i].fields.is_empty() && stale {
                 let mut sg = std::mem::replace(
                     &mut guard[i],
-                    Subgraph { name: String::new(), url: String::new(), fields: HashSet::new(), last_attempt: None },
+                    Subgraph {
+                        name: String::new(),
+                        url: String::new(),
+                        fields: HashSet::new(),
+                        last_attempt: None,
+                    },
                 );
                 self.discover(&mut sg).await;
                 guard[i] = sg;
@@ -145,7 +174,9 @@ impl RemoteSubgraphs {
         }
         drop(guard);
 
-        let Some((name, url)) = target else { return Routed::Local };
+        let Some((name, url)) = target else {
+            return Routed::Local;
+        };
         if local {
             return Routed::Rejected(format!(
                 "query mixes fields of subgraph `{name}` with local fields; cross-subgraph queries are not supported by this gateway yet"
@@ -155,7 +186,9 @@ impl RemoteSubgraphs {
         match self.client.post(&url).json(&body).send().await {
             Ok(r) => match r.json::<serde_json::Value>().await {
                 Ok(v) => Routed::Forwarded(v),
-                Err(e) => Routed::Rejected(format!("subgraph `{name}` returned an invalid response: {e}")),
+                Err(e) => Routed::Rejected(format!(
+                    "subgraph `{name}` returned an invalid response: {e}"
+                )),
             },
             Err(e) => Routed::Rejected(format!("subgraph `{name}` is unreachable: {e}")),
         }
@@ -203,13 +236,15 @@ fn collect(doc: &ExecutableDocument, set: &SelectionSet, out: &mut Vec<String>, 
                 if !n.starts_with("__") {
                     out.push(n.to_string());
                 }
-            }
-            Selection::InlineFragment(f) => collect(doc, &f.node.selection_set.node, out, depth + 1),
+            },
+            Selection::InlineFragment(f) => {
+                collect(doc, &f.node.selection_set.node, out, depth + 1)
+            },
             Selection::FragmentSpread(s) => {
                 if let Some(frag) = doc.fragments.get(&s.node.fragment_name.node) {
                     collect(doc, &frag.node.selection_set.node, out, depth + 1);
                 }
-            }
+            },
         }
     }
 }
@@ -225,24 +260,37 @@ mod tests {
     #[test]
     fn extracts_root_fields_incl_fragments_and_skips_introspection() {
         assert_eq!(roots("{ items { id } __typename }", None), vec!["items"]);
-        assert_eq!(roots("mutation($n:String!){ createItem(name:$n){ id } }", None), vec!["createItem"]);
+        assert_eq!(
+            roots("mutation($n:String!){ createItem(name:$n){ id } }", None),
+            vec!["createItem"]
+        );
         assert_eq!(roots("query A { a } query B { b }", Some("B")), vec!["b"]);
         assert!(roots("query A { a } query B { b }", None).is_empty());
-        assert_eq!(roots("{ ...F } fragment F on Query { items { id } }", None), vec!["items"]);
+        assert_eq!(
+            roots("{ ...F } fragment F on Query { items { id } }", None),
+            vec!["items"]
+        );
     }
 
     #[test]
     fn parses_env() {
         assert_eq!(
             parse_env("items=http://a:1/graphql, users = http://b:2/graphql,bad,=x"),
-            vec![("items".into(), "http://a:1/graphql".into()), ("users".into(), "http://b:2/graphql".into())]
+            vec![
+                ("items".into(), "http://a:1/graphql".into()),
+                ("users".into(), "http://b:2/graphql".into())
+            ]
         );
     }
 
     #[tokio::test]
     async fn unreachable_subgraph_falls_back_to_local() {
         let r = RemoteSubgraphs::new(vec![("x".into(), "http://127.0.0.1:1/graphql".into())]);
-        assert!(matches!(r.route("{ items { id } }", None, serde_json::json!({})).await, Routed::Local));
+        assert!(matches!(
+            r.route("{ items { id } }", None, serde_json::json!({}))
+                .await,
+            Routed::Local
+        ));
     }
 
     /// A fake subgraph served over real HTTP: introspection + one query/mutation.
@@ -251,7 +299,9 @@ mod tests {
     }
 
     async fn fake_subgraph_with(query_field: &'static str, mutation_field: &'static str) -> String {
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
         let h: Handler = Arc::new(move |req, _p| {
             Box::pin(async move {
                 let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
@@ -273,11 +323,21 @@ mod tests {
     #[tokio::test]
     async fn forwards_queries_and_mutations_with_variables() {
         let r = RemoteSubgraphs::new(vec![("items".into(), fake_subgraph().await)]);
-        match r.route("{ items { id } }", None, serde_json::json!({})).await {
+        match r
+            .route("{ items { id } }", None, serde_json::json!({}))
+            .await
+        {
             Routed::Forwarded(v) => assert_eq!(v["data"]["echo"], "{ items { id } }"),
             other => panic!("expected Forwarded, got {other:?}"),
         }
-        match r.route("mutation($n:String!){ createItem(name:$n){ id } }", None, serde_json::json!({"n":"x"})).await {
+        match r
+            .route(
+                "mutation($n:String!){ createItem(name:$n){ id } }",
+                None,
+                serde_json::json!({"n":"x"}),
+            )
+            .await
+        {
             Routed::Forwarded(v) => assert_eq!(v["data"]["vars"]["n"], "x"),
             other => panic!("expected Forwarded, got {other:?}"),
         }
@@ -286,17 +346,43 @@ mod tests {
     #[tokio::test]
     async fn rejects_mixed_local_and_remote_roots_and_keeps_unknown_local() {
         let r = RemoteSubgraphs::new(vec![("items".into(), fake_subgraph().await)]);
-        assert!(matches!(r.route("{ items { id } schemas { id } }", None, serde_json::json!({})).await, Routed::Rejected(_)));
-        assert!(matches!(r.route("{ schemas { id } }", None, serde_json::json!({})).await, Routed::Local));
+        assert!(matches!(
+            r.route(
+                "{ items { id } schemas { id } }",
+                None,
+                serde_json::json!({})
+            )
+            .await,
+            Routed::Rejected(_)
+        ));
+        assert!(matches!(
+            r.route("{ schemas { id } }", None, serde_json::json!({}))
+                .await,
+            Routed::Local
+        ));
     }
 
     #[tokio::test]
     async fn rejects_queries_spanning_two_remote_subgraphs() {
         let r = RemoteSubgraphs::new(vec![
-            ("items".into(), fake_subgraph_with("items", "createItem").await),
-            ("users".into(), fake_subgraph_with("users", "createUser").await),
+            (
+                "items".into(),
+                fake_subgraph_with("items", "createItem").await,
+            ),
+            (
+                "users".into(),
+                fake_subgraph_with("users", "createUser").await,
+            ),
         ]);
-        assert!(matches!(r.route("{ items { id } users { id } }", None, serde_json::json!({})).await, Routed::Rejected(_)));
-        assert!(matches!(r.route("{ users { id } }", None, serde_json::json!({})).await, Routed::Forwarded(_)));
+        assert!(matches!(
+            r.route("{ items { id } users { id } }", None, serde_json::json!({}))
+                .await,
+            Routed::Rejected(_)
+        ));
+        assert!(matches!(
+            r.route("{ users { id } }", None, serde_json::json!({}))
+                .await,
+            Routed::Forwarded(_)
+        ));
     }
 }

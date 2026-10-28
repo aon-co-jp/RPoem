@@ -13,8 +13,6 @@
 //! **正直な開示**: 対応モデルは SRVGGNetCompact 系(`realesr-general-x4v3`・`realesr-animevideov3`)のみ。高品質な `realesrgan-x4plus`
 //! (RRDBNet、約64MB)は構造が大きく異なり、CPU では非現実的なため対象外。速度はコア数・命令セット次第。
 
-
-
 const FP16_FLAG: u32 = 0x0130_6B47;
 /// 3x3畳み込みを18層重ねた受容野の半径。タイルの余白にする。
 const HALO: usize = 18;
@@ -57,10 +55,12 @@ impl SrModel {
     /// 入力`w`×`h`に対する最終的な出力サイズ。
     pub fn output_size(&self, w: usize, h: usize) -> (usize, usize) {
         let f = self.post_resize.unwrap_or(1.0) * self.scale as f32;
-        (((w as f32) * f).round() as usize, ((h as f32) * f).round() as usize)
+        (
+            ((w as f32) * f).round() as usize,
+            ((h as f32) * f).round() as usize,
+        )
     }
 }
-
 
 fn half_to_f32(h: u16) -> f32 {
     let sign = ((h >> 15) & 1) as u32;
@@ -94,7 +94,11 @@ struct BinReader<'a> {
 
 impl BinReader<'_> {
     fn take(&mut self, n: usize) -> Result<&[u8], String> {
-        let end = self.pos.checked_add(n).filter(|e| *e <= self.data.len()).ok_or("モデルの.binが途中で終わっています")?;
+        let end = self
+            .pos
+            .checked_add(n)
+            .filter(|e| *e <= self.data.len())
+            .ok_or("モデルの.binが途中で終わっています")?;
         let s = &self.data[self.pos..end];
         self.pos = end;
         Ok(s)
@@ -109,16 +113,27 @@ impl BinReader<'_> {
         match flag {
             FP16_FLAG => {
                 let raw = self.take(n * 2)?.to_vec();
-                let out = raw.as_chunks::<2>().0.iter().map(|c| half_to_f32(u16::from_le_bytes(*c))).collect();
+                let out = raw
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|c| half_to_f32(u16::from_le_bytes(*c)))
+                    .collect();
                 self.pos = (self.pos + 3) & !3;
                 Ok(out)
-            }
+            },
             0 => self.floats(n),
             other => Err(format!("未対応の重み形式です(flag=0x{other:08x})")),
         }
     }
     fn floats(&mut self, n: usize) -> Result<Vec<f32>, String> {
-        Ok(self.take(n * 4)?.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect())
+        Ok(self
+            .take(n * 4)?
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_le_bytes(*c))
+            .collect())
     }
 }
 
@@ -144,22 +159,38 @@ pub fn parse_model(param: &str, bin: &[u8]) -> Result<SrModel, String> {
         }
         let n_in: usize = t[2].parse().map_err(|_| "入力数が不正です")?;
         let n_out: usize = t[3].parse().map_err(|_| "出力数が不正です")?;
-        let kv: std::collections::HashMap<&str, &str> = t[4 + n_in + n_out..].iter().filter_map(|s| s.split_once('=')).collect();
-        let geti = |k: &str| -> Option<i64> { kv.get(k).and_then(|v| v.parse::<f64>().ok()).map(|v| v as i64) };
+        let kv: std::collections::HashMap<&str, &str> = t[4 + n_in + n_out..]
+            .iter()
+            .filter_map(|s| s.split_once('='))
+            .collect();
+        let geti = |k: &str| -> Option<i64> {
+            kv.get(k)
+                .and_then(|v| v.parse::<f64>().ok())
+                .map(|v| v as i64)
+        };
         match t[0] {
-            "Input" | "Split" => {}
+            "Input" | "Split" => {},
             "Convolution" => {
                 let out_c = geti("0").ok_or("出力チャンネル数がありません")? as usize;
-                let (k, pad, bias_term, wsize) = (geti("1").unwrap_or(0), geti("4").unwrap_or(0), geti("5").unwrap_or(0), geti("6").ok_or("重みサイズがありません")? as usize);
+                let (k, pad, bias_term, wsize) = (
+                    geti("1").unwrap_or(0),
+                    geti("4").unwrap_or(0),
+                    geti("5").unwrap_or(0),
+                    geti("6").ok_or("重みサイズがありません")? as usize,
+                );
                 if k != 3 || pad != 1 || bias_term != 1 {
-                    return Err("未対応の畳み込みです(3x3・パディング1・バイアス有りのみ対応)".to_string());
+                    return Err(
+                        "未対応の畳み込みです(3x3・パディング1・バイアス有りのみ対応)".to_string(),
+                    );
                 }
                 if out_c == 0 || wsize % (out_c * 9) != 0 {
                     return Err("重みサイズが不正です".to_string());
                 }
                 let in_c = wsize / (out_c * 9);
                 if in_c != prev_in_c {
-                    return Err(format!("層のチャンネル数がつながりません(期待{prev_in_c}、実際{in_c})"));
+                    return Err(format!(
+                        "層のチャンネル数がつながりません(期待{prev_in_c}、実際{in_c})"
+                    ));
                 }
                 let raw = reader.tagged_weights(wsize)?; // [oc][ic][ky][kx]
                 let bias = reader.floats(out_c)?;
@@ -171,9 +202,15 @@ pub fn parse_model(param: &str, bin: &[u8]) -> Result<SrModel, String> {
                         }
                     }
                 }
-                layers.push(ConvLayer { in_c, out_c, w, bias, prelu: None });
+                layers.push(ConvLayer {
+                    in_c,
+                    out_c,
+                    w,
+                    bias,
+                    prelu: None,
+                });
                 prev_in_c = out_c;
-            }
+            },
             "PReLU" => {
                 let n = geti("0").ok_or("PReLUのチャンネル数がありません")? as usize;
                 let slopes = reader.floats(n)?;
@@ -182,8 +219,10 @@ pub fn parse_model(param: &str, bin: &[u8]) -> Result<SrModel, String> {
                     return Err("PReLUのチャンネル数が畳み込みと一致しません".to_string());
                 }
                 last.prelu = Some(slopes);
-            }
-            "PixelShuffle" => shuffle = Some(geti("0").ok_or("PixelShuffleの倍率がありません")? as usize),
+            },
+            "PixelShuffle" => {
+                shuffle = Some(geti("0").ok_or("PixelShuffleの倍率がありません")? as usize)
+            },
             "Interp" => {
                 let mode = geti("0").unwrap_or(0) as i32;
                 let factor: f32 = kv.get("1").and_then(|v| v.parse().ok()).unwrap_or(0.0);
@@ -196,14 +235,18 @@ pub fn parse_model(param: &str, bin: &[u8]) -> Result<SrModel, String> {
                 } else {
                     interp = Some((mode, factor));
                 }
-            }
+            },
             "BinaryOp" => {
                 if geti("0").unwrap_or(0) != 0 {
                     return Err("未対応のBinaryOpです(加算のみ対応)".to_string());
                 }
                 added = true;
-            }
-            other => return Err(format!("未対応の層です: {other}(realesr-animevideov3のみ対応)")),
+            },
+            other => {
+                return Err(format!(
+                    "未対応の層です: {other}(realesr-animevideov3のみ対応)"
+                ))
+            },
         }
     }
     let scale = shuffle.ok_or("PixelShuffleがありません")?;
@@ -215,12 +258,18 @@ pub fn parse_model(param: &str, bin: &[u8]) -> Result<SrModel, String> {
         return Err("最終層の出力チャンネル数がPixelShuffleと合いません".to_string());
     }
     if reader.pos != bin.len() {
-        return Err(format!("重みファイルに未使用のデータが残っています(読了{} / {}バイト)", reader.pos, bin.len()));
+        return Err(format!(
+            "重みファイルに未使用のデータが残っています(読了{} / {}バイト)",
+            reader.pos,
+            bin.len()
+        ));
     }
-    Ok(SrModel { layers, scale, post_resize })
+    Ok(SrModel {
+        layers,
+        scale,
+        post_resize,
+    })
 }
-
-
 
 /// 使う計算カーネルの名前(ログ表示用)。open-cpuの検出結果に従う。
 pub fn kernel_name() -> &'static str {
@@ -295,7 +344,10 @@ unsafe fn conv_avx2(inp: &[f32], out: &mut [f32], h: usize, w: usize, l: &ConvLa
             let b0 = _mm256_loadu_ps(l.bias.as_ptr().add(ob));
             let b1 = _mm256_loadu_ps(l.bias.as_ptr().add(ob + 8));
             let (s0, s1) = match &l.prelu {
-                Some(p) => (_mm256_loadu_ps(p.as_ptr().add(ob)), _mm256_loadu_ps(p.as_ptr().add(ob + 8))),
+                Some(p) => (
+                    _mm256_loadu_ps(p.as_ptr().add(ob)),
+                    _mm256_loadu_ps(p.as_ptr().add(ob + 8)),
+                ),
                 None => (zero, zero),
             };
             let mut x = 0;
@@ -317,9 +369,15 @@ unsafe fn conv_avx2(inp: &[f32], out: &mut [f32], h: usize, w: usize, l: &ConvLa
                     }
                 }
                 for (p, ap) in a.iter().enumerate() {
-                    let dst = out.as_mut_ptr().add((y + 1) * sout + (x + p + 1) * oc_n + ob);
+                    let dst = out
+                        .as_mut_ptr()
+                        .add((y + 1) * sout + (x + p + 1) * oc_n + ob);
                     for (j, (acc, s)) in [(ap[0], s0), (ap[1], s1)].into_iter().enumerate() {
-                        let r = if l.prelu.is_some() { _mm256_fmadd_ps(s, _mm256_min_ps(acc, zero), _mm256_max_ps(acc, zero)) } else { acc };
+                        let r = if l.prelu.is_some() {
+                            _mm256_fmadd_ps(s, _mm256_min_ps(acc, zero), _mm256_max_ps(acc, zero))
+                        } else {
+                            acc
+                        };
                         _mm256_storeu_ps(dst.add(j * 8), r);
                     }
                 }
@@ -340,7 +398,11 @@ unsafe fn conv_avx2(inp: &[f32], out: &mut [f32], h: usize, w: usize, l: &ConvLa
                 }
                 let dst = out.as_mut_ptr().add((y + 1) * sout + (x + 1) * oc_n + ob);
                 for (j, (acc, s)) in [(a0, s0), (a1, s1)].into_iter().enumerate() {
-                    let r = if l.prelu.is_some() { _mm256_fmadd_ps(s, _mm256_min_ps(acc, zero), _mm256_max_ps(acc, zero)) } else { acc };
+                    let r = if l.prelu.is_some() {
+                        _mm256_fmadd_ps(s, _mm256_min_ps(acc, zero), _mm256_max_ps(acc, zero))
+                    } else {
+                        acc
+                    };
                     _mm256_storeu_ps(dst.add(j * 8), r);
                 }
                 x += 1;
@@ -391,10 +453,16 @@ unsafe fn conv_neon(inp: &[f32], out: &mut [f32], h: usize, w: usize, l: &ConvLa
                     }
                 }
                 for (p, ap) in a.iter().enumerate() {
-                    let dst = out.as_mut_ptr().add((y + 1) * sout + (x + p + 1) * oc_n + ob);
+                    let dst = out
+                        .as_mut_ptr()
+                        .add((y + 1) * sout + (x + p + 1) * oc_n + ob);
                     for j in 0..4 {
                         let acc = ap[j];
-                        let r = if l.prelu.is_some() { vfmaq_f32(vmaxq_f32(acc, zero), sl[j], vminq_f32(acc, zero)) } else { acc };
+                        let r = if l.prelu.is_some() {
+                            vfmaq_f32(vmaxq_f32(acc, zero), sl[j], vminq_f32(acc, zero))
+                        } else {
+                            acc
+                        };
                         vst1q_f32(dst.add(4 * j), r);
                     }
                 }
@@ -416,7 +484,11 @@ unsafe fn conv_neon(inp: &[f32], out: &mut [f32], h: usize, w: usize, l: &ConvLa
                 let dst = out.as_mut_ptr().add((y + 1) * sout + (x + 1) * oc_n + ob);
                 for j in 0..4 {
                     let acc = a[j];
-                    let r = if l.prelu.is_some() { vfmaq_f32(vmaxq_f32(acc, zero), sl[j], vminq_f32(acc, zero)) } else { acc };
+                    let r = if l.prelu.is_some() {
+                        vfmaq_f32(vmaxq_f32(acc, zero), sl[j], vminq_f32(acc, zero))
+                    } else {
+                        acc
+                    };
                     vst1q_f32(dst.add(4 * j), r);
                 }
                 x += 1;
@@ -448,7 +520,8 @@ fn run_tile(model: &SrModel, rgb: &[f32], h: usize, w: usize, use_avx2: bool) ->
     let mut cur = padded(h, w, 3);
     for y in 0..h {
         for x in 0..w {
-            cur[(y + 1) * (w + 2) * 3 + (x + 1) * 3..][..3].copy_from_slice(&rgb[(y * w + x) * 3..][..3]);
+            cur[(y + 1) * (w + 2) * 3 + (x + 1) * 3..][..3]
+                .copy_from_slice(&rgb[(y * w + x) * 3..][..3]);
         }
     }
     for l in &model.layers {
@@ -478,9 +551,14 @@ fn run_tile(model: &SrModel, rgb: &[f32], h: usize, w: usize, use_avx2: bool) ->
     out
 }
 
-
 /// `upscale_rgb`のスレッド数指定版(`0`=全論理コア)。GPUと同時に動かすとき、GPU側の読み書きに数コアを残すために使う。
-pub(crate) fn upscale_rgb_threads(model: &SrModel, rgb: &[f32], w: usize, h: usize, threads: usize) -> Vec<f32> {
+pub(crate) fn upscale_rgb_threads(
+    model: &SrModel,
+    rgb: &[f32],
+    w: usize,
+    h: usize,
+    threads: usize,
+) -> Vec<f32> {
     let r = model.scale;
     let use_avx2 = avx2_available();
     let mut tiles = Vec::new();
@@ -491,7 +569,13 @@ pub(crate) fn upscale_rgb_threads(model: &SrModel, rgb: &[f32], w: usize, h: usi
     }
     let next = std::sync::atomic::AtomicUsize::new(0);
     let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
-    let threads = (if threads == 0 { cores } else { threads.min(cores) }).max(1).min(tiles.len().max(1));
+    let threads = (if threads == 0 {
+        cores
+    } else {
+        threads.min(cores)
+    })
+    .max(1)
+    .min(tiles.len().max(1));
     let results = std::sync::Mutex::new(Vec::<(usize, usize, usize, usize, Vec<f32>)>::new());
     std::thread::scope(|s| {
         for _ in 0..threads {
@@ -504,7 +588,9 @@ pub(crate) fn upscale_rgb_threads(model: &SrModel, rgb: &[f32], w: usize, h: usi
                 let (rw, rh) = (rx1 - rx0, ry1 - ry0);
                 let mut region = vec![0f32; rw * rh * 3];
                 for yy in 0..rh {
-                    region[yy * rw * 3..(yy + 1) * rw * 3].copy_from_slice(&rgb[((ry0 + yy) * w + rx0) * 3..((ry0 + yy) * w + rx0 + rw) * 3]);
+                    region[yy * rw * 3..(yy + 1) * rw * 3].copy_from_slice(
+                        &rgb[((ry0 + yy) * w + rx0) * 3..((ry0 + yy) * w + rx0 + rw) * 3],
+                    );
                 }
                 let out = run_tile(model, &region, rh, rw, use_avx2);
                 // 余白を除いた中心部だけを切り出す。
@@ -525,11 +611,9 @@ pub(crate) fn upscale_rgb_threads(model: &SrModel, rgb: &[f32], w: usize, h: usi
     for (tx, ty, cw, ch, core) in results.into_inner().unwrap_or_default() {
         for yy in 0..ch * r {
             let dst = ((ty * r + yy) * w * r + tx * r) * 3;
-            full[dst..dst + cw * r * 3].copy_from_slice(&core[yy * cw * r * 3..(yy + 1) * cw * r * 3]);
+            full[dst..dst + cw * r * 3]
+                .copy_from_slice(&core[yy * cw * r * 3..(yy + 1) * cw * r * 3]);
         }
     }
     full
 }
-
-
-

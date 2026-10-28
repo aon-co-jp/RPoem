@@ -34,7 +34,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let state = Arc::new(AppState::new());
-    let (graphiql, graphql_post) = open_runo_gateway::graphql_hyper::graphql_handlers(Arc::clone(&state));
+    let (graphiql, graphql_post) =
+        open_runo_gateway::graphql_hyper::graphql_handlers(Arc::clone(&state));
     let (demo_playground, demo_graphql) = open_runo_gateway::demo::demo_handlers();
 
     // アプリケーションサーバー層(「第二のTomcat」)の多重テナント管理。
@@ -49,29 +50,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 無くなる「分身の術」構想、2026-07-16)。管理API自体は常時有効、
     // 実際のプロキシリスナー(`OPEN_RUNO_APPSERVER_PROXY_BIND`)は
     // 明示設定時のみ。
-    let appserver_guardian = Arc::new(KeyGuardian::new(Arc::clone(&state.db), GuardianConfig::from_env()));
+    let appserver_guardian = Arc::new(KeyGuardian::new(
+        Arc::clone(&state.db),
+        GuardianConfig::from_env(),
+    ));
     let appserver_registry = Arc::new(SupervisedTenantRegistry::new());
 
-    let mut app = build_hyper_app(state, config.rate_limit_max_requests, config.rate_limit_window_secs as i64)
-        .await
-        .route(hyper::Method::GET, "/graphql", graphiql)
-        .route(hyper::Method::POST, "/graphql", open_runo_router::middleware_hyper::with_cors(graphql_post))
-        // Fixed, self-contained GraphQL Federation demo (§ see
-        // `open_runo_gateway::demo` module doc): composes two sample
-        // subgraphs with the real `open-runo-federation` core and serves
-        // real, queryable GraphQL over fixed sample data — no separate
-        // upstream services or seeded database required.
-        .route(hyper::Method::GET, "/demo", demo_playground)
-        .route(hyper::Method::POST, "/demo/graphql", demo_graphql);
+    let mut app = build_hyper_app(
+        state,
+        config.rate_limit_max_requests,
+        config.rate_limit_window_secs as i64,
+    )
+    .await
+    .route(hyper::Method::GET, "/graphql", graphiql)
+    .route(
+        hyper::Method::POST,
+        "/graphql",
+        open_runo_router::middleware_hyper::with_cors(graphql_post),
+    )
+    // Fixed, self-contained GraphQL Federation demo (§ see
+    // `open_runo_gateway::demo` module doc): composes two sample
+    // subgraphs with the real `open-runo-federation` core and serves
+    // real, queryable GraphQL over fixed sample data — no separate
+    // upstream services or seeded database required.
+    .route(hyper::Method::GET, "/demo", demo_playground)
+    .route(hyper::Method::POST, "/demo/graphql", demo_graphql);
     for (method, pattern, handler) in open_runo_gateway::appserver_tenants::routes(
         appserver_registry.dispatcher(),
         Arc::clone(&appserver_guardian),
     ) {
         app = app.route(method, pattern, handler);
     }
-    for (method, pattern, handler) in
-        open_runo_gateway::appserver_processes::routes(Arc::clone(&appserver_registry), appserver_guardian)
-    {
+    for (method, pattern, handler) in open_runo_gateway::appserver_processes::routes(
+        Arc::clone(&appserver_registry),
+        appserver_guardian,
+    ) {
         app = app.route(method, pattern, handler);
     }
 
@@ -80,10 +93,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ある(先に束縛を外に置き、有効時のみ`Some`にする)。
     let _appserver_proxy = match std::env::var("OPEN_RUNO_APPSERVER_PROXY_BIND").ok() {
         Some(bind) => {
-            let server = ThreadedProxyServer::start(&bind, appserver_registry.dispatcher(), ServerConfig::default())?;
+            let server = ThreadedProxyServer::start(
+                &bind,
+                appserver_registry.dispatcher(),
+                ServerConfig::default(),
+            )?;
             tracing::info!(bind_addr = %bind, "appserver tenant proxy listening (shared, multi-domain, no per-domain install)");
             Some(server)
-        }
+        },
         None => None,
     };
 

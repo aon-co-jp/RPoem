@@ -80,7 +80,10 @@ impl MultipartError {
     }
 
     pub fn into_response(self) -> Response {
-        json_response(self.status(), &serde_json::json!({ "error": self.to_string() }))
+        json_response(
+            self.status(),
+            &serde_json::json!({ "error": self.to_string() }),
+        )
     }
 }
 
@@ -143,10 +146,7 @@ impl<S> fmt::Debug for MultipartStream<S> {
 impl MultipartStream<BodyDataStream<Incoming>> {
     /// リクエストから構築する。`Content-Type` と boundary を検証し、
     /// 不正なら完成済みの `400` 応答を `Err` で返す。
-    pub fn from_request(
-        req: Request,
-        limits: MultipartLimits,
-    ) -> Result<Self, Response> {
+    pub fn from_request(req: Request, limits: MultipartLimits) -> Result<Self, Response> {
         let content_type = req
             .headers()
             .get("content-type")
@@ -161,11 +161,17 @@ impl MultipartStream<BodyDataStream<Incoming>> {
             .and_then(|v| v.parse::<u64>().ok())
         {
             if len > limits.max_total_bytes {
-                return Err(MultipartError::TooLarge("content-length exceeds limit").into_response());
+                return Err(
+                    MultipartError::TooLarge("content-length exceeds limit").into_response()
+                );
             }
         }
         let boundary = boundary_from_content_type(&content_type).map_err(|e| e.into_response())?;
-        Ok(Self::new(req.into_body().into_data_stream(), &boundary, limits))
+        Ok(Self::new(
+            req.into_body().into_data_stream(),
+            &boundary,
+            limits,
+        ))
     }
 }
 
@@ -208,12 +214,12 @@ where
                 }
                 self.buf.extend_from_slice(&chunk);
                 Ok(true)
-            }
+            },
             Some(Err(e)) => Err(MultipartError::Body(e.to_string())),
             None => {
                 self.eof = true;
                 Ok(false)
-            }
+            },
         }
     }
 
@@ -241,7 +247,7 @@ where
                             return Err(MultipartError::Malformed("boundary not found"));
                         }
                     }
-                }
+                },
                 State::Delimited => {
                     while self.buf.len() < 2 {
                         if !self.fill().await? {
@@ -266,12 +272,12 @@ where
                                 return Err(MultipartError::TooLarge("too many fields"));
                             }
                             return Ok(Some(info));
-                        }
+                        },
                         // 名前なし: 本体を読み捨てるため、ループ先頭で
                         // State::Body の読み捨てに入る。
                         None => continue,
                     }
-                }
+                },
                 State::Body => unreachable!("drained above"),
             }
         }
@@ -306,7 +312,9 @@ where
         let mut filename = None;
         let mut content_type = None;
         for line in text.split("\r\n") {
-            let Some((key, value)) = line.split_once(':') else { continue };
+            let Some((key, value)) = line.split_once(':') else {
+                continue;
+            };
             let key = key.trim();
             if key.eq_ignore_ascii_case("content-disposition") {
                 for (k, v) in header_params(value) {
@@ -320,7 +328,11 @@ where
                 content_type = Some(value.trim().to_string());
             }
         }
-        Ok(name.map(|name| FieldInfo { name, filename, content_type }))
+        Ok(name.map(|name| FieldInfo {
+            name,
+            filename,
+            content_type,
+        }))
     }
 
     /// 現在のフィールド本体の次のチャンク。終わりなら `Ok(None)`。
@@ -375,18 +387,24 @@ where
 pub fn boundary_from_content_type(content_type: &str) -> Result<String, MultipartError> {
     let lower = content_type.to_ascii_lowercase();
     if !lower.trim_start().starts_with("multipart/form-data") {
-        return Err(MultipartError::BadContentType("expected multipart/form-data request body"));
+        return Err(MultipartError::BadContentType(
+            "expected multipart/form-data request body",
+        ));
     }
     for (k, v) in header_params(content_type) {
         if k.eq_ignore_ascii_case("boundary") && !v.is_empty() {
             // RFC 2046: 70文字以内。
             if v.len() > 70 {
-                return Err(MultipartError::BadContentType("multipart boundary too long"));
+                return Err(MultipartError::BadContentType(
+                    "multipart boundary too long",
+                ));
             }
             return Ok(v);
         }
     }
-    Err(MultipartError::BadContentType("multipart/form-data content-type missing boundary"))
+    Err(MultipartError::BadContentType(
+        "multipart/form-data content-type missing boundary",
+    ))
 }
 
 /// `value; key="quoted;value"; key2=token` 形式の補助パラメータを、
@@ -418,7 +436,10 @@ fn header_params(value: &str) -> Vec<(String, String)> {
         .filter_map(|p| {
             let (k, v) = p.split_once('=')?;
             let v = v.trim();
-            let v = v.strip_prefix('"').and_then(|v| v.strip_suffix('"')).unwrap_or(v);
+            let v = v
+                .strip_prefix('"')
+                .and_then(|v| v.strip_suffix('"'))
+                .unwrap_or(v);
             Some((k.trim().to_string(), v.to_string()))
         })
         .collect()
@@ -453,7 +474,9 @@ mod tests {
         let mut v = Vec::new();
         v.extend_from_slice(b"preamble ignored\r\n");
         v.extend_from_slice(format!("--{B}\r\n").as_bytes());
-        v.extend_from_slice(b"Content-Disposition: form-data; name=\"title\"\r\n\r\nhello world\r\n");
+        v.extend_from_slice(
+            b"Content-Disposition: form-data; name=\"title\"\r\n\r\nhello world\r\n",
+        );
         v.extend_from_slice(format!("--{B}\r\n").as_bytes());
         v.extend_from_slice(
             b"Content-Disposition: form-data; name=\"file\"; filename=\"a;b \\\"c\\\".bin\"\r\nContent-Type: application/octet-stream\r\n\r\n",
@@ -467,7 +490,10 @@ mod tests {
     }
 
     fn chunked(body: &[u8], size: usize) -> impl Stream<Item = Result<Bytes, Infallible>> + Unpin {
-        let chunks: Vec<_> = body.chunks(size).map(|c| Ok(Bytes::copy_from_slice(c))).collect();
+        let chunks: Vec<_> = body
+            .chunks(size)
+            .map(|c| Ok(Bytes::copy_from_slice(c)))
+            .collect();
         stream::iter(chunks)
     }
 
@@ -496,8 +522,14 @@ mod tests {
             assert_eq!(fields[0].1, b"hello world");
             assert_eq!(fields[1].0.name, "file");
             assert_eq!(fields[1].0.filename.as_deref(), Some("a;b \"c\".bin"));
-            assert_eq!(fields[1].0.content_type.as_deref(), Some("application/octet-stream"));
-            assert_eq!(fields[1].1, b"line1\r\n--XyZ-bound\r\n--not-a-boundary\r\n\r\nend");
+            assert_eq!(
+                fields[1].0.content_type.as_deref(),
+                Some("application/octet-stream")
+            );
+            assert_eq!(
+                fields[1].1,
+                b"line1\r\n--XyZ-bound\r\n--not-a-boundary\r\n\r\nend"
+            );
             assert_eq!(fields[2].0.name, "empty");
             assert!(fields[2].1.is_empty());
         }
@@ -519,7 +551,9 @@ mod tests {
         let payload = vec![b'x'; 5 * 1024 * 1024];
         let mut body = Vec::new();
         body.extend_from_slice(format!("--{B}\r\n").as_bytes());
-        body.extend_from_slice(b"Content-Disposition: form-data; name=\"f\"; filename=\"big\"\r\n\r\n");
+        body.extend_from_slice(
+            b"Content-Disposition: form-data; name=\"f\"; filename=\"big\"\r\n\r\n",
+        );
         body.extend_from_slice(&payload);
         body.extend_from_slice(format!("\r\n--{B}--\r\n").as_bytes());
         let mut mp = MultipartStream::new(chunked(&body, 16 * 1024), B, MultipartLimits::default());
@@ -539,7 +573,10 @@ mod tests {
     #[tokio::test]
     async fn field_limit_is_enforced() {
         let body = sample_body();
-        let limits = MultipartLimits { max_field_bytes: 5, ..Default::default() };
+        let limits = MultipartLimits {
+            max_field_bytes: 5,
+            ..Default::default()
+        };
         let mut mp = MultipartStream::new(chunked(&body, 11), B, limits);
         mp.next_field().await.unwrap().unwrap();
         let err = mp.field_bytes(usize::MAX).await.unwrap_err();
@@ -549,7 +586,10 @@ mod tests {
     #[tokio::test]
     async fn total_limit_and_field_count_are_enforced() {
         let body = sample_body();
-        let limits = MultipartLimits { max_total_bytes: 50, ..Default::default() };
+        let limits = MultipartLimits {
+            max_total_bytes: 50,
+            ..Default::default()
+        };
         let mut mp = MultipartStream::new(chunked(&body, 10), B, limits);
         let err = loop {
             match mp.next_field().await {
@@ -557,14 +597,17 @@ mod tests {
                     if let Err(e) = mp.field_bytes(usize::MAX).await {
                         break e;
                     }
-                }
+                },
                 Ok(None) => panic!("should hit the limit"),
                 Err(e) => break e,
             }
         };
         assert_eq!(err.status(), StatusCode::PAYLOAD_TOO_LARGE);
 
-        let limits = MultipartLimits { max_fields: 2, ..Default::default() };
+        let limits = MultipartLimits {
+            max_fields: 2,
+            ..Default::default()
+        };
         let mut mp = MultipartStream::new(chunked(&body, 10), B, limits);
         let mut last = Ok(None);
         for _ in 0..3 {
@@ -599,7 +642,8 @@ mod tests {
             "abc"
         );
         assert_eq!(
-            boundary_from_content_type("Multipart/Form-Data; charset=utf-8; BOUNDARY=\"a;b\"").unwrap(),
+            boundary_from_content_type("Multipart/Form-Data; charset=utf-8; BOUNDARY=\"a;b\"")
+                .unwrap(),
             "a;b"
         );
         assert!(boundary_from_content_type("application/json").is_err());
@@ -632,7 +676,7 @@ mod tests {
                                 }
                             }
                             summary.push(serde_json::json!({ "name": info.name, "filename": info.filename, "len": n }));
-                        }
+                        },
                         Ok(None) => break,
                         Err(e) => return e.into_response(),
                     }
@@ -643,12 +687,10 @@ mod tests {
         let router = Router::new().route(Method::POST, "/upload", handler);
         let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
 
-        let form = reqwest::multipart::Form::new()
-            .text("note", "hi")
-            .part(
-                "file",
-                reqwest::multipart::Part::bytes(vec![7u8; 300_000]).file_name("data.bin"),
-            );
+        let form = reqwest::multipart::Form::new().text("note", "hi").part(
+            "file",
+            reqwest::multipart::Part::bytes(vec![7u8; 300_000]).file_name("data.bin"),
+        );
         let resp = reqwest::Client::new()
             .post(format!("http://{addr}/upload"))
             .multipart(form)

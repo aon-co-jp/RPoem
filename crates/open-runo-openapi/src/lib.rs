@@ -34,9 +34,9 @@ fn rewrite_refs(value: &mut Value) {
                 }
             }
             map.values_mut().for_each(rewrite_refs);
-        }
+        },
         Value::Array(a) => a.iter_mut().for_each(rewrite_refs),
-        _ => {}
+        _ => {},
     }
 }
 
@@ -76,12 +76,15 @@ fn schema_of<T: JsonSchema>() -> (Value, Vec<(String, Value)>) {
     match title {
         Some(name) if is_named => {
             defs.push((name.clone(), Value::Object(obj.clone())));
-            (json!({ "$ref": format!("#/components/schemas/{name}") }), defs)
-        }
+            (
+                json!({ "$ref": format!("#/components/schemas/{name}") }),
+                defs,
+            )
+        },
         _ => {
             obj.remove("title");
             (Value::Object(obj.clone()), defs)
-        }
+        },
     }
 }
 
@@ -91,7 +94,11 @@ fn query_params_of<T: JsonSchema>() -> Vec<Value> {
     let required: Vec<String> = v
         .get("required")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(str::to_owned))
+                .collect()
+        })
         .unwrap_or_default();
     let mut out = Vec::new();
     if let Some(Value::Object(props)) = v.get("properties") {
@@ -227,11 +234,21 @@ pub struct FileField {
 impl FileField {
     /// 必須のファイルフィールド。
     pub fn required(name: &str, description: &str) -> Self {
-        Self { name: name.into(), description: description.into(), required: true, multiple: false }
+        Self {
+            name: name.into(),
+            description: description.into(),
+            required: true,
+            multiple: false,
+        }
     }
     /// 任意のファイルフィールド。
     pub fn optional(name: &str, description: &str) -> Self {
-        Self { name: name.into(), description: description.into(), required: false, multiple: false }
+        Self {
+            name: name.into(),
+            description: description.into(),
+            required: false,
+            multiple: false,
+        }
     }
     /// 同名で複数ファイルを受ける。
     pub fn multiple(mut self) -> Self {
@@ -372,8 +389,10 @@ impl Operation {
         let (ss, sdefs) = schema_of::<Out>();
         self.schemas.extend(cdefs);
         self.schemas.extend(sdefs);
-        self.responses.insert("101".to_string(), json!({ "description": description }));
-        self.extensions.insert("x-websocket".into(), json!({ "client": cs, "server": ss }));
+        self.responses
+            .insert("101".to_string(), json!({ "description": description }));
+        self.extensions
+            .insert("x-websocket".into(), json!({ "client": cs, "server": ss }));
         self.stream = Some(StreamKind::WebSocket);
         self
     }
@@ -385,7 +404,10 @@ impl Operation {
     /// WebSocketがバイナリメッセージも使うことの宣言(`x-websocket-binary`)。
     /// `client` / `server` はそれぞれの向きのバイナリの意味(使わない向きは `None`)。
     pub fn websocket_binary(mut self, client: Option<&str>, server: Option<&str>) -> Self {
-        self.extensions.insert("x-websocket-binary".into(), json!({ "client": client, "server": server }));
+        self.extensions.insert(
+            "x-websocket-binary".into(),
+            json!({ "client": client, "server": server }),
+        );
         self
     }
     /// 型なしのボディ(multipart・生バイト列など)。
@@ -437,7 +459,13 @@ impl Operation {
     pub fn route_pattern(&self) -> String {
         self.path
             .split('/')
-            .map(|s| if s.len() > 2 && s.starts_with('{') && s.ends_with('}') { format!(":{}", &s[1..s.len() - 1]) } else { s.to_owned() })
+            .map(|s| {
+                if s.len() > 2 && s.starts_with('{') && s.ends_with('}') {
+                    format!(":{}", &s[1..s.len() - 1])
+                } else {
+                    s.to_owned()
+                }
+            })
             .collect::<Vec<_>>()
             .join("/")
     }
@@ -511,7 +539,12 @@ impl Spec {
         self
     }
     /// `shared_error` の本文付き版(本文の型 `T` も `components.schemas` へ登録)。
-    pub fn shared_error_typed<T: JsonSchema>(mut self, status: u16, name: &str, description: &str) -> Self {
+    pub fn shared_error_typed<T: JsonSchema>(
+        mut self,
+        status: u16,
+        name: &str,
+        description: &str,
+    ) -> Self {
         let (s, defs) = schema_of::<T>();
         self.shared_schemas.extend(defs);
         self.shared.push((
@@ -558,7 +591,10 @@ impl Spec {
 
     /// 実際のルーター定義にあって、ドキュメントに無いルートを返す
     /// (`:param` / `{param}` どちらの書き方でも照合する)。
-    pub fn undocumented<'a>(&self, routes: impl IntoIterator<Item = (&'a str, &'a str)>) -> Vec<String> {
+    pub fn undocumented<'a>(
+        &self,
+        routes: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Vec<String> {
         let documented: Vec<String> = self.ops.iter().map(Operation::route_label).collect();
         routes
             .into_iter()
@@ -609,14 +645,17 @@ impl Spec {
             for (k, v) in &op.extensions {
                 o.insert(k.clone(), v.clone());
             }
-            let mut responses: Map<String, Value> =
-                op.responses.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            let mut responses: Map<String, Value> = op
+                .responses
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
             if op.secured && self.api_key_header.is_some() {
                 o.insert("security".into(), json!([{ "ApiKeyAuth": [] }]));
                 for (status, name, _) in &self.shared {
-                    responses
-                        .entry(status.clone())
-                        .or_insert_with(|| json!({ "$ref": format!("#/components/responses/{name}") }));
+                    responses.entry(status.clone()).or_insert_with(
+                        || json!({ "$ref": format!("#/components/responses/{name}") }),
+                    );
                 }
                 responses
                     .entry("401".to_string())
@@ -644,10 +683,15 @@ impl Spec {
             "components": { "schemas": schemas },
         });
         if !self.servers.is_empty() {
-            doc["servers"] = Value::Array(self.servers.iter().map(|u| json!({ "url": u })).collect());
+            doc["servers"] =
+                Value::Array(self.servers.iter().map(|u| json!({ "url": u })).collect());
         }
         if !self.shared.is_empty() {
-            let r: Map<String, Value> = self.shared.iter().map(|(_, n, v)| (n.clone(), v.clone())).collect();
+            let r: Map<String, Value> = self
+                .shared
+                .iter()
+                .map(|(_, n, v)| (n.clone(), v.clone()))
+                .collect();
             doc["components"]["responses"] = Value::Object(r);
         }
         if let Some(h) = &self.api_key_header {

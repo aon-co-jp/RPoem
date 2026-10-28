@@ -5,7 +5,9 @@
 //! `(host, backend_addr)` のペア列を渡すだけでよい(型依存なし)。
 
 use crate::process_lifecycle::{HealthState, ProcessLifecycleManager};
-use crate::{Dispatcher, RestartPolicy, RuntimeProfile, SharedDispatcher, StaticDispatcher, UpstreamAddr};
+use crate::{
+    Dispatcher, RestartPolicy, RuntimeProfile, SharedDispatcher, StaticDispatcher, UpstreamAddr,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -42,7 +44,7 @@ pub fn dispatcher_from_tenants<'a>(
         match parse_backend_addr(addr) {
             Some(up) => {
                 routes.insert(host.to_ascii_lowercase(), up);
-            }
+            },
             None => rejected.push(host.to_string()),
         }
     }
@@ -137,7 +139,11 @@ impl SupervisedTenantRegistry {
             host: "127.0.0.1".to_string(),
             port: profile.port,
         };
-        let mgr = Arc::new(ProcessLifecycleManager::start(profile, policy, poll_interval));
+        let mgr = Arc::new(ProcessLifecycleManager::start(
+            profile,
+            policy,
+            poll_interval,
+        ));
         let previous = {
             let mut managed = self.managed.write().expect("managed lock poisoned");
             managed.insert(host.to_ascii_lowercase(), Arc::clone(&mgr))
@@ -184,7 +190,7 @@ impl SupervisedTenantRegistry {
             Some(mgr) => {
                 mgr.restart();
                 true
-            }
+            },
             None => false,
         }
     }
@@ -201,7 +207,7 @@ impl SupervisedTenantRegistry {
             Some(mgr) => {
                 mgr.stop();
                 true
-            }
+            },
             None => false,
         }
     }
@@ -296,7 +302,11 @@ mod tests {
 
     #[test]
     fn parses_plain_scheme_and_trailing_slash_forms() {
-        for s in ["127.0.0.1:8080", "http://127.0.0.1:8080", "http://127.0.0.1:8080/"] {
+        for s in [
+            "127.0.0.1:8080",
+            "http://127.0.0.1:8080",
+            "http://127.0.0.1:8080/",
+        ] {
             let u = parse_backend_addr(s).unwrap();
             assert_eq!((u.host.as_str(), u.port), ("127.0.0.1", 8080), "{s}");
         }
@@ -437,19 +447,32 @@ mod tests {
 
         // 3件全てHealthyになるまで待つ。
         assert!(wait_for(Duration::from_secs(5), || {
-            (0..3).all(|i| registry.process_status(&format!("app{i}.example.jp")) == Some(HealthState::Healthy))
+            (0..3).all(|i| {
+                registry.process_status(&format!("app{i}.example.jp")) == Some(HealthState::Healthy)
+            })
         }));
 
-        let mut listed: Vec<String> = registry.list_managed().into_iter().map(|(h, _)| h).collect();
+        let mut listed: Vec<String> = registry
+            .list_managed()
+            .into_iter()
+            .map(|(h, _)| h)
+            .collect();
         listed.sort();
         assert_eq!(
             listed,
-            vec!["app0.example.jp".to_string(), "app1.example.jp".to_string(), "app2.example.jp".to_string()]
+            vec![
+                "app0.example.jp".to_string(),
+                "app1.example.jp".to_string(),
+                "app2.example.jp".to_string()
+            ]
         );
         // register_proxy_onlyのホストは一覧に含まれないことも確認。
         registry.register_proxy_only(
             "proxy-only.example.jp",
-            UpstreamAddr { host: "127.0.0.1".into(), port: 1 },
+            UpstreamAddr {
+                host: "127.0.0.1".into(),
+                port: 1,
+            },
         );
         assert_eq!(registry.list_managed().len(), 3);
 
@@ -459,12 +482,19 @@ mod tests {
         assert_eq!(stopped.len(), 3);
         for &port in &ports {
             assert!(
-                wait_for(Duration::from_secs(2), || TcpStream::connect(("127.0.0.1", port)).is_err()),
+                wait_for(Duration::from_secs(2), || TcpStream::connect((
+                    "127.0.0.1",
+                    port
+                ))
+                .is_err()),
                 "port {port} should be unreachable after stop_all"
             );
         }
         for i in 0..3 {
-            assert_eq!(registry.process_status(&format!("app{i}.example.jp")), Some(HealthState::Stopped));
+            assert_eq!(
+                registry.process_status(&format!("app{i}.example.jp")),
+                Some(HealthState::Stopped)
+            );
         }
     }
 
@@ -481,7 +511,9 @@ mod tests {
             );
         }
         assert!(wait_for(Duration::from_secs(5), || {
-            (0..2).all(|i| registry.process_status(&format!("g{i}.example.jp")) == Some(HealthState::Healthy))
+            (0..2).all(|i| {
+                registry.process_status(&format!("g{i}.example.jp")) == Some(HealthState::Healthy)
+            })
         }));
 
         let mut results = registry.stop_all_graceful(Duration::from_secs(5));
@@ -492,6 +524,10 @@ mod tests {
         }
 
         // 未管理ホストへのgraceful stopはNone。
-        assert_eq!(registry.stop_process_graceful("never-registered.example.jp", Duration::from_millis(10)), None);
+        assert_eq!(
+            registry
+                .stop_process_graceful("never-registered.example.jp", Duration::from_millis(10)),
+            None
+        );
     }
 }

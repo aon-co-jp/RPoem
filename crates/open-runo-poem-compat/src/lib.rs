@@ -35,11 +35,11 @@ use std::sync::Arc;
 
 pub use hyper::Method;
 pub use hyper::StatusCode;
+/// 型駆動のAPIドキュメント生成(`Spec`/`Operation`、poem-openapi相当)。
+pub use open_runo_openapi as openapi;
 /// 逃げ道として`hyper_compat`自体も再公開する——CORS/gzip/WebSocket等、
 /// 本ファサードがまだ配線していない機能は、当面この経路で直接使える。
 pub use open_runo_router::hyper_compat;
-/// 型駆動のAPIドキュメント生成(`Spec`/`Operation`、poem-openapi相当)。
-pub use open_runo_openapi as openapi;
 
 /// 型駆動のAPIハンドラ(`api::json`/`api::query`/`api::plain` 等)と `ApiError`/`Ctx`。
 pub mod api;
@@ -110,7 +110,12 @@ impl Route {
     pub fn api(mut self, h: api::ApiHandler) -> Self {
         let method = api::to_hyper_method(h.op.http_method());
         let pattern = h.op.route_pattern();
-        self.add_entry(&pattern, MethodRouter { handlers: vec![(method, h.handler)] });
+        self.add_entry(
+            &pattern,
+            MethodRouter {
+                handlers: vec![(method, h.handler)],
+            },
+        );
         self.api_ops.push(h.op);
         self
     }
@@ -120,7 +125,15 @@ impl Route {
     pub fn nest(mut self, prefix: &str, inner: Route) -> Self {
         let p = prefix.trim_end_matches('/');
         for (path, mr) in inner.entries {
-            let full = if path == "/" { if p.is_empty() { "/".to_string() } else { p.to_string() } } else { format!("{p}{path}") };
+            let full = if path == "/" {
+                if p.is_empty() {
+                    "/".to_string()
+                } else {
+                    p.to_string()
+                }
+            } else {
+                format!("{p}{path}")
+            };
             self.add_entry(&full, mr);
         }
         for op in inner.api_ops {
@@ -139,7 +152,8 @@ impl Route {
     /// アプリ共有の値を登録する(同じ型は後勝ち)。ハンドラ内で `ctx.data::<T>()` / `ctx.state::<T>()?` で取り出す。
     /// `Arc` の複製をクロージャへ配る手間が要らない。
     pub fn data<T: Send + Sync + 'static>(mut self, value: T) -> Self {
-        self.data.insert(std::any::TypeId::of::<T>(), Arc::new(value));
+        self.data
+            .insert(std::any::TypeId::of::<T>(), Arc::new(value));
         self
     }
 
@@ -204,7 +218,10 @@ impl Route {
             // 型駆動ハンドラ(`Route::api`)の宣言を先に文書へ入れる(引数・戻り値の型がそのまま載る)。
             for op in &self.api_ops {
                 let m = api::to_hyper_method(op.http_method());
-                if !spec.undocumented([(m.as_str(), op.route_pattern().as_str())]).is_empty() {
+                if !spec
+                    .undocumented([(m.as_str(), op.route_pattern().as_str())])
+                    .is_empty()
+                {
                     *spec = std::mem::replace(spec, openapi::Spec::new("", "")).op(op.clone());
                 }
             }
@@ -224,7 +241,12 @@ impl Route {
                         eprintln!("[open-runo-poem-compat] APIドキュメント未宣言のルート(自動で最小限の操作を追加): {m} {path}");
                         let op = openapi::Operation::new(method, path)
                             .summary(&format!("{m} {path}"))
-                            .tag(path.trim_start_matches('/').split('/').next().unwrap_or("root"))
+                            .tag(
+                                path.trim_start_matches('/')
+                                    .split('/')
+                                    .next()
+                                    .unwrap_or("root"),
+                            )
                             .response_empty(200, "OK");
                         *spec = std::mem::replace(spec, openapi::Spec::new("", "")).op(op);
                     }
@@ -233,9 +255,16 @@ impl Route {
         }
         let mut data_map = self.data;
         if let Some(n) = self.max_body {
-            data_map.insert(std::any::TypeId::of::<api::BodyLimit>(), Arc::new(api::BodyLimit(n)));
+            data_map.insert(
+                std::any::TypeId::of::<api::BodyLimit>(),
+                Arc::new(api::BodyLimit(n)),
+            );
         }
-        let data = if data_map.is_empty() { None } else { Some(Arc::new(data_map)) };
+        let data = if data_map.is_empty() {
+            None
+        } else {
+            Some(Arc::new(data_map))
+        };
         for (path, mr) in self.entries {
             for (method, handler) in mr.handlers {
                 let handler = match &data {
@@ -247,7 +276,7 @@ impl Route {
                             inner(req, p)
                         });
                         wrapped
-                    }
+                    },
                     None => handler,
                 };
                 router = router.route(method, &path, handler);
@@ -267,7 +296,9 @@ pub struct MethodRouter {
 
 impl MethodRouter {
     fn single(method: Method, handler: Handler) -> Self {
-        Self { handlers: vec![(method, handler)] }
+        Self {
+            handlers: vec![(method, handler)],
+        }
     }
 
     pub fn get(mut self, handler: Handler) -> Self {
@@ -383,7 +414,10 @@ impl Server {
     /// `serve`と同じ「起動して返す」形状にしている——poemの`.run()`を
     /// そのまま`await`したい場合は、返ってきた`JoinHandle`を呼び出し側
     /// で`.await`すればよい)。
-    pub async fn run(self, app: Route) -> std::io::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
+    pub async fn run(
+        self,
+        app: Route,
+    ) -> std::io::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
         hyper_compat::serve(app.build(), self.listener.addr).await
     }
 }
@@ -414,7 +448,11 @@ mod tests {
             .expect("server should bind an ephemeral port")
     }
 
-    async fn send(addr: SocketAddr, method: Method, path: &str) -> hyper::Response<hyper::body::Incoming> {
+    async fn send(
+        addr: SocketAddr,
+        method: Method,
+        path: &str,
+    ) -> hyper::Response<hyper::body::Incoming> {
         let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
         let io = hyper_util::rt::TokioIo::new(stream);
         let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await.unwrap();
@@ -430,7 +468,12 @@ mod tests {
     #[tokio::test]
     async fn with_cors_actually_adds_access_control_headers_over_real_tcp() {
         let app = Route::new()
-            .at("/cors-ping", get(handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::OK) })))
+            .at(
+                "/cors-ping",
+                get(handler_fn(|_req, _p| async {
+                    hyper_compat::empty_status(SC::OK)
+                })),
+            )
             .with_cors();
         let (addr, handle) = spawn(app).await;
         let resp = send(addr, Method::GET, "/cors-ping").await;
@@ -443,8 +486,12 @@ mod tests {
     async fn route_at_dispatches_by_method_like_poem() {
         let app = Route::new().at(
             "/ping",
-            get(handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::OK) }))
-                .post(handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::CREATED) })),
+            get(handler_fn(|_req, _p| async {
+                hyper_compat::empty_status(SC::OK)
+            }))
+            .post(handler_fn(|_req, _p| async {
+                hyper_compat::empty_status(SC::CREATED)
+            })),
         );
         let (addr, handle) = spawn(app).await;
 
@@ -488,7 +535,12 @@ mod tests {
 
     #[tokio::test]
     async fn unmatched_path_returns_404_like_poem() {
-        let app = Route::new().at("/known", get(handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::OK) })));
+        let app = Route::new().at(
+            "/known",
+            get(handler_fn(|_req, _p| async {
+                hyper_compat::empty_status(SC::OK)
+            })),
+        );
         let (addr, handle) = spawn(app).await;
         let resp = send(addr, Method::GET, "/unknown").await;
         assert_eq!(resp.status(), SC::NOT_FOUND);
@@ -499,8 +551,12 @@ mod tests {
     async fn head_method_dispatches_separately_from_get_over_real_tcp() {
         let app = Route::new().at(
             "/head-ping",
-            get(handler_fn(|_req, _p| async { hyper_compat::html_response(SC::OK, "body".to_string()) }))
-                .head(handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::OK) })),
+            get(handler_fn(|_req, _p| async {
+                hyper_compat::html_response(SC::OK, "body".to_string())
+            }))
+            .head(handler_fn(|_req, _p| async {
+                hyper_compat::empty_status(SC::OK)
+            })),
         );
         let (addr, handle) = spawn(app).await;
 
@@ -520,7 +576,9 @@ mod tests {
     async fn server_run_actually_binds_and_serves_over_real_tcp() {
         let app = Route::new().at(
             "/healthz",
-            get(handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::OK) })),
+            get(handler_fn(|_req, _p| async {
+                hyper_compat::empty_status(SC::OK)
+            })),
         );
         let (addr, handle) = spawn(app).await;
         let resp = send(addr, Method::GET, "/healthz").await;
@@ -531,10 +589,17 @@ mod tests {
     #[tokio::test]
     async fn docs_mounts_openapi_swagger_and_graphql_over_real_tcp() {
         use openapi::{Operation, Spec};
-        let spec = Spec::new("poem-compat demo", "1.0.0")
-            .op(Operation::get("/ping").summary("ping").public().response_empty(200, "pong"));
+        let spec = Spec::new("poem-compat demo", "1.0.0").op(Operation::get("/ping")
+            .summary("ping")
+            .public()
+            .response_empty(200, "pong"));
         let app = Route::new()
-            .at("/ping", get(handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::OK) })))
+            .at(
+                "/ping",
+                get(handler_fn(|_req, _p| async {
+                    hyper_compat::empty_status(SC::OK)
+                })),
+            )
             .docs("/api", spec);
         let (addr, handle) = spawn(app).await;
         for (path, needle) in [
@@ -557,7 +622,10 @@ mod tests {
         use openapi::{Operation, Spec};
         let h = || handler_fn(|_req, _p| async { hyper_compat::empty_status(SC::OK) });
         // /typed は型付き宣言(summaryが保たれる)、/auto/:id は宣言なし(自動追加)。
-        let spec = Spec::new("mix", "1").op(Operation::get("/typed").summary("typed one").public().response_empty(200, "ok"));
+        let spec = Spec::new("mix", "1").op(Operation::get("/typed")
+            .summary("typed one")
+            .public()
+            .response_empty(200, "ok"));
         let app = Route::new()
             .at("/typed", get(h()))
             .at("/auto/:id", get(h()).post(h()))
@@ -567,8 +635,14 @@ mod tests {
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let doc: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(doc["paths"]["/typed"]["get"]["summary"], "typed one");
-        assert!(doc["paths"]["/auto/{id}"]["get"].is_object() && doc["paths"]["/auto/{id}"]["post"].is_object());
-        assert_eq!(doc["paths"]["/auto/{id}"]["get"]["parameters"][0]["name"], "id");
+        assert!(
+            doc["paths"]["/auto/{id}"]["get"].is_object()
+                && doc["paths"]["/auto/{id}"]["post"].is_object()
+        );
+        assert_eq!(
+            doc["paths"]["/auto/{id}"]["get"]["parameters"][0]["name"],
+            "id"
+        );
         handle.abort();
     }
 }

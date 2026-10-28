@@ -28,9 +28,15 @@ struct TagEcho {
 
 #[tokio::test]
 async fn query_accepts_repeated_keys_as_vec() {
-    let app = Route::new().api(api::query(Op::get("/search").summary("検索"), |q: TagQuery, _ctx| async move {
-        Ok(TagEcho { tags: q.tag, limit: q.limit })
-    }));
+    let app = Route::new().api(api::query(
+        Op::get("/search").summary("検索"),
+        |q: TagQuery, _ctx| async move {
+            Ok(TagEcho {
+                tags: q.tag,
+                limit: q.limit,
+            })
+        },
+    ));
     let srv = TestServer::start(app).await;
 
     let v: serde_json::Value = srv.get("/search?tag=a&tag=b%20c&limit=5").await.json();
@@ -50,11 +56,16 @@ struct Greeting(String);
 
 #[tokio::test]
 async fn shared_returns_an_owned_arc_usable_in_spawned_tasks() {
-    let app = Route::new().data(Greeting("hi".into())).api(api::plain(Op::get("/g").summary("g"), |ctx| async move {
-        let g: Arc<Greeting> = ctx.shared()?;
-        let out = tokio::spawn(async move { format!("{}!", g.0) }).await.map_err(|e| ApiError::internal(e.to_string()))?;
-        Ok(out)
-    }));
+    let app = Route::new().data(Greeting("hi".into())).api(api::plain(
+        Op::get("/g").summary("g"),
+        |ctx| async move {
+            let g: Arc<Greeting> = ctx.shared()?;
+            let out = tokio::spawn(async move { format!("{}!", g.0) })
+                .await
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+            Ok(out)
+        },
+    ));
     let srv = TestServer::start(app).await;
     assert_eq!(srv.get("/g").await.json::<String>(), "hi!");
 
@@ -111,13 +122,24 @@ fn multipart_body(boundary: &str, parts: &[(&str, Option<&str>, &[u8])]) -> Vec<
 fn upload_app() -> Route {
     Route::new().api(api::multipart(
         Op::post("/upload").summary("アップロード"),
-        &[FileField::required("avatar", "アイコン画像"), FileField::optional("attachments", "添付").multiple()],
+        &[
+            FileField::required("avatar", "アイコン画像"),
+            FileField::optional("attachments", "添付").multiple(),
+        ],
         |m: api::Multipart<UploadForm>, _ctx| async move {
             Ok(UploadResult {
                 visibility: m.form.visibility.clone(),
                 labels: m.form.labels.clone(),
                 size_hint: m.form.size_hint,
-                files: m.files.iter().map(|f| UploadedInfo { field: f.field.clone(), filename: f.filename.clone(), bytes: f.data.len() }).collect(),
+                files: m
+                    .files
+                    .iter()
+                    .map(|f| UploadedInfo {
+                        field: f.field.clone(),
+                        filename: f.filename.clone(),
+                        bytes: f.data.len(),
+                    })
+                    .collect(),
             })
         },
     ))
@@ -139,7 +161,9 @@ async fn multipart_gives_typed_fields_and_files() {
             ("attachments", Some("b.txt"), b"world!"),
         ],
     );
-    let res = srv.request(Method::POST, "/upload", &[("content-type", ct)], Some(body)).await;
+    let res = srv
+        .request(Method::POST, "/upload", &[("content-type", ct)], Some(body))
+        .await;
     assert_eq!(res.status, 200, "{}", res.text());
     let v: serde_json::Value = res.json();
     assert_eq!(v["visibility"], "private");
@@ -153,14 +177,38 @@ async fn multipart_gives_typed_fields_and_files() {
 
     // 必須ファイルが無ければ400
     let body = multipart_body("XBOUNDX", &[("visibility", None, b"public")]);
-    let res = srv.request(Method::POST, "/upload", &[("content-type", ct)], Some(body)).await;
+    let res = srv
+        .request(Method::POST, "/upload", &[("content-type", ct)], Some(body))
+        .await;
     assert_eq!(res.status, 400);
     assert!(res.text().contains("avatar"), "{}", res.text());
     // テキストフィールドが型に合わなければ400
-    let body = multipart_body("XBOUNDX", &[("visibility", None, b"x"), ("size_hint", None, b"abc"), ("avatar", Some("a"), b"1")]);
-    assert_eq!(srv.request(Method::POST, "/upload", &[("content-type", ct)], Some(body)).await.status, 400);
+    let body = multipart_body(
+        "XBOUNDX",
+        &[
+            ("visibility", None, b"x"),
+            ("size_hint", None, b"abc"),
+            ("avatar", Some("a"), b"1"),
+        ],
+    );
+    assert_eq!(
+        srv.request(Method::POST, "/upload", &[("content-type", ct)], Some(body))
+            .await
+            .status,
+        400
+    );
     // multipartでなければ400
-    assert_eq!(srv.request(Method::POST, "/upload", &[("content-type", "application/json")], Some(b"{}".to_vec())).await.status, 400);
+    assert_eq!(
+        srv.request(
+            Method::POST,
+            "/upload",
+            &[("content-type", "application/json")],
+            Some(b"{}".to_vec())
+        )
+        .await
+        .status,
+        400
+    );
 }
 
 #[tokio::test]
@@ -169,23 +217,42 @@ async fn multipart_respects_max_body() {
     let srv = TestServer::start(app).await;
     let ct = "multipart/form-data; boundary=XBOUNDX";
     let big = vec![7u8; 4096];
-    let body = multipart_body("XBOUNDX", &[("visibility", None, b"x"), ("avatar", Some("big.bin"), &big)]);
+    let body = multipart_body(
+        "XBOUNDX",
+        &[
+            ("visibility", None, b"x"),
+            ("avatar", Some("big.bin"), &big),
+        ],
+    );
     // 途中で拒否して切断した場合(Err)もよい
-    if let Ok(res) = srv.try_request(Method::POST, "/upload", &[("content-type", ct)], Some(body)).await {
+    if let Ok(res) = srv
+        .try_request(Method::POST, "/upload", &[("content-type", ct)], Some(body))
+        .await
+    {
         assert_eq!(res.status, 413, "{}", res.text());
     }
 }
 
 #[tokio::test]
 async fn multipart_with_no_text_fields_uses_nofields() {
-    let app = Route::new().api(api::multipart(
-        Op::post("/one").summary("1ファイル"),
-        &[FileField::required("f", "ファイル")],
-        |m: api::Multipart<NoFields>, _ctx| async move { Ok(m.file("f").map_or(0, |f| f.data.len())) },
-    ));
+    let app =
+        Route::new().api(api::multipart(
+            Op::post("/one").summary("1ファイル"),
+            &[FileField::required("f", "ファイル")],
+            |m: api::Multipart<NoFields>, _ctx| async move {
+                Ok(m.file("f").map_or(0, |f| f.data.len()))
+            },
+        ));
     let srv = TestServer::start(app).await;
     let body = multipart_body("B", &[("f", Some("x.bin"), b"12345")]);
-    let res = srv.request(Method::POST, "/one", &[("content-type", "multipart/form-data; boundary=B")], Some(body)).await;
+    let res = srv
+        .request(
+            Method::POST,
+            "/one",
+            &[("content-type", "multipart/form-data; boundary=B")],
+            Some(body),
+        )
+        .await;
     assert_eq!(res.json::<usize>(), 5);
 }
 
@@ -194,7 +261,8 @@ async fn multipart_docs_list_text_and_file_fields() {
     let app = upload_app().docs("/api", Spec::new("t", "1"));
     let srv = TestServer::start(app).await;
     let doc: serde_json::Value = srv.get("/api/openapi.json").await.json();
-    let schema = &doc["paths"]["/upload"]["post"]["requestBody"]["content"]["multipart/form-data"]["schema"];
+    let schema =
+        &doc["paths"]["/upload"]["post"]["requestBody"]["content"]["multipart/form-data"]["schema"];
     let all = schema["allOf"].as_array().expect("allOf");
     assert_eq!(all[0]["$ref"], "#/components/schemas/UploadForm");
     assert_eq!(all[1]["properties"]["avatar"]["format"], "binary");
@@ -218,13 +286,19 @@ struct Tick {
 #[tokio::test]
 async fn sse_streams_typed_events_and_is_documented() {
     let app = Route::new()
-        .api(api::sse(Op::get("/ticks/:count").summary("カウント"), |ctx| async move {
-            let count: u32 = ctx.param_as("count")?;
-            if count > 100 {
-                return Err(ApiError::bad_request("count must be <= 100"));
-            }
-            Ok(futures::stream::iter((1..=count).map(|n| Tick { n, label: format!("tick-{n}") })))
-        }))
+        .api(api::sse(
+            Op::get("/ticks/:count").summary("カウント"),
+            |ctx| async move {
+                let count: u32 = ctx.param_as("count")?;
+                if count > 100 {
+                    return Err(ApiError::bad_request("count must be <= 100"));
+                }
+                Ok(futures::stream::iter((1..=count).map(|n| Tick {
+                    n,
+                    label: format!("tick-{n}"),
+                })))
+            },
+        ))
         .docs("/api", Spec::new("t", "1"));
     let srv = TestServer::start(app).await;
 
@@ -243,11 +317,15 @@ async fn sse_streams_typed_events_and_is_documented() {
     // ストリームを始める前のエラーは普通のJSONエラー
     let res = srv.get("/ticks/1000").await;
     assert_eq!(res.status, 400);
-    assert_eq!(res.json::<serde_json::Value>()["error"], "count must be <= 100");
+    assert_eq!(
+        res.json::<serde_json::Value>()["error"],
+        "count must be <= 100"
+    );
 
     // 文書: text/event-stream のスキーマ=Tick
     let doc: serde_json::Value = srv.get("/api/openapi.json").await.json();
-    let ok = &doc["paths"]["/ticks/{count}"]["get"]["responses"]["200"]["content"]["text/event-stream"]["schema"];
+    let ok = &doc["paths"]["/ticks/{count}"]["get"]["responses"]["200"]["content"]
+        ["text/event-stream"]["schema"];
     assert_eq!(ok["$ref"], "#/components/schemas/Tick");
     // GraphQL: Subscription、TypeScript: EventSource
     let sdl = srv.get("/api/openapi.graphql").await.text();
@@ -269,21 +347,35 @@ async fn sse_stops_when_the_client_disconnects() {
         }
     }
     let a2 = Arc::clone(&alive);
-    let app = Route::new().api(api::sse(Op::get("/forever").summary("無限"), move |_ctx| {
-        let a = Arc::clone(&a2);
-        async move {
-            let guard = Guard(a);
-            Ok(Box::pin(futures::stream::unfold((0u32, guard), |(n, g)| async move {
-                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                Some((Tick { n, label: String::new() }, (n + 1, g)))
-            })))
-        }
-    }));
+    let app = Route::new().api(api::sse(
+        Op::get("/forever").summary("無限"),
+        move |_ctx| {
+            let a = Arc::clone(&a2);
+            async move {
+                let guard = Guard(a);
+                Ok(Box::pin(futures::stream::unfold(
+                    (0u32, guard),
+                    |(n, g)| async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                        Some((
+                            Tick {
+                                n,
+                                label: String::new(),
+                            },
+                            (n + 1, g),
+                        ))
+                    },
+                )))
+            }
+        },
+    ));
     let srv = TestServer::start(app).await;
     {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let mut s = tokio::net::TcpStream::connect(srv.addr).await.unwrap();
-        s.write_all(format!("GET /forever HTTP/1.1\r\nhost: {}\r\n\r\n", srv.addr).as_bytes()).await.unwrap();
+        s.write_all(format!("GET /forever HTTP/1.1\r\nhost: {}\r\n\r\n", srv.addr).as_bytes())
+            .await
+            .unwrap();
         let mut buf = [0u8; 256];
         let n = s.read(&mut buf).await.unwrap();
         assert!(n > 0);
@@ -316,19 +408,27 @@ enum ChatOut {
 
 fn ws_app() -> Route {
     Route::new()
-        .api(api::websocket(Op::get("/rooms/:room/ws").summary("チャット"), |mut ws: api::WsSession<ChatIn, ChatOut>, ctx| async move {
-            let room = ctx.param("room").unwrap_or_default();
-            while let Some(msg) = ws.recv().await {
-                let reply = match msg {
-                    Ok(ChatIn::Say { text }) => ChatOut::Said { room: room.clone(), text },
-                    Ok(ChatIn::Ping) => ChatOut::Pong,
-                    Err(e) => ChatOut::Error { message: e.to_string() },
-                };
-                if ws.send(&reply).await.is_err() {
-                    break;
+        .api(api::websocket(
+            Op::get("/rooms/:room/ws").summary("チャット"),
+            |mut ws: api::WsSession<ChatIn, ChatOut>, ctx| async move {
+                let room = ctx.param("room").unwrap_or_default();
+                while let Some(msg) = ws.recv().await {
+                    let reply = match msg {
+                        Ok(ChatIn::Say { text }) => ChatOut::Said {
+                            room: room.clone(),
+                            text,
+                        },
+                        Ok(ChatIn::Ping) => ChatOut::Pong,
+                        Err(e) => ChatOut::Error {
+                            message: e.to_string(),
+                        },
+                    };
+                    if ws.send(&reply).await.is_err() {
+                        break;
+                    }
                 }
-            }
-        }))
+            },
+        ))
         .docs("/api", Spec::new("t", "1"))
 }
 
@@ -336,23 +436,47 @@ fn ws_app() -> Route {
 async fn websocket_exchanges_typed_messages_with_path_params() {
     use tokio_tungstenite::tungstenite::Message;
     let srv = TestServer::start(ws_app()).await;
-    let (mut ws, resp) = tokio_tungstenite::connect_async(format!("ws://{}/rooms/lobby/ws", srv.addr)).await.expect("ws connect");
+    let (mut ws, resp) =
+        tokio_tungstenite::connect_async(format!("ws://{}/rooms/lobby/ws", srv.addr))
+            .await
+            .expect("ws connect");
     assert_eq!(resp.status().as_u16(), 101);
 
-    ws.send(Message::Text(r#"{"type":"say","text":"こんにちは"}"#.into())).await.unwrap();
-    let Message::Text(t) = ws.next().await.unwrap().unwrap() else { panic!("expected text") };
-    assert_eq!(serde_json::from_str::<serde_json::Value>(&t).unwrap(), serde_json::json!({"type":"said","room":"lobby","text":"こんにちは"}));
+    ws.send(Message::Text(
+        r#"{"type":"say","text":"こんにちは"}"#.into(),
+    ))
+    .await
+    .unwrap();
+    let Message::Text(t) = ws.next().await.unwrap().unwrap() else {
+        panic!("expected text")
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&t).unwrap(),
+        serde_json::json!({"type":"said","room":"lobby","text":"こんにちは"})
+    );
 
-    ws.send(Message::Text(r#"{"type":"ping"}"#.into())).await.unwrap();
-    let Message::Text(t) = ws.next().await.unwrap().unwrap() else { panic!("expected text") };
+    ws.send(Message::Text(r#"{"type":"ping"}"#.into()))
+        .await
+        .unwrap();
+    let Message::Text(t) = ws.next().await.unwrap().unwrap() else {
+        panic!("expected text")
+    };
     assert_eq!(t.to_string(), r#"{"type":"pong"}"#);
 
     // 型に合わないメッセージはエラー応答で、接続は続く
-    ws.send(Message::Text(r#"{"type":"nope"}"#.into())).await.unwrap();
-    let Message::Text(t) = ws.next().await.unwrap().unwrap() else { panic!("expected text") };
+    ws.send(Message::Text(r#"{"type":"nope"}"#.into()))
+        .await
+        .unwrap();
+    let Message::Text(t) = ws.next().await.unwrap().unwrap() else {
+        panic!("expected text")
+    };
     assert!(t.contains(r#""type":"error""#), "{t}");
-    ws.send(Message::Text(r#"{"type":"ping"}"#.into())).await.unwrap();
-    let Message::Text(t) = ws.next().await.unwrap().unwrap() else { panic!("expected text") };
+    ws.send(Message::Text(r#"{"type":"ping"}"#.into()))
+        .await
+        .unwrap();
+    let Message::Text(t) = ws.next().await.unwrap().unwrap() else {
+        panic!("expected text")
+    };
     assert_eq!(t.to_string(), r#"{"type":"pong"}"#);
     ws.close(None).await.unwrap();
 }
@@ -366,9 +490,18 @@ async fn websocket_rejects_plain_http_and_is_documented() {
     let doc: serde_json::Value = srv.get("/api/openapi.json").await.json();
     let op = &doc["paths"]["/rooms/{room}/ws"]["get"];
     assert!(op["responses"]["101"].is_object());
-    assert_eq!(op["x-websocket"]["client"]["$ref"], "#/components/schemas/ChatIn");
-    assert_eq!(op["x-websocket"]["server"]["$ref"], "#/components/schemas/ChatOut");
-    assert!(doc["components"]["schemas"]["ChatIn"].is_object() && doc["components"]["schemas"]["ChatOut"].is_object());
+    assert_eq!(
+        op["x-websocket"]["client"]["$ref"],
+        "#/components/schemas/ChatIn"
+    );
+    assert_eq!(
+        op["x-websocket"]["server"]["$ref"],
+        "#/components/schemas/ChatOut"
+    );
+    assert!(
+        doc["components"]["schemas"]["ChatIn"].is_object()
+            && doc["components"]["schemas"]["ChatOut"].is_object()
+    );
 
     let ts = srv.get("/api/client.ts").await.text();
     assert!(ts.contains("new WebSocket("), "{ts}");
@@ -383,11 +516,27 @@ async fn websocket_rejects_plain_http_and_is_documented() {
 #[tokio::test]
 #[ignore]
 async fn dump_typescript() {
-    let Ok(path) = std::env::var("RPOEM_DUMP_TS") else { return };
+    let Ok(path) = std::env::var("RPOEM_DUMP_TS") else {
+        return;
+    };
     let app = upload_app()
-        .api(api::sse(Op::get("/ticks/:count").summary("カウント"), |_ctx| async move { Ok(futures::stream::iter(Vec::<Tick>::new())) }))
-        .api(api::websocket(Op::get("/rooms/:room/ws").summary("チャット"), |_ws: api::WsSession<ChatIn, ChatOut>, _ctx| async move {}))
-        .api(api::query(Op::get("/search").summary("検索"), |q: TagQuery, _ctx| async move { Ok(TagEcho { tags: q.tag, limit: q.limit }) }))
+        .api(api::sse(
+            Op::get("/ticks/:count").summary("カウント"),
+            |_ctx| async move { Ok(futures::stream::iter(Vec::<Tick>::new())) },
+        ))
+        .api(api::websocket(
+            Op::get("/rooms/:room/ws").summary("チャット"),
+            |_ws: api::WsSession<ChatIn, ChatOut>, _ctx| async move {},
+        ))
+        .api(api::query(
+            Op::get("/search").summary("検索"),
+            |q: TagQuery, _ctx| async move {
+                Ok(TagEcho {
+                    tags: q.tag,
+                    limit: q.limit,
+                })
+            },
+        ))
         .docs("/api", Spec::new("t", "1"));
     let srv = TestServer::start(app).await;
     std::fs::write(path, srv.get("/api/client.ts").await.text()).unwrap();

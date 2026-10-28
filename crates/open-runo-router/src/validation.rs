@@ -73,7 +73,10 @@ pub fn validate(validator: &Validator, body: &Value) -> Result<(), String> {
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(format!("request body failed validation: {}", errors.join("; ")))
+        Err(format!(
+            "request body failed validation: {}",
+            errors.join("; ")
+        ))
     }
 }
 
@@ -114,6 +117,10 @@ mod tests {
 
     #[test]
     fn feature_flag_request_rejects_rollout_percent_over_100() {
-        assert!(validate(&FEATURE_FLAG_REQUEST, &json!({ "name": "f", "rollout_percent": 101 })).is_err());
+        assert!(validate(
+            &FEATURE_FLAG_REQUEST,
+            &json!({ "name": "f", "rollout_percent": 101 })
+        )
+        .is_err());
     }
 }

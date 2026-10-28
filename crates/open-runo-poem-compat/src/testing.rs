@@ -33,7 +33,8 @@ impl TestResponse {
     }
     /// 本文をJSONとして読む。失敗時はpanic(テスト用)。
     pub fn json<T: serde::de::DeserializeOwned>(&self) -> T {
-        serde_json::from_slice(&self.body).unwrap_or_else(|e| panic!("response is not the expected JSON ({e}): {}", self.text()))
+        serde_json::from_slice(&self.body)
+            .unwrap_or_else(|e| panic!("response is not the expected JSON ({e}): {}", self.text()))
     }
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers.get(name).and_then(|v| v.to_str().ok())
@@ -61,26 +62,60 @@ impl TestServer {
     }
 
     /// 任意のメソッド・ヘッダ・本文でリクエストする。失敗時はpanic(テスト用)。
-    pub async fn request(&self, method: Method, path: &str, headers: &[(&str, &str)], body: Option<Vec<u8>>) -> TestResponse {
-        self.try_request(method, path, headers, body).await.unwrap_or_else(|e| panic!("request failed: {e}"))
+    pub async fn request(
+        &self,
+        method: Method,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: Option<Vec<u8>>,
+    ) -> TestResponse {
+        self.try_request(method, path, headers, body)
+            .await
+            .unwrap_or_else(|e| panic!("request failed: {e}"))
     }
 
     /// `request` の、接続エラーを `Err` で返す版(サーバーが巨大な本文を途中で拒否して
     /// 接続を閉じる場合など、エラーも正しい結果になる試験用)。
-    pub async fn try_request(&self, method: Method, path: &str, headers: &[(&str, &str)], body: Option<Vec<u8>>) -> Result<TestResponse, String> {
-        let stream = tokio::net::TcpStream::connect(self.addr).await.map_err(|e| format!("connect: {e}"))?;
+    pub async fn try_request(
+        &self,
+        method: Method,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: Option<Vec<u8>>,
+    ) -> Result<TestResponse, String> {
+        let stream = tokio::net::TcpStream::connect(self.addr)
+            .await
+            .map_err(|e| format!("connect: {e}"))?;
         let io = hyper_util::rt::TokioIo::new(stream);
-        let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await.map_err(|e| format!("handshake: {e}"))?;
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
+            .await
+            .map_err(|e| format!("handshake: {e}"))?;
         tokio::spawn(conn);
-        let mut b = hyper::Request::builder().method(method).uri(path).header("host", self.addr.to_string());
+        let mut b = hyper::Request::builder()
+            .method(method)
+            .uri(path)
+            .header("host", self.addr.to_string());
         for (k, v) in headers {
             b = b.header(*k, *v);
         }
-        let req = b.body(Full::new(Bytes::from(body.unwrap_or_default()))).expect("build request");
-        let resp = sender.send_request(req).await.map_err(|e| format!("send: {e}"))?;
+        let req = b
+            .body(Full::new(Bytes::from(body.unwrap_or_default())))
+            .expect("build request");
+        let resp = sender
+            .send_request(req)
+            .await
+            .map_err(|e| format!("send: {e}"))?;
         let (parts, incoming) = resp.into_parts();
-        let body = incoming.collect().await.map_err(|e| format!("body: {e}"))?.to_bytes();
-        Ok(TestResponse { status: parts.status.as_u16(), headers: parts.headers, body })
+        let body = incoming
+            .collect()
+            .await
+            .map_err(|e| format!("body: {e}"))?
+            .to_bytes();
+        Ok(TestResponse {
+            status: parts.status.as_u16(),
+            headers: parts.headers,
+            body,
+        })
     }
 
     pub async fn get(&self, path: &str) -> TestResponse {
@@ -95,8 +130,19 @@ impl TestServer {
     pub async fn put_json<T: serde::Serialize>(&self, path: &str, body: &T) -> TestResponse {
         self.send_json(Method::PUT, path, body).await
     }
-    async fn send_json<T: serde::Serialize>(&self, method: Method, path: &str, body: &T) -> TestResponse {
+    async fn send_json<T: serde::Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        body: &T,
+    ) -> TestResponse {
         let bytes = serde_json::to_vec(body).expect("serialize request body");
-        self.request(method, path, &[("content-type", "application/json")], Some(bytes)).await
+        self.request(
+            method,
+            path,
+            &[("content-type", "application/json")],
+            Some(bytes),
+        )
+        .await
     }
 }

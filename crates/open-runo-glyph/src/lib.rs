@@ -64,7 +64,8 @@ pub fn windows(cell: &[f32]) -> Vec<f32> {
         for ox in 0..OFFSETS {
             let row = &mut out[(oy * OFFSETS + ox) * K..(oy * OFFSETS + ox + 1) * K];
             for y in 0..G {
-                row[y * G..(y + 1) * G].copy_from_slice(&cell[(oy + y) * N + ox..(oy + y) * N + ox + G]);
+                row[y * G..(y + 1) * G]
+                    .copy_from_slice(&cell[(oy + y) * N + ox..(oy + y) * N + ox + G]);
             }
             center_unit(row);
         }
@@ -80,7 +81,10 @@ pub struct Glyphs {
 impl Glyphs {
     /// 複数のフォント(例: 明朝体とゴシック体)で作る。1 つも読めなければ `None`。
     pub fn with_fonts(fonts: &[&[u8]]) -> Option<Self> {
-        let fonts: Vec<fontdue::Font> = fonts.iter().filter_map(|b| fontdue::Font::from_bytes(*b, fontdue::FontSettings::default()).ok()).collect();
+        let fonts: Vec<fontdue::Font> = fonts
+            .iter()
+            .filter_map(|b| fontdue::Font::from_bytes(*b, fontdue::FontSettings::default()).ok())
+            .collect();
         if fonts.is_empty() {
             None
         } else {
@@ -120,6 +124,7 @@ impl Glyphs {
 }
 
 /// 候補の文字の字形を 1 つの行列にまとめたもの(各列が 1 つの候補の字形 = 平均 0・長さ 1)。
+#[derive(Debug)]
 pub struct GlyphIndex {
     /// 列 `j` が表す文字(同じ文字が複数のフォントで入ることがある)。
     chars: Vec<char>,
@@ -130,8 +135,13 @@ pub struct GlyphIndex {
 impl GlyphIndex {
     /// `pool` の全ての文字を、全てのフォントで描いて行列にする(フォントに無い文字は入らない)。レンダリングはスレッドで分担する。
     pub fn build(glyphs: &Glyphs, pool: &[char]) -> Self {
-        let jobs: Vec<(usize, char)> = (0..glyphs.font_count()).flat_map(|f| pool.iter().map(move |&c| (f, c))).collect();
-        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).clamp(1, 16);
+        let jobs: Vec<(usize, char)> = (0..glyphs.font_count())
+            .flat_map(|f| pool.iter().map(move |&c| (f, c)))
+            .collect();
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .clamp(1, 16);
         let chunk = jobs.len().div_ceil(threads).max(1);
         let rendered: Vec<(char, Vec<f32>)> = std::thread::scope(|sc| {
             let handles: Vec<_> = jobs
@@ -148,7 +158,10 @@ impl GlyphIndex {
                     })
                 })
                 .collect();
-            handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().unwrap_or_default())
+                .collect()
         });
         let m = rendered.len();
         let mut matrix = vec![0f32; K * m];
@@ -182,7 +195,7 @@ impl GlyphIndex {
 
     /// 窓 × 候補の得点行列(`WINDOWS` 行 × `len()` 列、行優先)から、候補ごとの最大(最も合う位置)を取り、
     /// 文字ごとに(複数のフォントのうち)最大にまとめて、上位 `top` 個と、`query` の文字の得点を返す。
-    pub fn reduce(&self, scores: &[f32], top: usize, query: &[char]) -> (Vec<(f32, char)>, Vec<(char, f32)>) {
+    pub fn reduce(&self, scores: &[f32], top: usize, query: &[char]) -> Ranked {
         let m = self.len();
         let mut per_col = vec![-1.0f32; m];
         for w in 0..WINDOWS {
@@ -203,16 +216,22 @@ impl GlyphIndex {
         let mut ranked: Vec<(f32, char)> = per_char.iter().map(|(&c, &v)| (v, c)).collect();
         ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
         ranked.truncate(top);
-        let q = query.iter().filter_map(|c| per_char.get(c).map(|&v| (*c, v))).collect();
+        let q = query
+            .iter()
+            .filter_map(|c| per_char.get(c).map(|&v| (*c, v)))
+            .collect();
         (ranked, q)
     }
 
     /// CPU だけで(外部の行列積に頼らず)計算する参照実装。スレッドで候補を分担する。
-    pub fn rank_cpu(&self, cell: &[f32], top: usize, query: &[char]) -> (Vec<(f32, char)>, Vec<(char, f32)>) {
+    pub fn rank_cpu(&self, cell: &[f32], top: usize, query: &[char]) -> Ranked {
         let m = self.len();
         let win = windows(cell);
         let mut scores = vec![0f32; WINDOWS * m];
-        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).clamp(1, 16);
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .clamp(1, 16);
         let rows_per = WINDOWS.div_ceil(threads).max(1);
         std::thread::scope(|sc| {
             for (ci, part) in scores.chunks_mut(rows_per * m).enumerate() {
@@ -238,12 +257,26 @@ impl GlyphIndex {
     }
 }
 
+/// 順位つきの候補と、各文字の最良スコアの組(複雑な型を避けるための別名)。
+type Ranked = (Vec<(f32, char)>, Vec<(char, f32)>);
+
+impl std::fmt::Debug for Glyphs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Glyphs")
+            .field("fonts", &self.fonts.len())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn font() -> Option<Glyphs> {
-        for p in ["F:/tessdata-jpn/fonts/NotoSansJP-VF.ttf", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"] {
+        for p in [
+            "F:/tessdata-jpn/fonts/NotoSansJP-VF.ttf",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        ] {
             if let Ok(b) = std::fs::read(p) {
                 if let Some(g) = Glyphs::with_fonts(&[&b[..]]) {
                     return Some(g);
@@ -275,7 +308,10 @@ mod tests {
         for row in w.chunks(K) {
             let mean: f32 = row.iter().sum::<f32>() / K as f32;
             let norm: f32 = row.iter().map(|v| v * v).sum::<f32>();
-            assert!(mean.abs() < 1e-4 && (norm - 1.0).abs() < 1e-3, "mean {mean} norm {norm}");
+            assert!(
+                mean.abs() < 1e-4 && (norm - 1.0).abs() < 1e-3,
+                "mean {mean} norm {norm}"
+            );
         }
     }
 
@@ -292,7 +328,11 @@ mod tests {
                 let cell = cell_with(&g.render(0, truth).unwrap(), dx, dy);
                 let (top, q) = index.rank_cpu(&cell, 3, &[truth, '曰']);
                 assert_eq!(top[0].1, truth, "offset ({dx},{dy}): {top:?}");
-                assert!(top[0].0 > 0.99, "an exact copy correlates perfectly: {}", top[0].0);
+                assert!(
+                    top[0].0 > 0.99,
+                    "an exact copy correlates perfectly: {}",
+                    top[0].0
+                );
                 let own = q.iter().find(|(c, _)| *c == truth).unwrap().1;
                 assert!(own >= q.iter().map(|(_, v)| *v).fold(-1.0, f32::max) - 1e-6);
             }
@@ -320,7 +360,10 @@ mod tests {
         }
         let (top_a, _) = index.reduce(&c, 3, &[]);
         let (top_b, _) = index.rank_cpu(&cell, 3, &[]);
-        assert_eq!(top_a.iter().map(|t| t.1).collect::<Vec<_>>(), top_b.iter().map(|t| t.1).collect::<Vec<_>>());
+        assert_eq!(
+            top_a.iter().map(|t| t.1).collect::<Vec<_>>(),
+            top_b.iter().map(|t| t.1).collect::<Vec<_>>()
+        );
         assert!((top_a[0].0 - top_b[0].0).abs() < 1e-5);
     }
 }

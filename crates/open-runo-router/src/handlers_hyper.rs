@@ -6,7 +6,8 @@
 
 use crate::auth_hyper::authenticate_with_session;
 use crate::hyper_compat::{
-    empty_status, json_response, query_params, read_json_body, sse_response, Handler, Response, SseEvent,
+    empty_status, json_response, query_params, read_json_body, sse_response, Handler, Response,
+    SseEvent,
 };
 use crate::keyring::{KeyDecision, KeyGuardian};
 use crate::session::SessionBackend;
@@ -15,9 +16,10 @@ use crate::validation::{DB_UPSERT_REQUEST, FEATURE_FLAG_REQUEST, REGISTER_SCHEMA
 use http_body_util::BodyExt;
 use hyper::StatusCode;
 use open_runo_api_types::{
-    DbDeleteResponse, DbRecordAtCommitResponse, DbRecordItem, DbRecordListResponse, DbRecordResponse, DbRoutingEntry,
-    DbRoutingInfo, DbStatusResponse, DbUpsertRequest, FederationStatusResponse, FeatureFlagEvaluationResponse,
-    FeatureFlagListResponse, FeatureFlagRequest, FeatureFlagResponse, RegisterSchemaRequest, SchemaHistoryResponse,
+    DbDeleteResponse, DbRecordAtCommitResponse, DbRecordItem, DbRecordListResponse,
+    DbRecordResponse, DbRoutingEntry, DbRoutingInfo, DbStatusResponse, DbUpsertRequest,
+    FeatureFlagEvaluationResponse, FeatureFlagListResponse, FeatureFlagRequest,
+    FeatureFlagResponse, FederationStatusResponse, RegisterSchemaRequest, SchemaHistoryResponse,
     SchemaVersion,
 };
 use open_runo_feature_flags::FeatureFlag;
@@ -52,7 +54,9 @@ pub fn federation_status_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let schema = state
@@ -108,7 +112,9 @@ pub fn compose_schemas_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let body: ComposeRequest = match read_json_body(req).await {
@@ -126,7 +132,7 @@ pub fn compose_schemas_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
                                 StatusCode::UNPROCESSABLE_ENTITY,
                                 &serde_json::json!({ "error": e.to_string() }),
                             )
-                        }
+                        },
                     }
                 } else {
                     open_runo_federation::ServiceSchema {
@@ -148,7 +154,7 @@ pub fn compose_schemas_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
                         StatusCode::UNPROCESSABLE_ENTITY,
                         &serde_json::json!({ "error": e.to_string() }),
                     )
-                }
+                },
             };
 
             let breaking = {
@@ -196,7 +202,9 @@ pub fn db_status_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Ha
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             json_response(
@@ -220,19 +228,48 @@ pub fn db_routing_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> H
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let entries = vec![
-                DbRoutingEntry { table: "sessions".into(), target: "postgresql".into() },
-                DbRoutingEntry { table: "api_keys".into(), target: "postgresql".into() },
-                DbRoutingEntry { table: "rate_limits".into(), target: "postgresql".into() },
-                DbRoutingEntry { table: "schemas".into(), target: "both".into() },
-                DbRoutingEntry { table: "backup_jobs".into(), target: "both".into() },
-                DbRoutingEntry { table: "persisted_queries".into(), target: "both".into() },
-                DbRoutingEntry { table: "schema_history".into(), target: "aruaru-db".into() },
-                DbRoutingEntry { table: "change_records".into(), target: "aruaru-db".into() },
-                DbRoutingEntry { table: "audit_log".into(), target: "aruaru-db".into() },
+                DbRoutingEntry {
+                    table: "sessions".into(),
+                    target: "postgresql".into(),
+                },
+                DbRoutingEntry {
+                    table: "api_keys".into(),
+                    target: "postgresql".into(),
+                },
+                DbRoutingEntry {
+                    table: "rate_limits".into(),
+                    target: "postgresql".into(),
+                },
+                DbRoutingEntry {
+                    table: "schemas".into(),
+                    target: "both".into(),
+                },
+                DbRoutingEntry {
+                    table: "backup_jobs".into(),
+                    target: "both".into(),
+                },
+                DbRoutingEntry {
+                    table: "persisted_queries".into(),
+                    target: "both".into(),
+                },
+                DbRoutingEntry {
+                    table: "schema_history".into(),
+                    target: "aruaru-db".into(),
+                },
+                DbRoutingEntry {
+                    table: "change_records".into(),
+                    target: "aruaru-db".into(),
+                },
+                DbRoutingEntry {
+                    table: "audit_log".into(),
+                    target: "aruaru-db".into(),
+                },
             ];
             json_response(
                 StatusCode::OK,
@@ -256,7 +293,9 @@ pub fn db_list_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Hand
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let table = params.get("table").unwrap_or("").to_string();
@@ -267,15 +306,22 @@ pub fn db_list_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Hand
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": e.to_string() }),
                     )
-                }
+                },
             };
             let items: Vec<DbRecordItem> = records
                 .into_iter()
-                .map(|r| DbRecordItem { key: r.key, value: parse_value(&r.value) })
+                .map(|r| DbRecordItem {
+                    key: r.key,
+                    value: parse_value(&r.value),
+                })
                 .collect();
             json_response(
                 StatusCode::OK,
-                &DbRecordListResponse { count: items.len(), table, records: items },
+                &DbRecordListResponse {
+                    count: items.len(),
+                    table,
+                    records: items,
+                },
             )
         })
     })
@@ -288,7 +334,9 @@ pub fn db_get_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let table = params.get("table").unwrap_or("").to_string();
@@ -296,7 +344,11 @@ pub fn db_get_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
             match state.db.get(&table, &key).await {
                 Ok(Some(raw)) => json_response(
                     StatusCode::OK,
-                    &DbRecordResponse { table, key, value: parse_value(&raw) },
+                    &DbRecordResponse {
+                        table,
+                        key,
+                        value: parse_value(&raw),
+                    },
                 ),
                 Ok(None) => json_response(
                     StatusCode::NOT_FOUND,
@@ -322,7 +374,9 @@ pub fn db_get_at_commit_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let table = params.get("table").unwrap_or("").to_string();
@@ -331,7 +385,12 @@ pub fn db_get_at_commit_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
             match state.db.get_at_commit(&table, &key, &commit_id).await {
                 Ok(Some(raw)) => json_response(
                     StatusCode::OK,
-                    &DbRecordAtCommitResponse { table, key, commit_id, value: parse_value(&raw) },
+                    &DbRecordAtCommitResponse {
+                        table,
+                        key,
+                        commit_id,
+                        value: parse_value(&raw),
+                    },
                 ),
                 Ok(None) => json_response(
                     StatusCode::NOT_FOUND,
@@ -362,10 +421,17 @@ pub fn db_put_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let table = params.get("table").unwrap_or("").to_string();
             let key = params.get("key").unwrap_or("").to_string();
 
@@ -394,7 +460,7 @@ pub fn db_put_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
                         StatusCode::UNPROCESSABLE_ENTITY,
                         &serde_json::json!({ "error": format!("deserialize body: {e}") }),
                     )
-                }
+                },
             };
 
             let serialized = match serde_json::to_string(&body.value) {
@@ -404,7 +470,7 @@ pub fn db_put_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": format!("serialize value: {e}") }),
                     )
-                }
+                },
             };
 
             if let Err(e) = state.db.put(&table, &key, &serialized).await {
@@ -418,7 +484,11 @@ pub fn db_put_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
 
             json_response(
                 StatusCode::OK,
-                &DbRecordResponse { table, key, value: body.value },
+                &DbRecordResponse {
+                    table,
+                    key,
+                    value: body.value,
+                },
             )
         })
     })
@@ -481,19 +551,23 @@ pub fn db_mutate_handler(state: Arc<AppState>) -> Handler {
             };
 
             // 冪等性チェック: 同じキーが既に処理済みならそのまま返す。
-            match state.db.get(MUTATION_RECEIPTS_TABLE, &body.idempotency_key).await {
+            match state
+                .db
+                .get(MUTATION_RECEIPTS_TABLE, &body.idempotency_key)
+                .await
+            {
                 Ok(Some(existing_raw)) => {
                     if let Ok(existing) = sonic_rs::from_str::<MutationReceiptWire>(&existing_raw) {
                         return json_response(StatusCode::OK, &existing);
                     }
-                }
-                Ok(None) => {}
+                },
+                Ok(None) => {},
                 Err(e) => {
                     return json_response(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": e.to_string() }),
                     )
-                }
+                },
             }
 
             let serialized = match serde_json::to_string(&body.payload) {
@@ -503,13 +577,18 @@ pub fn db_mutate_handler(state: Arc<AppState>) -> Handler {
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": format!("serialize payload: {e}") }),
                     )
-                }
+                },
             };
 
             let commit_message = format!("mutation {} on {}", body.idempotency_key, body.target);
             let db_commit_id = match state
                 .db
-                .put_versioned(&body.target, &body.idempotency_key, &serialized, &commit_message)
+                .put_versioned(
+                    &body.target,
+                    &body.idempotency_key,
+                    &serialized,
+                    &commit_message,
+                )
                 .await
             {
                 Ok(commit_id) => commit_id,
@@ -518,7 +597,7 @@ pub fn db_mutate_handler(state: Arc<AppState>) -> Handler {
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": e.to_string() }),
                     )
-                }
+                },
             };
 
             let receipt = MutationReceiptWire {
@@ -552,7 +631,14 @@ pub fn db_mutate_handler(state: Arc<AppState>) -> Handler {
             // トランザクションAPIを追加する必要があり、次回以降の課題
             // として明記する。
             if let Ok(receipt_json) = serde_json::to_string(&receipt) {
-                let _ = state.db.put(MUTATION_RECEIPTS_TABLE, &body.idempotency_key, &receipt_json).await;
+                let _ = state
+                    .db
+                    .put(
+                        MUTATION_RECEIPTS_TABLE,
+                        &body.idempotency_key,
+                        &receipt_json,
+                    )
+                    .await;
             }
 
             json_response(StatusCode::OK, &receipt)
@@ -567,10 +653,17 @@ pub fn db_delete_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Ha
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let table = params.get("table").unwrap_or("").to_string();
             let key = params.get("key").unwrap_or("").to_string();
 
@@ -585,7 +678,11 @@ pub fn db_delete_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Ha
 
             json_response(
                 StatusCode::OK,
-                &DbDeleteResponse { table, key, deleted: true },
+                &DbDeleteResponse {
+                    table,
+                    key,
+                    deleted: true,
+                },
             )
         })
     })
@@ -598,7 +695,9 @@ pub fn get_schema_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> H
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let query = query_params(&req);
@@ -646,7 +745,9 @@ pub fn get_schema_history_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let query = query_params(&req);
@@ -723,7 +824,11 @@ async fn register_schema_and_respond(
     // `edfs` Cargo feature isn't compiled in.
     #[cfg(feature = "edfs")]
     {
-        let target = state.edfs_publish.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let target = state
+            .edfs_publish
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         if let Some((redis_url, channel)) = target {
             if let Err(error) = crate::edfs::publish(&redis_url, &channel, &event).await {
                 tracing::warn!(%error, "EDFS: failed to publish schema event to Redis");
@@ -751,10 +856,17 @@ pub fn register_schema_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
 
             let raw: serde_json::Value = match read_json_body(req).await {
                 Ok(v) => v,
@@ -781,7 +893,7 @@ pub fn register_schema_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
                         StatusCode::UNPROCESSABLE_ENTITY,
                         &serde_json::json!({ "error": e.to_string() }),
                     )
-                }
+                },
             };
 
             register_schema_and_respond(&state, &actor, body).await
@@ -804,10 +916,17 @@ pub fn register_schema_upload_handler(state: Arc<AppState>, guardian: Arc<KeyGua
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
 
             let fields = match crate::hyper_compat::read_multipart_body(req).await {
                 Ok(f) => f,
@@ -821,11 +940,15 @@ pub fn register_schema_upload_handler(state: Arc<AppState>, guardian: Arc<KeyGua
 
             for field in fields {
                 match field.name.as_str() {
-                    "service_name" => service_name = Some(String::from_utf8_lossy(&field.data).into_owned()),
+                    "service_name" => {
+                        service_name = Some(String::from_utf8_lossy(&field.data).into_owned())
+                    },
                     "stage" => stage = Some(String::from_utf8_lossy(&field.data).into_owned()),
-                    "namespace" => namespace = Some(String::from_utf8_lossy(&field.data).into_owned()),
+                    "namespace" => {
+                        namespace = Some(String::from_utf8_lossy(&field.data).into_owned())
+                    },
                     "sdl_file" => sdl = Some(String::from_utf8_lossy(&field.data).into_owned()),
-                    _ => {}
+                    _ => {},
                 }
             }
 
@@ -870,16 +993,26 @@ pub fn register_schema_upload_handler(state: Arc<AppState>, guardian: Arc<KeyGua
 /// no room for other fields. Delegates to the same
 /// `register_schema_and_respond` used by the JSON and multipart paths, so
 /// this is a transport-only difference, never a behavioral one.
-pub fn register_schema_upload_raw_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
+pub fn register_schema_upload_raw_handler(
+    state: Arc<AppState>,
+    guardian: Arc<KeyGuardian>,
+) -> Handler {
     Arc::new(move |req, _params| {
         let state = Arc::clone(&state);
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
 
             let query = query_params(&req);
             let Some(service_name) = query.get("service_name").cloned() else {
@@ -888,7 +1021,10 @@ pub fn register_schema_upload_raw_handler(state: Arc<AppState>, guardian: Arc<Ke
                     &serde_json::json!({ "error": "missing required query parameter: service_name" }),
                 );
             };
-            let stage = query.get("stage").cloned().unwrap_or_else(|| "local".to_string());
+            let stage = query
+                .get("stage")
+                .cloned()
+                .unwrap_or_else(|| "local".to_string());
             let namespace = query.get("namespace").cloned();
 
             let sdl_bytes = match req.into_body().collect().await {
@@ -898,7 +1034,7 @@ pub fn register_schema_upload_raw_handler(state: Arc<AppState>, guardian: Arc<Ke
                         StatusCode::BAD_REQUEST,
                         &serde_json::json!({ "error": "failed to read request body" }),
                     )
-                }
+                },
             };
             if sdl_bytes.is_empty() {
                 return json_response(
@@ -985,7 +1121,9 @@ pub fn route_request_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let body: RouteRequest = match read_json_body(req).await {
@@ -1047,16 +1185,26 @@ struct PqRegisterResponse {
 
 /// POST /api/persisted-queries — poem-free port of
 /// `handlers::persisted_queries::register_persisted_query`.
-pub fn register_persisted_query_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
+pub fn register_persisted_query_handler(
+    state: Arc<AppState>,
+    guardian: Arc<KeyGuardian>,
+) -> Handler {
     Arc::new(move |req, _params| {
         let state = Arc::clone(&state);
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let body: PqRegisterRequest = match read_json_body(req).await {
                 Ok(v) => v,
                 Err(resp) => return resp,
@@ -1069,10 +1217,16 @@ pub fn register_persisted_query_handler(state: Arc<AppState>, guardian: Arc<KeyG
                         StatusCode::BAD_REQUEST,
                         &serde_json::json!({ "error": e.to_string() }),
                     )
-                }
+                },
             };
 
-            crate::audit::record(&state, &actor, "persisted_query.register", record.hash.clone()).await;
+            crate::audit::record(
+                &state,
+                &actor,
+                "persisted_query.register",
+                record.hash.clone(),
+            )
+            .await;
 
             json_response(
                 StatusCode::OK,
@@ -1100,7 +1254,9 @@ pub fn get_persisted_query_handler(state: Arc<AppState>, guardian: Arc<KeyGuardi
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let hash = params.get("hash").unwrap_or("").to_string();
@@ -1148,10 +1304,17 @@ pub fn purge_page_handler(
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let body: PurgeRequest = match read_json_body(req).await {
                 Ok(v) => v,
                 Err(resp) => return resp,
@@ -1176,13 +1339,25 @@ pub fn purge_all_pages_handler(
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             cache.purge_all().await;
             crate::audit::record(&state, &actor, "cache.purge_all", "*").await;
-            json_response(StatusCode::OK, &PurgeResponse { purged: "*".to_string() })
+            json_response(
+                StatusCode::OK,
+                &PurgeResponse {
+                    purged: "*".to_string(),
+                },
+            )
         })
     })
 }
@@ -1221,7 +1396,9 @@ pub fn ai_stats_handler(
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let resp = match cache.predictor() {
@@ -1268,7 +1445,7 @@ pub fn ai_stats_handler(
                         tracked_patterns: snap.patterns.len(),
                         top_patterns: patterns,
                     }
-                }
+                },
             };
             json_response(StatusCode::OK, &resp)
         })
@@ -1293,20 +1470,28 @@ pub fn backup_export_handler(
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let config = crate::maintenance::BackupConfig::from_env();
-            let (written, records) = match crate::maintenance::export_backup(&state, &cache, &config).await {
-                Ok(v) => v,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &serde_json::json!({ "error": e }),
-                    )
-                }
-            };
+            let (written, records) =
+                match crate::maintenance::export_backup(&state, &cache, &config).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return json_response(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            &serde_json::json!({ "error": e }),
+                        )
+                    },
+                };
             crate::audit::record(
                 &state,
                 &actor,
@@ -1336,10 +1521,17 @@ pub fn backup_import_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let body: ImportRequest = match read_json_body(req).await {
                 Ok(v) => v,
                 Err(resp) => return resp,
@@ -1351,7 +1543,7 @@ pub fn backup_import_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -
                         StatusCode::BAD_REQUEST,
                         &serde_json::json!({ "error": e }),
                     )
-                }
+                },
             };
             crate::audit::record(
                 &state,
@@ -1379,10 +1571,17 @@ pub fn integrity_check_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let discrepancies = match state.db.consistency_check_and_heal().await {
                 Ok(v) => v,
                 Err(e) => {
@@ -1390,7 +1589,7 @@ pub fn integrity_check_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": e.to_string() }),
                     )
-                }
+                },
             };
             for d in &discrepancies {
                 crate::audit::record(
@@ -1427,10 +1626,17 @@ pub fn backup_restore_latest_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let config = crate::maintenance::BackupConfig::from_env();
             let path = match crate::maintenance::find_latest_backup_async(config).await {
                 Some(p) => p,
@@ -1439,7 +1645,7 @@ pub fn backup_restore_latest_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
                         StatusCode::NOT_FOUND,
                         &serde_json::json!({ "error": "no backup file found" }),
                     )
-                }
+                },
             };
             let path_str = path.display().to_string();
             let restored = match crate::maintenance::import_backup(&state, &path_str).await {
@@ -1449,7 +1655,7 @@ pub fn backup_restore_latest_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": e }),
                     )
-                }
+                },
             };
             crate::audit::record(
                 &state,
@@ -1460,7 +1666,10 @@ pub fn backup_restore_latest_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
             .await;
             json_response(
                 StatusCode::OK,
-                &RestoreLatestResponse { restored_from: path_str, restored },
+                &RestoreLatestResponse {
+                    restored_from: path_str,
+                    restored,
+                },
             )
         })
     })
@@ -1484,10 +1693,17 @@ pub fn migrate_export_sql_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let body: ExportSqlRequest = match read_json_body(req).await {
                 Ok(v) => v,
                 Err(resp) => return resp,
@@ -1499,7 +1715,7 @@ pub fn migrate_export_sql_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": e }),
                     )
-                }
+                },
             };
             let name = format!(
                 "open-runo-dump-{:?}-{}.sql",
@@ -1520,7 +1736,7 @@ pub fn migrate_export_sql_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": e }),
                     )
-                }
+                },
             };
             crate::audit::record(&state, &actor, "migrate.export_sql", written.join(", ")).await;
             json_response(StatusCode::OK, &ConversionResponse { written })
@@ -1536,10 +1752,17 @@ pub fn migrate_export_csv_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let csv = match crate::maintenance::export_csv(&state).await {
                 Ok(v) => v,
                 Err(e) => {
@@ -1547,7 +1770,7 @@ pub fn migrate_export_csv_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": e }),
                     )
-                }
+                },
             };
             let name = format!(
                 "open-runo-dump-{}.csv",
@@ -1566,7 +1789,7 @@ pub fn migrate_export_csv_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": e }),
                     )
-                }
+                },
             };
             crate::audit::record(&state, &actor, "migrate.export_csv", written.join(", ")).await;
             json_response(StatusCode::OK, &ConversionResponse { written })
@@ -1589,7 +1812,9 @@ pub fn scim_list_users_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let query = query_params(&req);
@@ -1623,10 +1848,17 @@ pub fn scim_create_user_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let input: open_runo_scim::UserInput = match read_json_body(req).await {
                 Ok(v) => v,
                 Err(resp) => return resp,
@@ -1639,7 +1871,7 @@ pub fn scim_create_user_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
                         StatusCode::CONFLICT,
                         &serde_json::json!({ "error": e.to_string() }),
                     )
-                }
+                },
             };
 
             crate::audit::record(&state, &actor, "scim.user.create", user.user_name.clone()).await;
@@ -1651,16 +1883,26 @@ pub fn scim_create_user_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": e.to_string() }),
                     )
-                }
+                },
             };
-            match guardian.issue(&user.user_name, user.roles.clone(), None).await {
+            match guardian
+                .issue(&user.user_name, user.roles.clone(), None)
+                .await
+            {
                 Ok(plaintext) => {
-                    body["urn:open-runo:params:scim:api-key"] = serde_json::Value::String(plaintext);
-                    crate::audit::record(&state, "key-guardian", "key.auto_issue", user.user_name.clone()).await;
-                }
+                    body["urn:open-runo:params:scim:api-key"] =
+                        serde_json::Value::String(plaintext);
+                    crate::audit::record(
+                        &state,
+                        "key-guardian",
+                        "key.auto_issue",
+                        user.user_name.clone(),
+                    )
+                    .await;
+                },
                 Err(e) => {
                     tracing::warn!(error = %e, owner = %user.user_name, "auto key issue failed");
-                }
+                },
             }
 
             json_response(StatusCode::CREATED, &body)
@@ -1675,7 +1917,9 @@ pub fn scim_get_user_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let id = params.get("id").unwrap_or("").to_string();
@@ -1702,10 +1946,17 @@ pub fn scim_replace_user_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let id = params.get("id").unwrap_or("").to_string();
             let input: open_runo_scim::UserInput = match read_json_body(req).await {
                 Ok(v) => v,
@@ -1722,7 +1973,7 @@ pub fn scim_replace_user_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian
                         StatusCode::CONFLICT
                     };
                     return json_response(status, &serde_json::json!({ "error": msg }));
-                }
+                },
             };
 
             crate::audit::record(&state, &actor, "scim.user.replace", user.user_name.clone()).await;
@@ -1754,10 +2005,17 @@ pub fn scim_delete_user_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let id = params.get("id").unwrap_or("").to_string();
 
             let owner = match scim_user_store(&state).get(&id).await {
@@ -1767,7 +2025,7 @@ pub fn scim_delete_user_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
                         StatusCode::INTERNAL_SERVER_ERROR,
                         &serde_json::json!({ "error": e.to_string() }),
                     )
-                }
+                },
             };
 
             if let Err(e) = scim_user_store(&state).delete(&id).await {
@@ -1805,7 +2063,9 @@ pub fn scim_list_groups_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let query = query_params(&req);
@@ -1838,10 +2098,17 @@ pub fn scim_create_group_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let input: open_runo_scim::GroupInput = match read_json_body(req).await {
                 Ok(v) => v,
                 Err(resp) => return resp,
@@ -1849,9 +2116,15 @@ pub fn scim_create_group_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian
 
             match scim_group_store(&state).create(input).await {
                 Ok(group) => {
-                    crate::audit::record(&state, &actor, "scim.group.create", group.display_name.clone()).await;
+                    crate::audit::record(
+                        &state,
+                        &actor,
+                        "scim.group.create",
+                        group.display_name.clone(),
+                    )
+                    .await;
                     json_response(StatusCode::CREATED, &group)
-                }
+                },
                 Err(e) => json_response(
                     StatusCode::CONFLICT,
                     &serde_json::json!({ "error": e.to_string() }),
@@ -1868,7 +2141,9 @@ pub fn scim_get_group_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) 
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let id = params.get("id").unwrap_or("").to_string();
@@ -1894,10 +2169,17 @@ pub fn scim_replace_group_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let id = params.get("id").unwrap_or("").to_string();
             let input: open_runo_scim::GroupInput = match read_json_body(req).await {
                 Ok(v) => v,
@@ -1906,9 +2188,15 @@ pub fn scim_replace_group_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
 
             match scim_group_store(&state).replace(&id, input).await {
                 Ok(group) => {
-                    crate::audit::record(&state, &actor, "scim.group.replace", group.display_name.clone()).await;
+                    crate::audit::record(
+                        &state,
+                        &actor,
+                        "scim.group.replace",
+                        group.display_name.clone(),
+                    )
+                    .await;
                     json_response(StatusCode::OK, &group)
-                }
+                },
                 Err(e) => {
                     let msg = e.to_string();
                     let status = if msg.contains("not found") {
@@ -1917,7 +2205,7 @@ pub fn scim_replace_group_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
                         StatusCode::CONFLICT
                     };
                     json_response(status, &serde_json::json!({ "error": msg }))
-                }
+                },
             }
         })
     })
@@ -1930,10 +2218,17 @@ pub fn scim_delete_group_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let id = params.get("id").unwrap_or("").to_string();
 
             if let Err(e) = scim_group_store(&state).delete(&id).await {
@@ -1959,25 +2254,35 @@ pub fn stream_events_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
 
             let initial_len = state.history.lock().map(|h| h.log().len()).unwrap_or(0);
-            let stream = futures::stream::unfold((state, initial_len), |(state, mut last_len)| async move {
-                tokio::time::sleep(HEARTBEAT_INTERVAL).await;
-                let current_len = state.history.lock().map(|h| h.log().len()).unwrap_or(last_len);
-                let event = if current_len > last_len {
-                    last_len = current_len;
-                    SseEvent {
-                        event_type: Some("history"),
-                        data: format!("{{\"history_len\":{current_len}}}"),
-                    }
-                } else {
-                    SseEvent { event_type: Some("heartbeat"), data: "ping".to_string() }
-                };
-                Some((event, (state, last_len)))
-            });
+            let stream =
+                futures::stream::unfold((state, initial_len), |(state, mut last_len)| async move {
+                    tokio::time::sleep(HEARTBEAT_INTERVAL).await;
+                    let current_len = state
+                        .history
+                        .lock()
+                        .map(|h| h.log().len())
+                        .unwrap_or(last_len);
+                    let event = if current_len > last_len {
+                        last_len = current_len;
+                        SseEvent {
+                            event_type: Some("history"),
+                            data: format!("{{\"history_len\":{current_len}}}"),
+                        }
+                    } else {
+                        SseEvent {
+                            event_type: Some("heartbeat"),
+                            data: "ping".to_string(),
+                        }
+                    };
+                    Some((event, (state, last_len)))
+                });
 
             sse_response(stream)
         })
@@ -2016,11 +2321,12 @@ pub fn ws_events_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Ha
             loop {
                 match rx.recv().await {
                     Ok(event) => {
-                        let payload = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
+                        let payload =
+                            serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
                         if conn.send_text(&payload).await.is_err() {
                             break;
                         }
-                    }
+                    },
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
@@ -2033,7 +2339,10 @@ pub fn ws_events_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Ha
         let inner = Arc::clone(&inner);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &auth_state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &auth_state.sessions)
+                    .await
+            {
                 return empty_status(status);
             }
             inner(req, params).await
@@ -2072,9 +2381,12 @@ pub fn self_issue_key_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) 
                     crate::audit::record(&state, "key-guardian", "key.self_issue", owner).await;
                     json_response(
                         StatusCode::OK,
-                        &SelfIssueResponse { api_key, expires_at: expires_at.to_rfc3339() },
+                        &SelfIssueResponse {
+                            api_key,
+                            expires_at: expires_at.to_rfc3339(),
+                        },
                     )
-                }
+                },
                 Err(e) => json_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     &serde_json::json!({ "error": e.to_string() }),
@@ -2102,7 +2414,10 @@ struct SessionLoginResponse {
 /// header by hand on every request. See `session.rs` module doc for the
 /// CSRF double-submit design and `auth_hyper::authenticate_with_session`
 /// for how the resulting session is later accepted.
-pub fn session_login_handler(guardian: Arc<KeyGuardian>, sessions: Arc<dyn SessionBackend>) -> Handler {
+pub fn session_login_handler(
+    guardian: Arc<KeyGuardian>,
+    sessions: Arc<dyn SessionBackend>,
+) -> Handler {
     Arc::new(move |req, _params| {
         let guardian = Arc::clone(&guardian);
         let sessions = Arc::clone(&sessions);
@@ -2123,7 +2438,7 @@ pub fn session_login_handler(guardian: Arc<KeyGuardian>, sessions: Arc<dyn Sessi
                 KeyDecision::Ok { owner, roles } => (owner, roles),
                 KeyDecision::Rejected | KeyDecision::Suspended => {
                     return empty_status(StatusCode::UNAUTHORIZED)
-                }
+                },
             };
 
             let (session_id, csrf_token) = sessions.create(owner.clone(), roles).await;
@@ -2153,7 +2468,8 @@ pub fn session_logout_handler(sessions: Arc<dyn SessionBackend>) -> Handler {
             if let Some(session_id) = crate::session::session_id_from_cookie_header(req.headers()) {
                 sessions.destroy(&session_id).await;
             }
-            let mut resp = json_response(StatusCode::OK, &serde_json::json!({ "logged_out": true }));
+            let mut resp =
+                json_response(StatusCode::OK, &serde_json::json!({ "logged_out": true }));
             if let Ok(value) = crate::session::clear_cookie_header().parse() {
                 resp.headers_mut().insert(hyper::header::SET_COOKIE, value);
             }
@@ -2181,10 +2497,17 @@ pub fn feature_flag_upsert_handler(state: Arc<AppState>, guardian: Arc<KeyGuardi
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
 
             let raw: serde_json::Value = match read_json_body(req).await {
                 Ok(v) => v,
@@ -2211,7 +2534,7 @@ pub fn feature_flag_upsert_handler(state: Arc<AppState>, guardian: Arc<KeyGuardi
                         StatusCode::UNPROCESSABLE_ENTITY,
                         &serde_json::json!({ "error": format!("deserialize body: {e}") }),
                     )
-                }
+                },
             };
 
             let flag = FeatureFlag::new(body.name)
@@ -2231,9 +2554,10 @@ pub fn feature_flag_upsert_handler(state: Arc<AppState>, guardian: Arc<KeyGuardi
 
             match result {
                 Ok(saved) => {
-                    crate::audit::record(&state, &actor, "feature_flag.upsert", saved.name.clone()).await;
+                    crate::audit::record(&state, &actor, "feature_flag.upsert", saved.name.clone())
+                        .await;
                     json_response(StatusCode::OK, &to_flag_response(&saved))
-                }
+                },
                 Err(e) => json_response(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     &serde_json::json!({ "error": e.to_string() }),
@@ -2250,14 +2574,20 @@ pub fn feature_flag_list_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let registry = state
                 .feature_flags
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let flags = registry.list().iter().map(|f| to_flag_response(f)).collect();
+            let flags = registry
+                .list()
+                .iter()
+                .map(|f| to_flag_response(f))
+                .collect();
             json_response(StatusCode::OK, &FeatureFlagListResponse { flags })
         })
     })
@@ -2270,7 +2600,9 @@ pub fn feature_flag_get_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let name = params.get("name").unwrap_or("").to_string();
@@ -2296,10 +2628,17 @@ pub fn feature_flag_delete_handler(state: Arc<AppState>, guardian: Arc<KeyGuardi
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
-                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
-                Err(status) => return empty_status(status),
-            };
+            let actor =
+                match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions)
+                    .await
+                {
+                    Ok(actor) => format!(
+                        "{}{}",
+                        if actor.via_session { "session:" } else { "" },
+                        actor.owner
+                    ),
+                    Err(status) => return empty_status(status),
+                };
             let name = params.get("name").unwrap_or("").to_string();
 
             let existed = {
@@ -2318,7 +2657,10 @@ pub fn feature_flag_delete_handler(state: Arc<AppState>, guardian: Arc<KeyGuardi
             }
 
             crate::audit::record(&state, &actor, "feature_flag.delete", name.clone()).await;
-            json_response(StatusCode::OK, &serde_json::json!({ "name": name, "deleted": true }))
+            json_response(
+                StatusCode::OK,
+                &serde_json::json!({ "name": name, "deleted": true }),
+            )
         })
     })
 }
@@ -2332,7 +2674,9 @@ pub fn feature_flag_evaluate_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let name = params.get("name").unwrap_or("").to_string();
@@ -2346,7 +2690,11 @@ pub fn feature_flag_evaluate_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
             match registry.evaluate(&name, &bucket_key) {
                 Some(enabled) => json_response(
                     StatusCode::OK,
-                    &FeatureFlagEvaluationResponse { name, bucket_key, enabled },
+                    &FeatureFlagEvaluationResponse {
+                        name,
+                        bucket_key,
+                        enabled,
+                    },
                 ),
                 None => json_response(
                     StatusCode::NOT_FOUND,
@@ -2371,7 +2719,9 @@ pub fn requests_per_month_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             json_response(
@@ -2392,7 +2742,9 @@ pub fn operations_summary_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
             let method = req.method().clone();
-            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+            if let Err(status) =
+                authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await
+            {
                 return empty_status(status);
             }
             let operations: Vec<serde_json::Value> = state
@@ -2411,7 +2763,10 @@ pub fn operations_summary_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
                     })
                 })
                 .collect();
-            json_response(StatusCode::OK, &serde_json::json!({ "operations": operations }))
+            json_response(
+                StatusCode::OK,
+                &serde_json::json!({ "operations": operations }),
+            )
         })
     })
 }
@@ -2424,7 +2779,10 @@ mod tests {
     use hyper::Method;
 
     fn guardian(state: &Arc<AppState>) -> Arc<KeyGuardian> {
-        Arc::new(KeyGuardian::new(Arc::clone(&state.db), GuardianConfig::from_env()))
+        Arc::new(KeyGuardian::new(
+            Arc::clone(&state.db),
+            GuardianConfig::from_env(),
+        ))
     }
 
     #[tokio::test]
@@ -2524,7 +2882,11 @@ mod tests {
     async fn db_routing_has_expected_tables() {
         let state = Arc::new(AppState::new());
         let guardian = guardian(&state);
-        let router = Router::new().route(Method::GET, "/api/db/routing", db_routing_handler(Arc::clone(&state), guardian));
+        let router = Router::new().route(
+            Method::GET,
+            "/api/db/routing",
+            db_routing_handler(Arc::clone(&state), guardian),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -2544,7 +2906,11 @@ mod tests {
     async fn db_routing_requires_api_key() {
         let state = Arc::new(AppState::new());
         let guardian = guardian(&state);
-        let router = Router::new().route(Method::GET, "/api/db/routing", db_routing_handler(Arc::clone(&state), guardian));
+        let router = Router::new().route(
+            Method::GET,
+            "/api/db/routing",
+            db_routing_handler(Arc::clone(&state), guardian),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -2562,11 +2928,12 @@ mod tests {
         use open_runo_schema_registry::Stage;
 
         let state = Arc::new(AppState::new());
-        state
-            .schema_registry
-            .lock()
-            .unwrap()
-            .register_in("default", "users", "type User { id: ID! }", Stage::Local);
+        state.schema_registry.lock().unwrap().register_in(
+            "default",
+            "users",
+            "type User { id: ID! }",
+            Stage::Local,
+        );
 
         let guardian = guardian(&state);
         let router = Router::new().route(
@@ -2641,7 +3008,12 @@ mod tests {
         {
             let mut registry = state.schema_registry.lock().unwrap();
             registry.register_in("default", "users", "type User { id: ID! }", Stage::Local);
-            registry.register_in("default", "users", "type User { id: ID! name: String }", Stage::Local);
+            registry.register_in(
+                "default",
+                "users",
+                "type User { id: ID! name: String }",
+                Stage::Local,
+            );
         }
 
         let guardian = guardian(&state);
@@ -2857,7 +3229,10 @@ mod tests {
 
         let form = reqwest::multipart::Form::new()
             .text("service_name", "orders")
-            .part("sdl_file", reqwest::multipart::Part::bytes(b"type Order { id: ID! }".to_vec()));
+            .part(
+                "sdl_file",
+                reqwest::multipart::Part::bytes(b"type Order { id: ID! }".to_vec()),
+            );
 
         let resp = reqwest::Client::new()
             .post(format!("http://{addr}/api/schemas/upload"))
@@ -2998,7 +3373,9 @@ mod tests {
             .post(format!("http://{addr}/api/schemas"))
             .header(reqwest::header::COOKIE, &cookie_pair)
             .header("x-csrf-token", &csrf_token)
-            .json(&serde_json::json!({ "service_name": "orders2", "sdl": "type Order2 { id: ID! }" }))
+            .json(
+                &serde_json::json!({ "service_name": "orders2", "sdl": "type Order2 { id: ID! }" }),
+            )
             .send()
             .await
             .expect("request should succeed");
@@ -3095,7 +3472,11 @@ mod tests {
     async fn ai_route_returns_best_provider() {
         let state = Arc::new(AppState::new());
         let guardian = guardian(&state);
-        let router = Router::new().route(Method::POST, "/api/ai/route", route_request_handler(Arc::clone(&state), guardian));
+        let router = Router::new().route(
+            Method::POST,
+            "/api/ai/route",
+            route_request_handler(Arc::clone(&state), guardian),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -3135,7 +3516,11 @@ mod tests {
     async fn ai_route_requires_api_key() {
         let state = Arc::new(AppState::new());
         let guardian = guardian(&state);
-        let router = Router::new().route(Method::POST, "/api/ai/route", route_request_handler(Arc::clone(&state), guardian));
+        let router = Router::new().route(
+            Method::POST,
+            "/api/ai/route",
+            route_request_handler(Arc::clone(&state), guardian),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -3218,15 +3603,31 @@ mod tests {
 
     fn db_router(state: &Arc<AppState>, guardian: Arc<KeyGuardian>) -> Router {
         Router::new()
-            .route(Method::GET, "/api/db/:table", db_list_handler(Arc::clone(state), Arc::clone(&guardian)))
-            .route(Method::GET, "/api/db/:table/:key", db_get_handler(Arc::clone(state), Arc::clone(&guardian)))
+            .route(
+                Method::GET,
+                "/api/db/:table",
+                db_list_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::GET,
+                "/api/db/:table/:key",
+                db_get_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
             .route(
                 Method::GET,
                 "/api/db/:table/:key/at/:commit_id",
                 db_get_at_commit_handler(Arc::clone(state), Arc::clone(&guardian)),
             )
-            .route(Method::PUT, "/api/db/:table/:key", db_put_handler(Arc::clone(state), Arc::clone(&guardian)))
-            .route(Method::DELETE, "/api/db/:table/:key", db_delete_handler(Arc::clone(state), guardian))
+            .route(
+                Method::PUT,
+                "/api/db/:table/:key",
+                db_put_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::DELETE,
+                "/api/db/:table/:key",
+                db_delete_handler(Arc::clone(state), guardian),
+            )
     }
 
     /// The default `AppState` in tests runs on `InMemoryBackend`, which has
@@ -3527,7 +3928,11 @@ mod tests {
             .route(
                 Method::POST,
                 "/api/cache/purge",
-                purge_page_handler(Arc::clone(&state), Arc::clone(&cache), Arc::clone(&guardian)),
+                purge_page_handler(
+                    Arc::clone(&state),
+                    Arc::clone(&cache),
+                    Arc::clone(&guardian),
+                ),
             )
             .route(
                 Method::POST,
@@ -3568,7 +3973,11 @@ mod tests {
         let mut config = HtmlCacheConfig::from_env();
         config.ai = false;
         let cache = Arc::new(HtmlPageCache::new(config));
-        let router = Router::new().route(Method::GET, "/api/cache/ai-stats", ai_stats_handler(Arc::clone(&state), cache, guardian));
+        let router = Router::new().route(
+            Method::GET,
+            "/api/cache/ai-stats",
+            ai_stats_handler(Arc::clone(&state), cache, guardian),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -3667,16 +4076,56 @@ mod tests {
 
     fn scim_router(state: &Arc<AppState>, guardian: Arc<KeyGuardian>) -> Router {
         Router::new()
-            .route(Method::GET, "/scim/v2/Users", scim_list_users_handler(Arc::clone(state), Arc::clone(&guardian)))
-            .route(Method::POST, "/scim/v2/Users", scim_create_user_handler(Arc::clone(state), Arc::clone(&guardian)))
-            .route(Method::GET, "/scim/v2/Users/:id", scim_get_user_handler(Arc::clone(state), Arc::clone(&guardian)))
-            .route(Method::PUT, "/scim/v2/Users/:id", scim_replace_user_handler(Arc::clone(state), Arc::clone(&guardian)))
-            .route(Method::DELETE, "/scim/v2/Users/:id", scim_delete_user_handler(Arc::clone(state), Arc::clone(&guardian)))
-            .route(Method::GET, "/scim/v2/Groups", scim_list_groups_handler(Arc::clone(state), Arc::clone(&guardian)))
-            .route(Method::POST, "/scim/v2/Groups", scim_create_group_handler(Arc::clone(state), Arc::clone(&guardian)))
-            .route(Method::GET, "/scim/v2/Groups/:id", scim_get_group_handler(Arc::clone(state), Arc::clone(&guardian)))
-            .route(Method::PUT, "/scim/v2/Groups/:id", scim_replace_group_handler(Arc::clone(state), Arc::clone(&guardian)))
-            .route(Method::DELETE, "/scim/v2/Groups/:id", scim_delete_group_handler(Arc::clone(state), guardian))
+            .route(
+                Method::GET,
+                "/scim/v2/Users",
+                scim_list_users_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::POST,
+                "/scim/v2/Users",
+                scim_create_user_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::GET,
+                "/scim/v2/Users/:id",
+                scim_get_user_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::PUT,
+                "/scim/v2/Users/:id",
+                scim_replace_user_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::DELETE,
+                "/scim/v2/Users/:id",
+                scim_delete_user_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::GET,
+                "/scim/v2/Groups",
+                scim_list_groups_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::POST,
+                "/scim/v2/Groups",
+                scim_create_group_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::GET,
+                "/scim/v2/Groups/:id",
+                scim_get_group_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::PUT,
+                "/scim/v2/Groups/:id",
+                scim_replace_group_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::DELETE,
+                "/scim/v2/Groups/:id",
+                scim_delete_group_handler(Arc::clone(state), guardian),
+            )
     }
 
     #[tokio::test]
@@ -3874,8 +4323,11 @@ mod tests {
     async fn key_guardian_full_auto_lifecycle() {
         let state = Arc::new(AppState::new());
         let guardian = guardian(&state);
-        let router = scim_router(&state, Arc::clone(&guardian))
-            .route(Method::GET, "/api/db/status", db_status_handler(Arc::clone(&state), Arc::clone(&guardian)));
+        let router = scim_router(&state, Arc::clone(&guardian)).route(
+            Method::GET,
+            "/api/db/status",
+            db_status_handler(Arc::clone(&state), Arc::clone(&guardian)),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -3897,7 +4349,10 @@ mod tests {
             .expect("request should succeed");
         assert_eq!(resp.status(), reqwest::StatusCode::CREATED);
         let body: serde_json::Value = resp.json().await.expect("valid json body");
-        let issued = body["urn:open-runo:params:scim:api-key"].as_str().unwrap().to_string();
+        let issued = body["urn:open-runo:params:scim:api-key"]
+            .as_str()
+            .unwrap()
+            .to_string();
         let user_id = body["id"].as_str().unwrap().to_string();
         assert!(issued.starts_with("orn_"));
 
@@ -3938,7 +4393,11 @@ mod tests {
     async fn events_endpoint_returns_event_stream_content_type() {
         let state = Arc::new(AppState::new());
         let guardian = guardian(&state);
-        let router = Router::new().route(Method::GET, "/api/events", stream_events_handler(state, guardian));
+        let router = Router::new().route(
+            Method::GET,
+            "/api/events",
+            stream_events_handler(state, guardian),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -3960,7 +4419,11 @@ mod tests {
     async fn events_endpoint_requires_api_key() {
         let state = Arc::new(AppState::new());
         let guardian = guardian(&state);
-        let router = Router::new().route(Method::GET, "/api/events", stream_events_handler(state, guardian));
+        let router = Router::new().route(
+            Method::GET,
+            "/api/events",
+            stream_events_handler(state, guardian),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -4143,7 +4606,12 @@ mod tests {
             .expect("request should succeed");
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
         let body: serde_json::Value = resp.json().await.expect("valid json body");
-        let names: Vec<&str> = body["flags"].as_array().unwrap().iter().map(|f| f["name"].as_str().unwrap()).collect();
+        let names: Vec<&str> = body["flags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["name"].as_str().unwrap())
+            .collect();
         assert_eq!(names, vec!["alpha", "zeta"]);
     }
 
@@ -4157,7 +4625,9 @@ mod tests {
             .expect("bind ephemeral port");
 
         let resp = reqwest::Client::new()
-            .get(format!("http://{addr}/api/feature-flags/ghost/evaluate?bucket_key=user-1"))
+            .get(format!(
+                "http://{addr}/api/feature-flags/ghost/evaluate?bucket_key=user-1"
+            ))
             .header("x-api-key", "test-key")
             .send()
             .await
@@ -4185,7 +4655,9 @@ mod tests {
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
 
         let resp = client
-            .get(format!("http://{addr}/api/feature-flags/always-on/evaluate?bucket_key=whoever"))
+            .get(format!(
+                "http://{addr}/api/feature-flags/always-on/evaluate?bucket_key=whoever"
+            ))
             .header("x-api-key", "test-key")
             .send()
             .await
@@ -4288,7 +4760,9 @@ mod tests {
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
 
         let resp = client
-            .get(format!("http://{addr}/api/feature-flags/session-flag/evaluate?bucket_key=anyone"))
+            .get(format!(
+                "http://{addr}/api/feature-flags/session-flag/evaluate?bucket_key=anyone"
+            ))
             .header(reqwest::header::COOKIE, &cookie_pair)
             .send()
             .await
@@ -4314,17 +4788,30 @@ mod tests {
             .await
             .expect("bind ephemeral port");
 
-        let (mut ws, response) = tokio_tungstenite::connect_async(format!("ws://{addr}/api/ws-echo"))
-            .await
-            .expect("client should complete the WebSocket handshake");
+        let (mut ws, response) =
+            tokio_tungstenite::connect_async(format!("ws://{addr}/api/ws-echo"))
+                .await
+                .expect("client should complete the WebSocket handshake");
         assert_eq!(response.status(), 101);
 
-        ws.send(Message::Text("hello websocket".into())).await.expect("send text");
-        let reply = ws.next().await.expect("a reply frame").expect("valid frame");
+        ws.send(Message::Text("hello websocket".into()))
+            .await
+            .expect("send text");
+        let reply = ws
+            .next()
+            .await
+            .expect("a reply frame")
+            .expect("valid frame");
         assert_eq!(reply, Message::Text("hello websocket".into()));
 
-        ws.send(Message::Binary(vec![1u8, 2, 3, 4].into())).await.expect("send binary");
-        let reply = ws.next().await.expect("a reply frame").expect("valid frame");
+        ws.send(Message::Binary(vec![1u8, 2, 3, 4].into()))
+            .await
+            .expect("send binary");
+        let reply = ws
+            .next()
+            .await
+            .expect("a reply frame")
+            .expect("valid frame");
         assert_eq!(reply, Message::Binary(vec![1u8, 2, 3, 4].into()));
 
         ws.close(None).await.expect("close should send cleanly");
@@ -4341,7 +4828,11 @@ mod tests {
 
         let state = Arc::new(AppState::new());
         let guardian = guardian(&state);
-        let router = Router::new().route(Method::GET, "/api/ws-events", ws_events_handler(state, guardian));
+        let router = Router::new().route(
+            Method::GET,
+            "/api/ws-events",
+            ws_events_handler(state, guardian),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -4353,12 +4844,18 @@ mod tests {
              Connection: Upgrade\r\n\
              Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
              Sec-WebSocket-Version: 13\r\n\r\n";
-        stream.write_all(request.as_bytes()).await.expect("write request");
+        stream
+            .write_all(request.as_bytes())
+            .await
+            .expect("write request");
 
         let mut buf = vec![0u8; 256];
         let n = stream.read(&mut buf).await.expect("read response");
         let response = String::from_utf8_lossy(&buf[..n]);
-        assert!(response.starts_with("HTTP/1.1 401"), "expected 401, got: {response}");
+        assert!(
+            response.starts_with("HTTP/1.1 401"),
+            "expected 401, got: {response}"
+        );
     }
 
     /// `POST /internal/db/mutate` — `open-web-server-ledger::Ledger`が
@@ -4369,8 +4866,16 @@ mod tests {
         let state = Arc::new(AppState::new());
         let guardian = guardian(&state);
         let router = Router::new()
-            .route(Method::POST, "/internal/db/mutate", db_mutate_handler(Arc::clone(&state)))
-            .route(Method::GET, "/api/db/:table/:key", db_get_handler(Arc::clone(&state), Arc::clone(&guardian)));
+            .route(
+                Method::POST,
+                "/internal/db/mutate",
+                db_mutate_handler(Arc::clone(&state)),
+            )
+            .route(
+                Method::GET,
+                "/api/db/:table/:key",
+                db_get_handler(Arc::clone(&state), Arc::clone(&guardian)),
+            );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -4391,7 +4896,10 @@ mod tests {
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
         let receipt: serde_json::Value = resp.json().await.expect("receipt body should parse");
         assert_eq!(receipt["committed"], serde_json::json!(true));
-        assert_eq!(receipt["idempotency_key"], serde_json::json!("mutate-key-1"));
+        assert_eq!(
+            receipt["idempotency_key"],
+            serde_json::json!("mutate-key-1")
+        );
         // InMemoryBackendはコミット概念を持たないため正直にNoneが返る。
         assert_eq!(receipt["db_commit_id"], serde_json::json!(null));
 
@@ -4412,7 +4920,11 @@ mod tests {
     #[tokio::test]
     async fn db_mutate_is_idempotent_across_retries() {
         let state = Arc::new(AppState::new());
-        let router = Router::new().route(Method::POST, "/internal/db/mutate", db_mutate_handler(Arc::clone(&state)));
+        let router = Router::new().route(
+            Method::POST,
+            "/internal/db/mutate",
+            db_mutate_handler(Arc::clone(&state)),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -4446,6 +4958,9 @@ mod tests {
             .await
             .expect("retry receipt should parse");
 
-        assert_eq!(first["committed_at"], second["committed_at"], "retry must return the original receipt, not a fresh one");
+        assert_eq!(
+            first["committed_at"], second["committed_at"],
+            "retry must return the original receipt, not a fresh one"
+        );
     }
 }

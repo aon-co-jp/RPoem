@@ -73,20 +73,20 @@ pub async fn spawn_listener(
                         target = %req.target,
                         "udp advance notice received (authoritative commit still via TCP /internal/db/mutate)"
                     );
-                }
+                },
                 Ok(None) => {
                     // 重複(デデュープ済み)。TCP経由でも同じキーが確定
                     // 済みになる想定であり、実害は無い(既存の冪等性
                     // 設計通り)。
                     stats.duplicate_or_invalid.fetch_add(1, Ordering::Relaxed);
-                }
+                },
                 Err(e) => {
                     // HMAC検証失敗・不正フォーマット等。副系(UDP)の
                     // 障害であり、TCP経由の権威パスには一切影響しない
                     // ため、ログのみで処理を継続する。
                     stats.duplicate_or_invalid.fetch_add(1, Ordering::Relaxed);
                     tracing::warn!(error = %e, "udp notice receive/decode error (does not affect TCP-authoritative path)");
-                }
+                },
             }
         }
     });
@@ -99,7 +99,9 @@ pub async fn spawn_listener(
 /// `Ledger::enable_udp_redundant_path`と同じ鍵を渡す運用を想定)が
 /// 設定されている場合のみリスナーを起動する。未設定なら何もしない
 /// (既存の`OPEN_RUNO_CLICKHOUSE_URL`等と同じ「opt-in、既定オフ」方針)。
-pub async fn spawn_from_env(stats: Arc<NoticeStats>) -> Option<(SocketAddr, tokio::task::JoinHandle<()>)> {
+pub async fn spawn_from_env(
+    stats: Arc<NoticeStats>,
+) -> Option<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let bind_addr = std::env::var("OPEN_RUNO_UDP_NOTICE_BIND").ok()?;
     let bind_addr: SocketAddr = bind_addr.parse().ok()?;
     let aead_hex = std::env::var("OPEN_RUNO_UDP_NOTICE_KEY_HEX").ok()?;
@@ -112,7 +114,7 @@ pub async fn spawn_from_env(stats: Arc<NoticeStats>) -> Option<(SocketAddr, toki
         Err(e) => {
             tracing::warn!(error = %e, "failed to start udp notice listener from env config");
             None
-        }
+        },
     }
 }
 
@@ -142,9 +144,13 @@ mod tests {
         // spawn_listener自身が0番ポートへbindし、実際に確定したアドレス
         // を返す(probeしてdropしてから再bindする設計は、他の並行テスト
         // にポートを奪われるTOCTOU競合を生むため避けた)。
-        let (addr, handle) = spawn_listener(recv_addr, keys.clone(), Arc::clone(&stats)).await.unwrap();
+        let (addr, handle) = spawn_listener(recv_addr, keys.clone(), Arc::clone(&stats))
+            .await
+            .unwrap();
 
-        let sender = UdpSender::bind("127.0.0.1:0".parse().unwrap(), &keys).await.unwrap();
+        let sender = UdpSender::bind("127.0.0.1:0".parse().unwrap(), &keys)
+            .await
+            .unwrap();
         let req = MutationRequest {
             idempotency_key: IdempotencyKey("udp-notice-key-1".to_string()),
             account_id: "user-1".to_string(),
@@ -161,7 +167,11 @@ mod tests {
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        assert_eq!(stats.received(), 1, "the notice sent over real UDP must actually be received and counted");
+        assert_eq!(
+            stats.received(),
+            1,
+            "the notice sent over real UDP must actually be received and counted"
+        );
         assert_eq!(stats.duplicate_or_invalid(), 0);
 
         // 同じキーをもう一度送ると、デデュープされ`received`は増えない。
@@ -172,7 +182,11 @@ mod tests {
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        assert_eq!(stats.received(), 1, "duplicate notice must not be double-counted as received");
+        assert_eq!(
+            stats.received(),
+            1,
+            "duplicate notice must not be double-counted as received"
+        );
         assert_eq!(stats.duplicate_or_invalid(), 1);
 
         handle.abort();

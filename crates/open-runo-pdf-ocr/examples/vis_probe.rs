@@ -26,7 +26,10 @@ fn main() {
     }
     let index = GlyphIndex::build(&g, &pool);
     // 位置ずれの大きさ(1 文字の幅に対する割合、例 0.3)。
-    let jit: f32 = std::env::var("JITTER").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+    let jit: f32 = std::env::var("JITTER")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.0);
     let (mut top1, mut top3, mut total, mut evsum) = (0, 0, 0, 0.0f32);
     let mut k = 0u32;
     for (li, line) in truth.iter().enumerate() {
@@ -35,10 +38,18 @@ fn main() {
                 continue;
             }
             k += 1;
-            let (jx, jy) = (jit * (((k * 7) % 5) as f32 - 2.0) / 2.0, jit * (((k * 3) % 5) as f32 - 2.0) / 2.0);
+            let (jx, jy) = (
+                jit * (((k * 7) % 5) as f32 - 2.0) / 2.0,
+                jit * (((k * 3) % 5) as f32 - 2.0) / 2.0,
+            );
             let cx = (x0 + (ci as f32 + 0.5) * cwid) * scale;
             let cy = (y0 + li as f32 * lh + cwid * 0.62) * scale;
-            let Some(cell) = visual::cell(&page, cx + jx * cwid * scale, cy + jy * cwid * scale, cwid * scale * 2.0) else {
+            let Some(cell) = visual::cell(
+                &page,
+                cx + jx * cwid * scale,
+                cy + jy * cwid * scale,
+                cwid * scale * 2.0,
+            ) else {
                 continue;
             };
             let (scored, _) = index.rank_cpu(&cell.map, 200, &[]);
@@ -53,5 +64,11 @@ fn main() {
             }
         }
     }
-    println!("chars={total} candidates={} top1={:.0}% top3={:.0}% mean evidence={:.2}", pool.len(), 100.0 * top1 as f32 / total as f32, 100.0 * top3 as f32 / total as f32, evsum / total as f32);
+    println!(
+        "chars={total} candidates={} top1={:.0}% top3={:.0}% mean evidence={:.2}",
+        pool.len(),
+        100.0 * top1 as f32 / total as f32,
+        100.0 * top3 as f32 / total as f32,
+        evsum / total as f32
+    );
 }

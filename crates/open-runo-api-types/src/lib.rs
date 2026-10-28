@@ -226,7 +226,8 @@ mod tests {
     #[test]
     fn register_schema_request_defaults_stage_and_namespace() {
         let req: RegisterSchemaRequest =
-            sonic_rs::from_str(r#"{"service_name": "users", "sdl": "type User { id: ID! }"}"#).unwrap();
+            sonic_rs::from_str(r#"{"service_name": "users", "sdl": "type User { id: ID! }"}"#)
+                .unwrap();
         assert_eq!(req.stage, "local");
         assert_eq!(req.namespace, None);
     }
@@ -240,7 +241,10 @@ mod tests {
 
     #[test]
     fn rate_limited_response_roundtrips_through_json() {
-        let r = RateLimitedResponse { error: "rate limit exceeded".to_string(), retry_after_secs: 42 };
+        let r = RateLimitedResponse {
+            error: "rate limit exceeded".to_string(),
+            retry_after_secs: 42,
+        };
         let json = serde_json::to_string(&r).unwrap();
         let back: RateLimitedResponse = sonic_rs::from_str(&json).unwrap();
         assert_eq!(back.retry_after_secs, 42);
@@ -250,7 +254,8 @@ mod tests {
     fn db_record_list_response_includes_table() {
         // This is exactly the field the WASM frontend's independent copy
         // of this shape used to silently drop.
-        let json = r#"{"table": "users", "count": 1, "records": [{"key": "1", "value": {"name": "a"}}]}"#;
+        let json =
+            r#"{"table": "users", "count": 1, "records": [{"key": "1", "value": {"name": "a"}}]}"#;
         let resp: DbRecordListResponse = sonic_rs::from_str(json).unwrap();
         assert_eq!(resp.table, "users");
         assert_eq!(resp.records[0].key, "1");
@@ -268,7 +273,10 @@ mod tests {
     fn db_routing_info_roundtrips_through_json() {
         let info = DbRoutingInfo {
             default_target: "postgresql".to_string(),
-            entries: vec![DbRoutingEntry { table: "sessions".to_string(), target: "postgresql".to_string() }],
+            entries: vec![DbRoutingEntry {
+                table: "sessions".to_string(),
+                target: "postgresql".to_string(),
+            }],
         };
         let json = serde_json::to_string(&info).unwrap();
         let back: DbRoutingInfo = sonic_rs::from_str(&json).unwrap();

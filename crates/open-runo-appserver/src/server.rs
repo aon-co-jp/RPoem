@@ -111,17 +111,17 @@ impl ThreadedProxyServer {
                         match proxy_once(stream, &peer, d.as_ref(), timeout) {
                             Ok(_) => {
                                 st.served.fetch_add(1, Ordering::Relaxed);
-                            }
+                            },
                             Err(_) => {
                                 st.errors.fetch_add(1, Ordering::Relaxed);
-                            }
+                            },
                         }
-                    }
+                    },
                     Err(_) => {
                         if sd.load(Ordering::Relaxed) {
                             break;
                         }
-                    }
+                    },
                 }
             }));
         }
@@ -134,22 +134,22 @@ impl ThreadedProxyServer {
                     Ok((stream, _)) => {
                         st.accepted.fetch_add(1, Ordering::Relaxed);
                         match tx.try_send(stream) {
-                            Ok(()) => {}
+                            Ok(()) => {},
                             Err(TrySendError::Full(mut s)) => {
                                 st.rejected_queue_full.fetch_add(1, Ordering::Relaxed);
                                 let _ = s.write_all(
                                     b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
                                 );
-                            }
+                            },
                             Err(TrySendError::Disconnected(_)) => break,
                         }
-                    }
+                    },
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         std::thread::sleep(Duration::from_millis(5));
-                    }
+                    },
                     Err(_) => {
                         st.errors.fetch_add(1, Ordering::Relaxed);
-                    }
+                    },
                 }
             }
         });
@@ -217,7 +217,7 @@ mod tests {
                         match r.read_line(&mut line) {
                             Ok(0) => return,
                             Ok(_) if line.trim().is_empty() => break,
-                            Ok(_) => {}
+                            Ok(_) => {},
                             Err(_) => return,
                         }
                     }
@@ -278,11 +278,9 @@ mod tests {
                 let mut last = String::new();
                 while std::time::Instant::now() < deadline {
                     match one_request(port) {
-                        Ok(resp)
-                            if resp.starts_with("HTTP/1.1 200 OK") && resp.ends_with("ok") =>
-                        {
+                        Ok(resp) if resp.starts_with("HTTP/1.1 200 OK") && resp.ends_with("ok") => {
                             return;
-                        }
+                        },
                         Ok(resp) => last = resp,
                         Err(e) => last = format!("io error: {e}"),
                     }

@@ -29,14 +29,19 @@ use open_runo_appserver::process_lifecycle::HealthState;
 use open_runo_appserver::tenant_bridge::SupervisedTenantRegistry;
 use open_runo_appserver::{RestartPolicy, RuntimeProfile};
 use open_runo_router::auth_hyper::check_api_key;
-use open_runo_router::hyper_compat::{json_response, query_params, read_json_body, Handler, Params};
+use open_runo_router::hyper_compat::{
+    json_response, query_params, read_json_body, Handler, Params,
+};
 use open_runo_router::keyring::KeyGuardian;
 use serde::{Deserialize, Serialize};
 
 /// `?timeout_ms=N`のようなクエリパラメータからグレースフルシャットダウンの
 /// タイムアウトを読み取る。未指定・パース不能なら`default_ms`
 /// (このモジュールの既定値、呼び出し側で明記)。
-fn graceful_timeout_from_query(req: &open_runo_router::hyper_compat::Request, default_ms: u64) -> Duration {
+fn graceful_timeout_from_query(
+    req: &open_runo_router::hyper_compat::Request,
+    default_ms: u64,
+) -> Duration {
     let ms = query_params(req)
         .get("timeout_ms")
         .and_then(|s| s.parse::<u64>().ok())
@@ -82,7 +87,10 @@ struct GracefulStopEntry {
 /// プロセス自体を起動・監視下に置く(`register_with_managed_process`)。
 /// 既に同じホストに管理対象プロセスがあれば、まず停止してから新しい
 /// プロファイルで再登録する(`SupervisedTenantRegistry`の冪等な再設定)。
-pub fn register_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Handler {
+pub fn register_handler(
+    registry: Arc<SupervisedTenantRegistry>,
+    guardian: Arc<KeyGuardian>,
+) -> Handler {
     Arc::new(move |req, _params| {
         let registry = Arc::clone(&registry);
         let guardian = Arc::clone(&guardian);
@@ -107,7 +115,12 @@ pub fn register_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<K
             let host = body.host.clone();
             let host_for_task = host.clone();
             let result = tokio::task::spawn_blocking(move || {
-                registry.register_with_managed_process(&host_for_task, body.profile, policy, poll_interval);
+                registry.register_with_managed_process(
+                    &host_for_task,
+                    body.profile,
+                    policy,
+                    poll_interval,
+                );
             })
             .await;
 
@@ -118,14 +131,20 @@ pub fn register_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<K
                 );
             }
 
-            json_response(StatusCode::OK, &serde_json::json!({ "status": "registered", "host": host }))
+            json_response(
+                StatusCode::OK,
+                &serde_json::json!({ "status": "registered", "host": host }),
+            )
         })
     })
 }
 
 /// `GET /admin/appserver-processes/:host` — 管理対象プロセスの現在の
 /// 健康状態(`ProcessLifecycleManager::status()`相当)。
-pub fn status_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Handler {
+pub fn status_handler(
+    registry: Arc<SupervisedTenantRegistry>,
+    guardian: Arc<KeyGuardian>,
+) -> Handler {
     Arc::new(move |req, params: Params| {
         let registry = Arc::clone(&registry);
         let guardian = Arc::clone(&guardian);
@@ -146,7 +165,10 @@ pub fn status_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<Key
 /// ——`ProcessLifecycleManager`の既存の「停止は再起動しない」意味論の
 /// まま)。管理対象でないホスト(プロキシ専用登録・未登録)を指定した
 /// 場合は404。
-pub fn stop_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Handler {
+pub fn stop_handler(
+    registry: Arc<SupervisedTenantRegistry>,
+    guardian: Arc<KeyGuardian>,
+) -> Handler {
     Arc::new(move |req, params: Params| {
         let registry = Arc::clone(&registry);
         let guardian = Arc::clone(&guardian);
@@ -157,7 +179,10 @@ pub fn stop_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGu
             }
 
             if registry.stop_process(&host) {
-                json_response(StatusCode::OK, &serde_json::json!({ "status": "stopped", "host": host }))
+                json_response(
+                    StatusCode::OK,
+                    &serde_json::json!({ "status": "stopped", "host": host }),
+                )
             } else {
                 json_response(
                     StatusCode::NOT_FOUND,
@@ -171,7 +196,10 @@ pub fn stop_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGu
 /// `POST /admin/appserver-processes/:host/restart` — 明示的再起動
 /// (`restart_process`、`Stopped`/`GaveUp`いずれからも復帰可能)。
 /// 管理対象でないホストを指定した場合は404。
-pub fn restart_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Handler {
+pub fn restart_handler(
+    registry: Arc<SupervisedTenantRegistry>,
+    guardian: Arc<KeyGuardian>,
+) -> Handler {
     Arc::new(move |req, params: Params| {
         let registry = Arc::clone(&registry);
         let guardian = Arc::clone(&guardian);
@@ -182,7 +210,10 @@ pub fn restart_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<Ke
             }
 
             if registry.restart_process(&host) {
-                json_response(StatusCode::OK, &serde_json::json!({ "status": "restarted", "host": host }))
+                json_response(
+                    StatusCode::OK,
+                    &serde_json::json!({ "status": "restarted", "host": host }),
+                )
             } else {
                 json_response(
                     StatusCode::NOT_FOUND,
@@ -198,7 +229,10 @@ pub fn restart_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<Ke
 /// (`SupervisedTenantRegistry::list_managed`)。プロキシ専用登録
 /// (`register_proxy_only`)のホストは含まれない(`status_handler`の
 /// `null`と同じ線引き)。
-pub fn list_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Handler {
+pub fn list_handler(
+    registry: Arc<SupervisedTenantRegistry>,
+    guardian: Arc<KeyGuardian>,
+) -> Handler {
     Arc::new(move |req, _params| {
         let registry = Arc::clone(&registry);
         let guardian = Arc::clone(&guardian);
@@ -209,7 +243,10 @@ pub fn list_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGu
             let entries: Vec<ProcessStatusEntry> = registry
                 .list_managed()
                 .into_iter()
-                .map(|(host, status)| ProcessStatusEntry { host, status: Some(status) })
+                .map(|(host, status)| ProcessStatusEntry {
+                    host,
+                    status: Some(status),
+                })
                 .collect();
             json_response(StatusCode::OK, &serde_json::json!({ "processes": entries }))
         })
@@ -220,7 +257,10 @@ pub fn list_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGu
 /// (2)**: 管理対象の全プロセスへ即時停止(`stop()`、SIGKILL相当)を発行
 /// する(`SupervisedTenantRegistry::stop_all`)。段階的グレースフル停止が
 /// 必要な場合は`?graceful=true&timeout_ms=N`(既定5000ms)を付ける。
-pub fn stop_all_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Handler {
+pub fn stop_all_handler(
+    registry: Arc<SupervisedTenantRegistry>,
+    guardian: Arc<KeyGuardian>,
+) -> Handler {
     Arc::new(move |req, _params| {
         let registry = Arc::clone(&registry);
         let guardian = Arc::clone(&guardian);
@@ -229,7 +269,10 @@ pub fn stop_all_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<K
                 return json_response(status, &serde_json::json!({ "error": "unauthorized" }));
             }
 
-            let graceful_requested = query_params(&req).get("graceful").map(|v| v == "true").unwrap_or(false);
+            let graceful_requested = query_params(&req)
+                .get("graceful")
+                .map(|v| v == "true")
+                .unwrap_or(false);
             let timeout = graceful_timeout_from_query(&req, 5000);
 
             if graceful_requested {
@@ -258,7 +301,10 @@ pub fn stop_all_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<K
 /// (SIGKILL相当)にフォールバックする(`Supervisor::stop_graceful`)。
 /// 管理対象でないホストは404(既存`stop_handler`/`restart_handler`と
 /// 同じ意味論)。
-pub fn stop_graceful_handler(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Handler {
+pub fn stop_graceful_handler(
+    registry: Arc<SupervisedTenantRegistry>,
+    guardian: Arc<KeyGuardian>,
+) -> Handler {
     Arc::new(move |req, params: Params| {
         let registry = Arc::clone(&registry);
         let guardian = Arc::clone(&guardian);
@@ -270,12 +316,16 @@ pub fn stop_graceful_handler(registry: Arc<SupervisedTenantRegistry>, guardian: 
             }
 
             let host_for_task = host.clone();
-            let outcome = tokio::task::spawn_blocking(move || registry.stop_process_graceful(&host_for_task, timeout))
-                .await
-                .unwrap_or(None);
+            let outcome = tokio::task::spawn_blocking(move || {
+                registry.stop_process_graceful(&host_for_task, timeout)
+            })
+            .await
+            .unwrap_or(None);
 
             match outcome {
-                Some(graceful) => json_response(StatusCode::OK, &GracefulStopEntry { host, graceful }),
+                Some(graceful) => {
+                    json_response(StatusCode::OK, &GracefulStopEntry { host, graceful })
+                },
                 None => json_response(
                     StatusCode::NOT_FOUND,
                     &serde_json::json!({ "error": format!("no managed process for host: {host}") }),
@@ -287,7 +337,10 @@ pub fn stop_graceful_handler(registry: Arc<SupervisedTenantRegistry>, guardian: 
 
 /// `(method, pattern, handler)`の7件をまとめて返す(`appserver_tenants::
 /// routes`と同じ利便性パターン)。
-pub fn routes(registry: Arc<SupervisedTenantRegistry>, guardian: Arc<KeyGuardian>) -> Vec<(Method, &'static str, Handler)> {
+pub fn routes(
+    registry: Arc<SupervisedTenantRegistry>,
+    guardian: Arc<KeyGuardian>,
+) -> Vec<(Method, &'static str, Handler)> {
     vec![
         (
             Method::POST,
@@ -347,7 +400,11 @@ mod tests {
     /// 価値は無いと判断)。
     fn dummy_app_exe_path() -> std::path::PathBuf {
         let mut dir = std::env::current_exe().expect("current_exe");
-        while dir.file_name().map(|n| n != "debug" && n != "release").unwrap_or(false) {
+        while dir
+            .file_name()
+            .map(|n| n != "debug" && n != "release")
+            .unwrap_or(false)
+        {
             if !dir.pop() {
                 break;
             }
@@ -380,17 +437,28 @@ mod tests {
 
     async fn test_server() -> (std::net::SocketAddr, Arc<SupervisedTenantRegistry>) {
         let state = Arc::new(AppState::new());
-        let guardian = Arc::new(KeyGuardian::new(Arc::clone(&state.db), GuardianConfig::from_env()));
+        let guardian = Arc::new(KeyGuardian::new(
+            Arc::clone(&state.db),
+            GuardianConfig::from_env(),
+        ));
         let registry = Arc::new(SupervisedTenantRegistry::new());
         let mut router = Router::new();
         for (method, pattern, handler) in routes(Arc::clone(&registry), guardian) {
             router = router.route(method, pattern, handler);
         }
-        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
         (addr, registry)
     }
 
-    async fn wait_for_status(client: &reqwest::Client, addr: std::net::SocketAddr, host: &str, want: &str, tries: u32) -> bool {
+    async fn wait_for_status(
+        client: &reqwest::Client,
+        addr: std::net::SocketAddr,
+        host: &str,
+        want: &str,
+        tries: u32,
+    ) -> bool {
         for _ in 0..tries {
             let resp = client
                 .get(format!("http://{addr}/admin/appserver-processes/{host}"))
@@ -435,7 +503,9 @@ mod tests {
         );
 
         let resp = client
-            .post(format!("http://{addr}/admin/appserver-processes/app1.example.jp/stop"))
+            .post(format!(
+                "http://{addr}/admin/appserver-processes/app1.example.jp/stop"
+            ))
             .header("x-api-key", "test-key")
             .send()
             .await
@@ -444,7 +514,9 @@ mod tests {
         assert!(wait_for_status(&client, addr, "app1.example.jp", "stopped", 40).await);
 
         let resp = client
-            .post(format!("http://{addr}/admin/appserver-processes/app1.example.jp/restart"))
+            .post(format!(
+                "http://{addr}/admin/appserver-processes/app1.example.jp/restart"
+            ))
             .header("x-api-key", "test-key")
             .send()
             .await
@@ -459,7 +531,9 @@ mod tests {
         let client = reqwest::Client::new();
 
         let resp = client
-            .post(format!("http://{addr}/admin/appserver-processes/unknown.example.jp/stop"))
+            .post(format!(
+                "http://{addr}/admin/appserver-processes/unknown.example.jp/stop"
+            ))
             .header("x-api-key", "test-key")
             .send()
             .await
@@ -467,7 +541,9 @@ mod tests {
         assert_eq!(resp.status(), reqwest::StatusCode::NOT_FOUND);
 
         let resp = client
-            .post(format!("http://{addr}/admin/appserver-processes/unknown.example.jp/restart"))
+            .post(format!(
+                "http://{addr}/admin/appserver-processes/unknown.example.jp/restart"
+            ))
             .header("x-api-key", "test-key")
             .send()
             .await
@@ -479,7 +555,9 @@ mod tests {
     async fn status_of_unregistered_host_is_null_not_an_error() {
         let (addr, _registry) = test_server().await;
         let resp = reqwest::Client::new()
-            .get(format!("http://{addr}/admin/appserver-processes/never-registered.example.jp"))
+            .get(format!(
+                "http://{addr}/admin/appserver-processes/never-registered.example.jp"
+            ))
             .header("x-api-key", "test-key")
             .send()
             .await
@@ -515,7 +593,16 @@ mod tests {
         }
 
         for i in 0..2 {
-            assert!(wait_for_status(&client, addr, &format!("bulk{i}.example.jp"), "healthy", 100).await);
+            assert!(
+                wait_for_status(
+                    &client,
+                    addr,
+                    &format!("bulk{i}.example.jp"),
+                    "healthy",
+                    100
+                )
+                .await
+            );
         }
 
         let resp = client
@@ -546,7 +633,9 @@ mod tests {
         assert_eq!(body["stopped"].as_array().expect("stopped array").len(), 2);
 
         for i in 0..2 {
-            assert!(wait_for_status(&client, addr, &format!("bulk{i}.example.jp"), "stopped", 40).await);
+            assert!(
+                wait_for_status(&client, addr, &format!("bulk{i}.example.jp"), "stopped", 40).await
+            );
         }
     }
 
@@ -588,14 +677,19 @@ mod tests {
         assert!(body["graceful"].is_boolean());
 
         assert!(wait_for_status(&client, addr, "graceful1.example.jp", "stopped", 100).await);
-        assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err(), "process must actually be terminated");
+        assert!(
+            std::net::TcpStream::connect(("127.0.0.1", port)).is_err(),
+            "process must actually be terminated"
+        );
     }
 
     #[tokio::test]
     async fn stop_graceful_on_unmanaged_host_returns_404() {
         let (addr, _registry) = test_server().await;
         let resp = reqwest::Client::new()
-            .post(format!("http://{addr}/admin/appserver-processes/unknown.example.jp/stop-graceful"))
+            .post(format!(
+                "http://{addr}/admin/appserver-processes/unknown.example.jp/stop-graceful"
+            ))
             .header("x-api-key", "test-key")
             .send()
             .await

@@ -158,7 +158,9 @@ fn parse_path_segments(path: &str) -> Vec<PathSegment<'_>> {
                 if !key_part.is_empty() {
                     segments.push(PathSegment::Key(key_part));
                 }
-                let Some(bracket_end) = bracket_and_after.find(']') else { break };
+                let Some(bracket_end) = bracket_and_after.find(']') else {
+                    break;
+                };
                 let index_str = &bracket_and_after[1..bracket_end];
                 if let Ok(idx) = index_str.parse::<usize>() {
                     segments.push(PathSegment::Index(idx));
@@ -215,7 +217,10 @@ fn skip_whitespace_and_comments(bytes: &[u8], pos: &mut usize) -> Result<(), Rus
 }
 
 fn peek(bytes: &[u8], pos: usize) -> Result<u8, RustJsonError> {
-    bytes.get(pos).copied().ok_or(RustJsonError::UnexpectedEof(pos))
+    bytes
+        .get(pos)
+        .copied()
+        .ok_or(RustJsonError::UnexpectedEof(pos))
 }
 
 fn parse_value(bytes: &[u8], pos: &mut usize) -> Result<Value, RustJsonError> {
@@ -233,13 +238,21 @@ fn parse_value(bytes: &[u8], pos: &mut usize) -> Result<Value, RustJsonError> {
     }
 }
 
-fn parse_literal(bytes: &[u8], pos: &mut usize, literal: &str, value: Value) -> Result<Value, RustJsonError> {
+fn parse_literal(
+    bytes: &[u8],
+    pos: &mut usize,
+    literal: &str,
+    value: Value,
+) -> Result<Value, RustJsonError> {
     let end = *pos + literal.len();
     if bytes.get(*pos..end) == Some(literal.as_bytes()) {
         *pos = end;
         Ok(value)
     } else {
-        Err(RustJsonError::UnexpectedChar(*pos, peek(bytes, *pos)? as char))
+        Err(RustJsonError::UnexpectedChar(
+            *pos,
+            peek(bytes, *pos)? as char,
+        ))
     }
 }
 
@@ -256,7 +269,10 @@ fn parse_object(bytes: &[u8], pos: &mut usize) -> Result<Value, RustJsonError> {
         let key = parse_key(bytes, pos)?;
         skip_whitespace_and_comments(bytes, pos)?;
         if peek(bytes, *pos)? != b':' {
-            return Err(RustJsonError::UnexpectedChar(*pos, peek(bytes, *pos)? as char));
+            return Err(RustJsonError::UnexpectedChar(
+                *pos,
+                peek(bytes, *pos)? as char,
+            ));
         }
         *pos += 1;
         let value = parse_value(bytes, pos)?;
@@ -272,11 +288,11 @@ fn parse_object(bytes: &[u8], pos: &mut usize) -> Result<Value, RustJsonError> {
                     *pos += 1;
                     break;
                 }
-            }
+            },
             b'}' => {
                 *pos += 1;
                 break;
-            }
+            },
             c => return Err(RustJsonError::UnexpectedChar(*pos, c as char)),
         }
     }
@@ -293,11 +309,12 @@ fn parse_key(bytes: &[u8], pos: &mut usize) -> Result<String, RustJsonError> {
         c if c == b'_' || c.is_ascii_alphabetic() => {
             let start = *pos;
             *pos += 1;
-            while *pos < bytes.len() && (bytes[*pos] == b'_' || bytes[*pos].is_ascii_alphanumeric()) {
+            while *pos < bytes.len() && (bytes[*pos] == b'_' || bytes[*pos].is_ascii_alphanumeric())
+            {
                 *pos += 1;
             }
             Ok(String::from_utf8_lossy(&bytes[start..*pos]).into_owned())
-        }
+        },
         c => Err(RustJsonError::UnexpectedChar(*pos, c as char)),
     }
 }
@@ -324,11 +341,11 @@ fn parse_array(bytes: &[u8], pos: &mut usize) -> Result<Value, RustJsonError> {
                     *pos += 1;
                     break;
                 }
-            }
+            },
             b']' => {
                 *pos += 1;
                 break;
-            }
+            },
             c => return Err(RustJsonError::UnexpectedChar(*pos, c as char)),
         }
     }
@@ -341,14 +358,18 @@ fn parse_quoted_string(bytes: &[u8], pos: &mut usize, quote: u8) -> Result<Strin
     *pos += 1;
     let mut out = String::new();
     loop {
-        let c = *bytes.get(*pos).ok_or(RustJsonError::UnterminatedString(start))?;
+        let c = *bytes
+            .get(*pos)
+            .ok_or(RustJsonError::UnterminatedString(start))?;
         if c == quote {
             *pos += 1;
             return Ok(out);
         }
         if c == b'\\' {
             *pos += 1;
-            let escaped = *bytes.get(*pos).ok_or(RustJsonError::UnterminatedString(start))?;
+            let escaped = *bytes
+                .get(*pos)
+                .ok_or(RustJsonError::UnterminatedString(start))?;
             match escaped {
                 b'"' => out.push('"'),
                 b'\'' => out.push('\''),
@@ -365,11 +386,12 @@ fn parse_quoted_string(bytes: &[u8], pos: &mut usize, quote: u8) -> Result<Strin
                         .get(hex_start..hex_start + 4)
                         .and_then(|h| std::str::from_utf8(h).ok())
                         .ok_or(RustJsonError::InvalidEscape(*pos))?;
-                    let code = u32::from_str_radix(hex, 16).map_err(|_| RustJsonError::InvalidEscape(*pos))?;
+                    let code = u32::from_str_radix(hex, 16)
+                        .map_err(|_| RustJsonError::InvalidEscape(*pos))?;
                     let ch = char::from_u32(code).ok_or(RustJsonError::InvalidEscape(*pos))?;
                     out.push(ch);
                     *pos += 4;
-                }
+                },
                 _ => return Err(RustJsonError::InvalidEscape(*pos)),
             }
             *pos += 1;
@@ -382,7 +404,8 @@ fn parse_quoted_string(bytes: &[u8], pos: &mut usize, quote: u8) -> Result<Strin
         let ch_bytes = bytes
             .get(*pos..*pos + ch_len)
             .ok_or(RustJsonError::UnterminatedString(start))?;
-        let ch_str = std::str::from_utf8(ch_bytes).map_err(|_| RustJsonError::UnterminatedString(start))?;
+        let ch_str =
+            std::str::from_utf8(ch_bytes).map_err(|_| RustJsonError::UnterminatedString(start))?;
         out.push_str(ch_str);
         *pos += ch_len;
     }
@@ -444,17 +467,24 @@ fn parse_number(bytes: &[u8], pos: &mut usize) -> Result<Value, RustJsonError> {
             return Err(RustJsonError::InvalidNumber(start));
         }
     }
-    let text = std::str::from_utf8(&bytes[start..*pos]).map_err(|_| RustJsonError::InvalidNumber(start))?;
+    let text = std::str::from_utf8(&bytes[start..*pos])
+        .map_err(|_| RustJsonError::InvalidNumber(start))?;
     let number: Number = if is_integer {
         if let Ok(i) = text.parse::<i64>() {
             Number::from(i)
         } else if let Ok(u) = text.parse::<u64>() {
             Number::from(u)
         } else {
-            text.parse::<f64>().ok().and_then(Number::from_f64).ok_or(RustJsonError::InvalidNumber(start))?
+            text.parse::<f64>()
+                .ok()
+                .and_then(Number::from_f64)
+                .ok_or(RustJsonError::InvalidNumber(start))?
         }
     } else {
-        text.parse::<f64>().ok().and_then(Number::from_f64).ok_or(RustJsonError::InvalidNumber(start))?
+        text.parse::<f64>()
+            .ok()
+            .and_then(Number::from_f64)
+            .ok_or(RustJsonError::InvalidNumber(start))?
     };
     Ok(Value::Number(number))
 }
@@ -467,7 +497,10 @@ mod tests {
     #[test]
     fn parses_strict_json_unchanged() {
         let input = r#"{"a": 1, "b": [true, false, null], "c": "hello"}"#;
-        assert_eq!(parse(input).unwrap(), json!({"a": 1, "b": [true, false, null], "c": "hello"}));
+        assert_eq!(
+            parse(input).unwrap(),
+            json!({"a": 1, "b": [true, false, null], "c": "hello"})
+        );
     }
 
     #[test]
@@ -494,7 +527,10 @@ mod tests {
 
     #[test]
     fn unquoted_identifier_keys_are_accepted() {
-        assert_eq!(parse("{name: 'sword', qty: 3}").unwrap(), json!({"name": "sword", "qty": 3}));
+        assert_eq!(
+            parse("{name: 'sword', qty: 3}").unwrap(),
+            json!({"name": "sword", "qty": 3})
+        );
     }
 
     #[test]
@@ -522,7 +558,10 @@ mod tests {
 
     #[test]
     fn escape_sequences_in_strings_round_trip() {
-        assert_eq!(parse(r#""line1\nline2\ttab""#).unwrap(), json!("line1\nline2\ttab"));
+        assert_eq!(
+            parse(r#""line1\nline2\ttab""#).unwrap(),
+            json!("line1\nline2\ttab")
+        );
     }
 
     #[test]
@@ -537,12 +576,18 @@ mod tests {
 
     #[test]
     fn unterminated_string_is_an_error() {
-        assert!(matches!(parse(r#""unterminated"#), Err(RustJsonError::UnterminatedString(_))));
+        assert!(matches!(
+            parse(r#""unterminated"#),
+            Err(RustJsonError::UnterminatedString(_))
+        ));
     }
 
     #[test]
     fn unterminated_block_comment_is_an_error() {
-        assert!(matches!(parse("{ /* never closed"), Err(RustJsonError::UnterminatedComment(_))));
+        assert!(matches!(
+            parse("{ /* never closed"),
+            Err(RustJsonError::UnterminatedComment(_))
+        ));
     }
 
     #[test]
@@ -552,7 +597,10 @@ mod tests {
 
     #[test]
     fn trailing_data_after_top_level_value_is_an_error() {
-        assert!(matches!(parse("{} garbage"), Err(RustJsonError::TrailingData(_))));
+        assert!(matches!(
+            parse("{} garbage"),
+            Err(RustJsonError::TrailingData(_))
+        ));
     }
 
     #[test]
@@ -564,7 +612,10 @@ mod tests {
         // strict JSON.
         let reparsed: Value = serde_json::from_str(&canonical).unwrap();
         assert_eq!(reparsed, value);
-        assert!(!canonical.contains("//"), "canonical output must not carry comments through");
+        assert!(
+            !canonical.contains("//"),
+            "canonical output must not carry comments through"
+        );
     }
 
     #[test]
@@ -599,7 +650,10 @@ mod tests {
     #[test]
     fn extract_path_combined_key_and_index() {
         let value = json!({"items": [{"name": "sword"}, {"name": "shield"}]});
-        assert_eq!(extract_path(&value, "items[1].name"), Some(&json!("shield")));
+        assert_eq!(
+            extract_path(&value, "items[1].name"),
+            Some(&json!("shield"))
+        );
     }
 
     #[test]

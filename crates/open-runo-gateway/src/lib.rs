@@ -122,7 +122,12 @@ impl QueryRoot {
                 serving: status == open_runo_router::grpc::ServingStatus::Serving,
                 error: None,
             },
-            Err(error) => GrpcHealthCheckGql { endpoint, service, serving: false, error: Some(error) },
+            Err(error) => GrpcHealthCheckGql {
+                endpoint,
+                service,
+                serving: false,
+                error: Some(error),
+            },
         }
     }
 
@@ -140,17 +145,23 @@ impl QueryRoot {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        registry.latest(&service_name, stage).map(|v| SchemaVersionGql {
-            id: v.id.to_string(),
-            service_name: v.service_name.clone(),
-            sdl: v.sdl.clone(),
-            stage: stage_name(v.stage).to_string(),
-            created_at: v.created_at.to_rfc3339(),
-        })
+        registry
+            .latest(&service_name, stage)
+            .map(|v| SchemaVersionGql {
+                id: v.id.to_string(),
+                service_name: v.service_name.clone(),
+                sdl: v.sdl.clone(),
+                stage: stage_name(v.stage).to_string(),
+                created_at: v.created_at.to_rfc3339(),
+            })
     }
 
     /// Full version history for `service_name`, oldest first.
-    async fn schema_history(&self, ctx: &Context<'_>, service_name: String) -> Vec<SchemaVersionGql> {
+    async fn schema_history(
+        &self,
+        ctx: &Context<'_>,
+        service_name: String,
+    ) -> Vec<SchemaVersionGql> {
         let state = ctx.data_unchecked::<Arc<AppState>>();
         let registry = state
             .schema_registry
@@ -220,7 +231,7 @@ impl SubscriptionRoot {
                             },
                             rx,
                         ));
-                    }
+                    },
                     // Slow consumer: skip the gap, keep streaming.
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
@@ -257,15 +268,24 @@ impl CacheConfig {
             .ok()
             .and_then(|v| v.parse::<i64>().ok())
             .unwrap_or(30);
-        Self { enabled, ttl: chrono::Duration::seconds(ttl_secs.max(1)) }
+        Self {
+            enabled,
+            ttl: chrono::Duration::seconds(ttl_secs.max(1)),
+        }
     }
 
     pub fn disabled() -> Self {
-        Self { enabled: false, ttl: chrono::Duration::seconds(30) }
+        Self {
+            enabled: false,
+            ttl: chrono::Duration::seconds(30),
+        }
     }
 
     pub fn enabled_with_ttl_secs(secs: i64) -> Self {
-        Self { enabled: true, ttl: chrono::Duration::seconds(secs.max(1)) }
+        Self {
+            enabled: true,
+            ttl: chrono::Duration::seconds(secs.max(1)),
+        }
     }
 }
 
@@ -345,13 +365,17 @@ async fn graphql_handler(
                     async_graphql::ServerError::new(e.to_string(), None),
                 ])
                 .into();
-            }
+            },
         }
     }
 
     // Response cache: queries only, keyed by document+variables+operation.
     let use_cache = cache.config.enabled && is_cacheable_query(&request.query);
-    let key = if use_cache { Some(cache_key(&request)) } else { None };
+    let key = if use_cache {
+        Some(cache_key(&request))
+    } else {
+        None
+    };
 
     if let Some(key) = &key {
         if let Ok(Some(cached)) = cache.store.get(key).await {
@@ -419,7 +443,10 @@ pub fn graphql_route_with(
     Route::new()
         .at("/", get(graphiql).post(graphql_handler))
         // GraphQL Subscriptions over WebSocket (graphql-ws protocol).
-        .at("/ws", get(async_graphql_poem::GraphQLSubscription::new(schema.clone())))
+        .at(
+            "/ws",
+            get(async_graphql_poem::GraphQLSubscription::new(schema.clone())),
+        )
         .data(schema)
         .data(store)
         .data(cache)
@@ -450,11 +477,11 @@ mod tests {
     #[tokio::test]
     async fn schema_query_returns_registered_version() {
         let state = Arc::new(AppState::new());
-        state
-            .schema_registry
-            .lock()
-            .unwrap()
-            .register("users", "type User { id: ID! }", Stage::Local);
+        state.schema_registry.lock().unwrap().register(
+            "users",
+            "type User { id: ID! }",
+            Stage::Local,
+        );
 
         let client = TestClient::new(graphql_route(state));
         let resp = client
@@ -567,11 +594,11 @@ mod tests {
         assert_eq!(body["data"]["schemaHistory"].as_array().unwrap().len(), 0);
 
         // Register a schema AFTER the first call.
-        state
-            .schema_registry
-            .lock()
-            .unwrap()
-            .register("users", "type User { id: ID! }", Stage::Local);
+        state.schema_registry.lock().unwrap().register(
+            "users",
+            "type User { id: ID! }",
+            Stage::Local,
+        );
 
         // 2nd call within TTL: served from cache → still empty (stale by design).
         let resp = client.post("/").body_json(&q).send().await;
@@ -589,13 +616,18 @@ mod tests {
         ));
 
         let q = json!({ "query": "{ schemaHistory(serviceName: \"users\") { serviceName } }" });
-        client.post("/").body_json(&q).send().await.assert_status_is_ok();
+        client
+            .post("/")
+            .body_json(&q)
+            .send()
+            .await
+            .assert_status_is_ok();
 
-        state
-            .schema_registry
-            .lock()
-            .unwrap()
-            .register("users", "type User { id: ID! }", Stage::Local);
+        state.schema_registry.lock().unwrap().register(
+            "users",
+            "type User { id: ID! }",
+            Stage::Local,
+        );
 
         let resp = client.post("/").body_json(&q).send().await;
         let body: serde_json::Value = resp.json().await.value().deserialize();
@@ -646,4 +678,3 @@ mod tests {
         assert_eq!(data["schemaEvents"]["stage"], "local");
     }
 }
-

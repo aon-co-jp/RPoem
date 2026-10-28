@@ -10,11 +10,10 @@
 //! `graphql_route` (poem-based, still available in `lib.rs`) remains the
 //! only way to get subscriptions until that lands.
 
-use crate::{
-    cache_key, is_cacheable_query, persisted_query_hash, CacheConfig, GatewayCache,
-    OpenRunoSchema,
-};
 use crate::remote_subgraphs::{RemoteSubgraphs, Routed};
+use crate::{
+    cache_key, is_cacheable_query, persisted_query_hash, CacheConfig, GatewayCache, OpenRunoSchema,
+};
 use open_runo_cache::InMemoryTtlCache;
 use open_runo_persisted_queries::{EnforcementMode, PersistedQueryStore};
 use open_runo_router::hyper_compat::{html_response, json_response, read_json_body, Handler};
@@ -67,7 +66,7 @@ pub fn graphql_post_handler(
                             async_graphql::ServerError::new(e.to_string(), None),
                         ]);
                         return json_response(hyper::StatusCode::OK, &resp);
-                    }
+                    },
                 }
             }
 
@@ -80,16 +79,22 @@ pub fn graphql_post_handler(
                 )
                 .await
             {
-                Routed::Local => {}
+                Routed::Local => {},
                 Routed::Forwarded(v) => return json_response(hyper::StatusCode::OK, &v),
                 Routed::Rejected(msg) => {
-                    let resp = async_graphql::Response::from_errors(vec![async_graphql::ServerError::new(msg, None)]);
+                    let resp = async_graphql::Response::from_errors(vec![
+                        async_graphql::ServerError::new(msg, None),
+                    ]);
                     return json_response(hyper::StatusCode::OK, &resp);
-                }
+                },
             }
 
             let use_cache = cache.config.enabled && is_cacheable_query(&request.query);
-            let key = if use_cache { Some(cache_key(&request)) } else { None };
+            let key = if use_cache {
+                Some(cache_key(&request))
+            } else {
+                None
+            };
 
             if let Some(key) = &key {
                 if let Ok(Some(cached)) = cache.store.get(key).await {
@@ -128,7 +133,10 @@ pub fn graphql_handlers(state: Arc<AppState>) -> (Handler, Handler) {
         store: Arc::new(InMemoryTtlCache::new()),
         config: CacheConfig::from_env(),
     });
-    (graphiql_handler(), graphql_post_handler(schema, store, cache, RemoteSubgraphs::from_env()))
+    (
+        graphiql_handler(),
+        graphql_post_handler(schema, store, cache, RemoteSubgraphs::from_env()),
+    )
 }
 
 #[cfg(test)]

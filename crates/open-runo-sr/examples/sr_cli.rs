@@ -13,18 +13,40 @@ fn main() {
         _ => Target::Uhd16k,
     };
     let ai = a.get(4).map(|s| s.as_str()) != Some("plain");
-    let format = if a[2].ends_with(".jpg") { Format::Jpeg } else { Format::Png };
+    let format = if a[2].ends_with(".jpg") {
+        Format::Jpeg
+    } else {
+        Format::Png
+    };
     let input = std::fs::read(&a[1]).expect("read");
     let t = std::time::Instant::now();
     let mut last = -1i32;
-    let out = upscale(&input, Options { target, ai, format, threads: 0 }, &mut |p| {
-        let pct = (p.fraction * 100.0) as i32;
-        if pct / 10 != last / 10 {
-            eprintln!("[{:.1}s] {pct}% {}", t.elapsed().as_secs_f32(), p.stage);
-            last = pct;
-        }
-    }, &|| false)
+    let out = upscale(
+        &input,
+        Options {
+            target,
+            ai,
+            format,
+            threads: 0,
+        },
+        &mut |p| {
+            let pct = (p.fraction * 100.0) as i32;
+            if pct / 10 != last / 10 {
+                eprintln!("[{:.1}s] {pct}% {}", t.elapsed().as_secs_f32(), p.stage);
+                last = pct;
+            }
+        },
+        &|| false,
+    )
     .unwrap_or_else(|e| panic!("{e}"));
     std::fs::write(&a[2], &out.bytes).expect("write");
-    eprintln!("{}x{} ai={} {:.1}s {} KB kernel={}", out.width, out.height, out.used_ai, t.elapsed().as_secs_f32(), out.bytes.len() / 1024, open_runo_sr::kernel_name());
+    eprintln!(
+        "{}x{} ai={} {:.1}s {} KB kernel={}",
+        out.width,
+        out.height,
+        out.used_ai,
+        t.elapsed().as_secs_f32(),
+        out.bytes.len() / 1024,
+        open_runo_sr::kernel_name()
+    );
 }

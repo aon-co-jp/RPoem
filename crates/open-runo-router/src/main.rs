@@ -49,11 +49,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(redis_url) = std::env::var("OPEN_RUNO_EDFS_REDIS_URL") {
         let channel = std::env::var("OPEN_RUNO_EDFS_CHANNEL")
             .unwrap_or_else(|_| "open-runo:schema-events".to_string());
-        *state.edfs_publish.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        *state
+            .edfs_publish
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
             Some((redis_url.clone(), channel.clone()));
         match open_runo_router::edfs::spawn_bridge(Arc::clone(&state), &redis_url, &channel).await {
             Ok(_handle) => tracing::info!(channel, "EDFS: subscribed to Redis Pub/Sub bridge"),
-            Err(error) => tracing::warn!(%error, "EDFS: failed to start Redis Pub/Sub bridge; continuing without it"),
+            Err(error) => {
+                tracing::warn!(%error, "EDFS: failed to start Redis Pub/Sub bridge; continuing without it")
+            },
         }
     }
 
@@ -86,7 +91,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2026-07-23)。`OPEN_RUNO_UDP_NOTICE_BIND`等が未設定なら何もしない
     // (既存のgRPC/EDFSと同じopt-inパターン)。
     let udp_notice_stats = Arc::new(udp_notice::NoticeStats::default());
-    if let Some((udp_bound, _udp_handle)) = udp_notice::spawn_from_env(Arc::clone(&udp_notice_stats)).await {
+    if let Some((udp_bound, _udp_handle)) =
+        udp_notice::spawn_from_env(Arc::clone(&udp_notice_stats)).await
+    {
         tracing::info!(bound = %udp_bound, "open-runo-router UDP advance-notice listener started");
     }
 

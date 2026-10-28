@@ -39,12 +39,20 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
-        Self { status, message: message.into(), body: None }
+        Self {
+            status,
+            message: message.into(),
+            body: None,
+        }
     }
     /// 本文を自由に指定する(既存のAPIが独自のエラー形 `{"ok":false,"error":..}` を持つとき用)。
     pub fn with_body(status: StatusCode, body: impl Serialize) -> Self {
         let v = serde_json::to_value(body).unwrap_or(serde_json::Value::Null);
-        Self { status, message: v.to_string(), body: Some(v) }
+        Self {
+            status,
+            message: v.to_string(),
+            body: Some(v),
+        }
     }
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, message)
@@ -99,7 +107,8 @@ pub struct Ctx {
 }
 
 /// `Route::data(..)` で登録したアプリ共有の値(DBプール・設定など)を型で引く入れ物。
-pub(crate) type DataMap = std::collections::HashMap<std::any::TypeId, Arc<dyn std::any::Any + Send + Sync>>;
+pub(crate) type DataMap =
+    std::collections::HashMap<std::any::TypeId, Arc<dyn std::any::Any + Send + Sync>>;
 
 /// リクエストの拡張に載せて、ハンドラまで運ぶ。
 #[derive(Clone)]
@@ -117,11 +126,19 @@ impl Ctx {
     }
     /// `Route::data(v)` で登録した値を型で取り出す(poemの`Data<&T>`相当)。
     pub fn data<T: Send + Sync + 'static>(&self) -> Option<&T> {
-        self.data.as_ref()?.get(&std::any::TypeId::of::<T>())?.downcast_ref::<T>()
+        self.data
+            .as_ref()?
+            .get(&std::any::TypeId::of::<T>())?
+            .downcast_ref::<T>()
     }
     /// `data` の、無いときは500にする版(登録忘れは開発時に気付ける)。
     pub fn state<T: Send + Sync + 'static>(&self) -> ApiResult<&T> {
-        self.data::<T>().ok_or_else(|| ApiError::internal(format!("app data not registered: {}", std::any::type_name::<T>())))
+        self.data::<T>().ok_or_else(|| {
+            ApiError::internal(format!(
+                "app data not registered: {}",
+                std::any::type_name::<T>()
+            ))
+        })
     }
     /// パスパラメータ(`/items/:id` の `id`)。パーセントエンコードは復号して返す
     /// (`a%20b` → `a b`)。
@@ -130,9 +147,9 @@ impl Ctx {
     }
     /// パスパラメータを型に変換する。無い/変換できないときは400。
     pub fn param_as<T: std::str::FromStr>(&self, key: &str) -> ApiResult<T> {
-        self.param(key)
-            .and_then(|s| s.parse().ok())
-            .ok_or_else(|| ApiError::bad_request(format!("invalid or missing path parameter: {key}")))
+        self.param(key).and_then(|s| s.parse().ok()).ok_or_else(|| {
+            ApiError::bad_request(format!("invalid or missing path parameter: {key}"))
+        })
     }
     /// ヘッダの値(UTF-8として読める場合)。
     pub fn header(&self, name: &str) -> Option<&str> {
@@ -140,7 +157,10 @@ impl Ctx {
     }
     /// `Authorization: Bearer <token>` のトークン。
     pub fn bearer_token(&self) -> Option<&str> {
-        self.header("authorization").and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")))
+        self.header("authorization").and_then(|v| {
+            v.strip_prefix("Bearer ")
+                .or_else(|| v.strip_prefix("bearer "))
+        })
     }
     /// クエリ文字列を型 `Q` として取り出す。不正なら400。
     /// 同じキーの繰り返し(`?tag=a&tag=b`)は `Vec<T>` のフィールドで受けられる。
@@ -151,8 +171,17 @@ impl Ctx {
     /// `data` の、所有権つき(`Arc<T>`)の版。`tokio::spawn` やストリームの中へ
     /// 持ち出せる(`&T` はハンドラの外へ持ち出せない)。無ければ500。
     pub fn shared<T: Send + Sync + 'static>(&self) -> ApiResult<Arc<T>> {
-        let missing = || ApiError::internal(format!("app data not registered: {}", std::any::type_name::<T>()));
-        let any = self.data.as_ref().and_then(|m| m.get(&std::any::TypeId::of::<T>())).ok_or_else(missing)?;
+        let missing = || {
+            ApiError::internal(format!(
+                "app data not registered: {}",
+                std::any::type_name::<T>()
+            ))
+        };
+        let any = self
+            .data
+            .as_ref()
+            .and_then(|m| m.get(&std::any::TypeId::of::<T>()))
+            .ok_or_else(missing)?;
         Arc::clone(any).downcast::<T>().map_err(|_| missing())
     }
 }
@@ -166,7 +195,12 @@ pub struct ApiHandler {
 fn error_response(e: &ApiError) -> Response {
     match &e.body {
         Some(b) => hyper_compat::json_response(e.status, b),
-        None => hyper_compat::json_response(e.status, &ApiErrorBody { error: e.message.clone() }),
+        None => hyper_compat::json_response(
+            e.status,
+            &ApiErrorBody {
+                error: e.message.clone(),
+            },
+        ),
     }
 }
 
@@ -178,7 +212,11 @@ fn finish<Res: Serialize>(r: ApiResult<Res>, ok_status: StatusCode) -> Response 
 }
 
 fn with_errors(op: Operation, with_input: bool) -> Operation {
-    let op = if with_input { op.response::<ApiErrorBody>(400, "入力不正") } else { op };
+    let op = if with_input {
+        op.response::<ApiErrorBody>(400, "入力不正")
+    } else {
+        op
+    };
     op.response::<ApiErrorBody>(500, "内部エラー")
 }
 
@@ -279,7 +317,11 @@ where
     F: Fn(Req, Ctx) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ApiResult<()>> + Send + 'static,
 {
-    let op = with_errors(op.body::<Req>().response_empty(status.as_u16(), "成功(本文なし)"), true);
+    let op = with_errors(
+        op.body::<Req>()
+            .response_empty(status.as_u16(), "成功(本文なし)"),
+        true,
+    );
     let f = Arc::new(f);
     let handler: Handler = Arc::new(move |req: Request, params: Params| {
         let f = Arc::clone(&f);
@@ -364,7 +406,11 @@ fn explicit_body_limit(ctx: &Ctx) -> Option<usize> {
     ctx.data::<BodyLimit>().map(|l| l.0)
 }
 
-async fn read_multipart<T: DeserializeOwned>(req: Request, files: &[FileField], explicit_limit: Option<usize>) -> Result<Multipart<T>, Response> {
+async fn read_multipart<T: DeserializeOwned>(
+    req: Request,
+    files: &[FileField],
+    explicit_limit: Option<usize>,
+) -> Result<Multipart<T>, Response> {
     let mut limits = crate::multipart_stream::MultipartLimits::default();
     if let Some(n) = explicit_limit {
         limits.max_total_bytes = n as u64;
@@ -374,9 +420,17 @@ async fn read_multipart<T: DeserializeOwned>(req: Request, files: &[FileField], 
     let mut text: Vec<(String, String)> = Vec::new();
     let mut uploaded = Vec::new();
     while let Some(field) = mp.next_field().await.map_err(|e| e.into_response())? {
-        let data = mp.field_bytes(limits.max_field_bytes as usize).await.map_err(|e| e.into_response())?;
+        let data = mp
+            .field_bytes(limits.max_field_bytes as usize)
+            .await
+            .map_err(|e| e.into_response())?;
         if field.filename.is_some() {
-            uploaded.push(UploadedFile { field: field.name, filename: field.filename, content_type: field.content_type, data });
+            uploaded.push(UploadedFile {
+                field: field.name,
+                filename: field.filename,
+                content_type: field.content_type,
+                data,
+            });
         } else {
             text.push((field.name, String::from_utf8_lossy(&data).into_owned()));
         }
@@ -385,15 +439,25 @@ async fn read_multipart<T: DeserializeOwned>(req: Request, files: &[FileField], 
         if !uploaded.iter().any(|u| u.field == f.name) {
             return Err(hyper_compat::json_response(
                 StatusCode::BAD_REQUEST,
-                &ApiErrorBody { error: format!("missing file field: {}", f.name) },
+                &ApiErrorBody {
+                    error: format!("missing file field: {}", f.name),
+                },
             ));
         }
     }
     let encoded = serde_urlencoded::to_string(&text).unwrap_or_default();
     let form = serde_html_form::from_str::<T>(&encoded).map_err(|e| {
-        hyper_compat::json_response(StatusCode::BAD_REQUEST, &ApiErrorBody { error: format!("invalid form fields: {e}") })
+        hyper_compat::json_response(
+            StatusCode::BAD_REQUEST,
+            &ApiErrorBody {
+                error: format!("invalid form fields: {e}"),
+            },
+        )
     })?;
-    Ok(Multipart { form, files: uploaded })
+    Ok(Multipart {
+        form,
+        files: uploaded,
+    })
 }
 
 /// `multipart/form-data`(ファイルのアップロード)を受け、`Res` をJSONで返す。
@@ -407,7 +471,8 @@ where
     F: Fn(Multipart<Form>, Ctx) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ApiResult<Res>> + Send + 'static,
 {
-    let op = with_errors(op.body_multipart::<Form>(files).ok::<Res>("OK"), true).response::<ApiErrorBody>(413, "本文が大きすぎる");
+    let op = with_errors(op.body_multipart::<Form>(files).ok::<Res>("OK"), true)
+        .response::<ApiErrorBody>(413, "本文が大きすぎる");
     let files: Arc<Vec<FileField>> = Arc::new(files.to_vec());
     let f = Arc::new(f);
     let handler: Handler = Arc::new(move |req: Request, params: Params| {
@@ -439,7 +504,9 @@ impl From<crate::multipart_stream::MultipartError> for ApiError {
 /// ファイル全体をメモリへ集めない: `chunk()` で届いたぶんだけ受け、ディスクや下流へ流せる
 /// (使うメモリは1チャンク程度でファイルの大きさに依存しない)。
 pub struct UploadStream {
-    inner: crate::multipart_stream::MultipartStream<http_body_util::BodyDataStream<hyper::body::Incoming>>,
+    inner: crate::multipart_stream::MultipartStream<
+        http_body_util::BodyDataStream<hyper::body::Incoming>,
+    >,
 }
 
 impl UploadStream {
@@ -474,14 +541,19 @@ where
     F: Fn(UploadStream, Ctx) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ApiResult<Res>> + Send + 'static,
 {
-    let op = with_errors(op.body_multipart::<Form>(files).ok::<Res>("OK"), true).response::<ApiErrorBody>(413, "本文が大きすぎる");
+    let op = with_errors(op.body_multipart::<Form>(files).ok::<Res>("OK"), true)
+        .response::<ApiErrorBody>(413, "本文が大きすぎる");
     let f = Arc::new(f);
     let handler: Handler = Arc::new(move |req: Request, params: Params| {
         let f = Arc::clone(&f);
         Box::pin(async move {
             let ctx = Ctx::from_request(&req, params);
             let n = explicit_body_limit(&ctx).unwrap_or(1 << 30) as u64;
-            let limits = crate::multipart_stream::MultipartLimits { max_total_bytes: n, max_field_bytes: n, ..Default::default() };
+            let limits = crate::multipart_stream::MultipartLimits {
+                max_total_bytes: n,
+                max_field_bytes: n,
+                ..Default::default()
+            };
             let inner = match crate::multipart_stream::MultipartStream::from_request(req, limits) {
                 Ok(m) => m,
                 Err(resp) => return resp,
@@ -510,7 +582,11 @@ impl<T> Named<T> {
     }
 }
 
-fn sse_handler<T, S, F, Fut>(f: F, keep_alive: Option<std::time::Duration>, to_event: fn(T) -> Option<hyper_compat::SseEvent>) -> Handler
+fn sse_handler<T, S, F, Fut>(
+    f: F,
+    keep_alive: Option<std::time::Duration>,
+    to_event: fn(T) -> Option<hyper_compat::SseEvent>,
+) -> Handler
 where
     T: Send + 'static,
     S: futures::Stream<Item = T> + Send + Unpin + 'static,
@@ -562,29 +638,52 @@ where
 }
 
 /// `sse` の、keep-alive間隔を指定する版(`None` で送らない)。
-pub fn sse_opts<Ev, S, F, Fut>(op: Operation, keep_alive: Option<std::time::Duration>, f: F) -> ApiHandler
+pub fn sse_opts<Ev, S, F, Fut>(
+    op: Operation,
+    keep_alive: Option<std::time::Duration>,
+    f: F,
+) -> ApiHandler
 where
     Ev: Serialize + JsonSchema + Send + 'static,
     S: futures::Stream<Item = Ev> + Send + Unpin + 'static,
     F: Fn(Ctx) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ApiResult<S>> + Send + 'static,
 {
-    let op = with_errors(op.response_sse::<Ev>("イベントストリーム(1イベント=1JSON)"), false);
-    let handler = sse_handler(f, keep_alive, |ev: Ev| serde_json::to_string(&ev).ok().map(|data| hyper_compat::SseEvent { event_type: None, data }));
+    let op = with_errors(
+        op.response_sse::<Ev>("イベントストリーム(1イベント=1JSON)"),
+        false,
+    );
+    let handler = sse_handler(f, keep_alive, |ev: Ev| {
+        serde_json::to_string(&ev)
+            .ok()
+            .map(|data| hyper_compat::SseEvent {
+                event_type: None,
+                data,
+            })
+    });
     ApiHandler { op, handler }
 }
 
 /// イベント名つきのSSE。ストリームの要素は `Named::new("tick", data)`。`names` は文書に載せる
 /// 取りうるイベント名(TypeScriptクライアントはそれぞれに `addEventListener` する)。
 /// 名前が `names` に無いイベントは送られず捨てられる(文書と実際がずれない)。
-pub fn sse_named<Ev, S, F, Fut>(op: Operation, names: &'static [&'static str], keep_alive: Option<std::time::Duration>, f: F) -> ApiHandler
+pub fn sse_named<Ev, S, F, Fut>(
+    op: Operation,
+    names: &'static [&'static str],
+    keep_alive: Option<std::time::Duration>,
+    f: F,
+) -> ApiHandler
 where
     Ev: Serialize + JsonSchema + Send + 'static,
     S: futures::Stream<Item = Named<Ev>> + Send + Unpin + 'static,
     F: Fn(Ctx) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ApiResult<S>> + Send + 'static,
 {
-    let op = with_errors(op.response_sse::<Ev>("イベントストリーム(イベント名つき、1イベント=1JSON)").sse_events(names), false);
+    let op = with_errors(
+        op.response_sse::<Ev>("イベントストリーム(イベント名つき、1イベント=1JSON)")
+            .sse_events(names),
+        false,
+    );
     let allowed = names;
     // 関数ポインタに状態を持たせられないため、許可名の検査はストリームの手前で行う。
     let f = Arc::new(f);
@@ -594,11 +693,20 @@ where
             async move {
                 use futures::StreamExt;
                 let s = f(ctx).await?;
-                Ok(Box::pin(s.filter(move |n| futures::future::ready(allowed.contains(&n.event)))))
+                Ok(Box::pin(s.filter(move |n| {
+                    futures::future::ready(allowed.contains(&n.event))
+                })))
             }
         },
         keep_alive,
-        |n: Named<Ev>| serde_json::to_string(&n.data).ok().map(|data| hyper_compat::SseEvent { event_type: Some(n.event), data }),
+        |n: Named<Ev>| {
+            serde_json::to_string(&n.data)
+                .ok()
+                .map(|data| hyper_compat::SseEvent {
+                    event_type: Some(n.event),
+                    data,
+                })
+        },
     );
     ApiHandler { op, handler }
 }
@@ -638,8 +746,13 @@ impl<In: DeserializeOwned, Out: Serialize> WsSession<In, Out> {
     /// 型に合わないメッセージは `Some(Err(..))`(接続は閉じない。続けて読める)。
     pub async fn recv(&mut self) -> Option<Result<In, WsDecodeError>> {
         match self.conn.recv().await? {
-            hyper_compat::WsMessage::Text(t) => Some(serde_json::from_str(&t).map_err(|e| WsDecodeError(format!("invalid message: {e}")))),
-            hyper_compat::WsMessage::Binary(_) => Some(Err(WsDecodeError("binary messages are not supported".into()))),
+            hyper_compat::WsMessage::Text(t) => Some(
+                serde_json::from_str(&t)
+                    .map_err(|e| WsDecodeError(format!("invalid message: {e}"))),
+            ),
+            hyper_compat::WsMessage::Binary(_) => Some(Err(WsDecodeError(
+                "binary messages are not supported".into(),
+            ))),
         }
     }
     /// `recv` の、バイナリメッセージも `WsIncoming::Binary` で受ける版(文書には
@@ -682,15 +795,27 @@ where
     F: Fn(WsSession<In, Out>, Ctx) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    assert!(op.http_method() == open_runo_openapi::Method::Get, "api::websocket needs a GET operation");
-    let op = with_errors(op.websocket::<In, Out>("WebSocketへアップグレード(JSONテキストのメッセージ)"), true);
+    assert!(
+        op.http_method() == open_runo_openapi::Method::Get,
+        "api::websocket needs a GET operation"
+    );
+    let op = with_errors(
+        op.websocket::<In, Out>("WebSocketへアップグレード(JSONテキストのメッセージ)"),
+        true,
+    );
     let f = Arc::new(f);
     let handler: Handler = Arc::new(move |req: Request, params: Params| {
         let f = Arc::clone(&f);
         Box::pin(async move {
             let ctx = Ctx::from_request(&req, params);
             hyper_compat::websocket_upgrade(req, move |conn| {
-                Box::pin(f(WsSession { conn, _types: std::marker::PhantomData }, ctx))
+                Box::pin(f(
+                    WsSession {
+                        conn,
+                        _types: std::marker::PhantomData,
+                    },
+                    ctx,
+                ))
             })
         })
     });
@@ -740,7 +865,10 @@ fn percent_decode(s: &str) -> String {
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%' && i + 2 < b.len() {
-            if let (Some(h), Some(l)) = ((b[i + 1] as char).to_digit(16), (b[i + 2] as char).to_digit(16)) {
+            if let (Some(h), Some(l)) = (
+                (b[i + 1] as char).to_digit(16),
+                (b[i + 2] as char).to_digit(16),
+            ) {
                 out.push((h * 16 + l) as u8);
                 i += 3;
                 continue;
@@ -768,6 +896,11 @@ impl Ctx {
 async fn read_json_limited<T: DeserializeOwned>(req: Request, limit: usize) -> Result<T, Response> {
     let bytes = crate::body_limit::read_body_limited(req, limit).await?;
     serde_json::from_slice::<T>(&bytes).map_err(|e| {
-        hyper_compat::json_response(StatusCode::BAD_REQUEST, &ApiErrorBody { error: format!("invalid JSON body: {e}") })
+        hyper_compat::json_response(
+            StatusCode::BAD_REQUEST,
+            &ApiErrorBody {
+                error: format!("invalid JSON body: {e}"),
+            },
+        )
     })
 }

@@ -26,8 +26,10 @@ fn voiced(f0: f64, seconds: f64) -> Vec<f32> {
 fn golden(name: &str) -> Vec<f32> {
     let path = format!("{}/tests/golden/{name}.f32", env!("CARGO_MANIFEST_DIR"));
     let b = std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    b.chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect()
 }
 

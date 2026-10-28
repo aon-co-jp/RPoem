@@ -77,7 +77,10 @@ pub fn process(
     let load_glyphs = || -> Option<open_runo_glyph::Glyphs> {
         let sans = client.font("NotoSansJP-VF.ttf", cache_dir).ok();
         let serif = client.font("NotoSerifJP-VF.ttf", cache_dir).ok();
-        let fonts: Vec<&[u8]> = [serif.as_deref(), sans.as_deref()].into_iter().flatten().collect();
+        let fonts: Vec<&[u8]> = [serif.as_deref(), sans.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect();
         open_runo_glyph::Glyphs::with_fonts(&fonts)
     };
 
@@ -97,10 +100,11 @@ pub fn process(
         });
         let t0 = std::time::Instant::now();
         // 薄い(低コントラストの)ページは、濃淡を引き伸ばす(これが無いと、薄い文書は「白紙」と判定されて OCR にすら送られない)。
-        let rasters: Vec<render::PageRaster> = render::render_pages(pdf, start..end, settings.render_long_side_px)?
-            .into_iter()
-            .map(|r| enhance::normalize_contrast(&r).unwrap_or(r))
-            .collect();
+        let rasters: Vec<render::PageRaster> =
+            render::render_pages(pdf, start..end, settings.render_long_side_px)?
+                .into_iter()
+                .map(|r| enhance::normalize_contrast(&r).unwrap_or(r))
+                .collect();
         let t1 = std::time::Instant::now();
         // 白紙のページは OCR に送らない。
         let send: Vec<usize> = (0..rasters.len())
@@ -134,7 +138,7 @@ pub fn process(
                         if std::env::var_os("PDFOCR_DEBUG").is_some() {
                             eprintln!("[reocr] failed: {e}");
                         }
-                    }
+                    },
                 }
             }
         }

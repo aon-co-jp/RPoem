@@ -9,8 +9,8 @@
 use crate::acme::ChallengeStore;
 use crate::session::{SessionBackend, SessionStore};
 use open_runo_db::{DbBackend, InMemoryBackend};
-use open_runo_federation::ComposedSchema;
 use open_runo_feature_flags::FeatureFlagRegistry;
+use open_runo_federation::ComposedSchema;
 use open_runo_history::History;
 use open_runo_observability::{InMemorySink, RequestMetrics};
 use open_runo_schema_registry::SchemaRegistry;

@@ -33,7 +33,11 @@ pub enum SignatureScheme {
     Slack,
     /// 任意: `header` に `prefix<hex>`。`timestamp_header` があれば
     /// 対象は `{timestamp}.{body}`、無ければ本文そのまま。
-    Generic { header: String, prefix: String, timestamp_header: Option<String> },
+    Generic {
+        header: String,
+        prefix: String,
+        timestamp_header: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +117,10 @@ impl WebhookError {
 }
 
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim)
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
 }
 
 fn check_timestamp(ts: &str, now_unix: i64, tolerance: Duration) -> Result<(), WebhookError> {
@@ -143,27 +150,35 @@ pub fn verify(
                 .ok_or(WebhookError::MissingTimestamp)?;
             check_timestamp(ts, now_unix, config.tolerance)?;
             ("x-slack-signature", "v0=", Some(format!("v0:{ts}:")))
-        }
-        SignatureScheme::Generic { header, prefix, timestamp_header } => {
+        },
+        SignatureScheme::Generic {
+            header,
+            prefix,
+            timestamp_header,
+        } => {
             let signed_prefix = match timestamp_header {
                 Some(h) => {
                     let ts = header_str(headers, h).ok_or(WebhookError::MissingTimestamp)?;
                     check_timestamp(ts, now_unix, config.tolerance)?;
                     Some(format!("{ts}."))
-                }
+                },
                 None => None,
             };
             (header.as_str(), prefix.as_str(), signed_prefix)
-        }
+        },
     };
 
     let provided = header_str(headers, sig_header).ok_or(WebhookError::MissingSignature)?;
-    let hex_part = provided.strip_prefix(prefix).ok_or(WebhookError::BadSignature)?;
+    let hex_part = provided
+        .strip_prefix(prefix)
+        .ok_or(WebhookError::BadSignature)?;
     let expected = hex::decode(hex_part).map_err(|_| WebhookError::BadSignature)?;
 
     for secret in &config.secrets {
         // `new_from_slice` は任意長の鍵を受け付ける(HMACの仕様)。
-        let Ok(mut mac) = HmacSha256::new_from_slice(secret) else { continue };
+        let Ok(mut mac) = HmacSha256::new_from_slice(secret) else {
+            continue;
+        };
         if let Some(p) = &signed_prefix {
             mac.update(p.as_bytes());
         }
@@ -184,13 +199,20 @@ pub struct DeliveryDedup {
 
 impl std::fmt::Debug for DeliveryDedup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DeliveryDedup").field("ttl", &self.ttl).field("max_entries", &self.max_entries).finish()
+        f.debug_struct("DeliveryDedup")
+            .field("ttl", &self.ttl)
+            .field("max_entries", &self.max_entries)
+            .finish()
     }
 }
 
 impl DeliveryDedup {
     pub fn new(ttl: Duration, max_entries: usize) -> Self {
-        Self { seen: Mutex::new(HashMap::new()), ttl, max_entries }
+        Self {
+            seen: Mutex::new(HashMap::new()),
+            ttl,
+            max_entries,
+        }
     }
 
     /// 初めて見るIDなら `true`(記録する)。既知なら `false`。
@@ -224,7 +246,10 @@ pub struct VerifiedWebhook {
 
 fn unauthorized(err: &WebhookError) -> Response {
     // 失敗の詳細(どの段階か)は攻撃者の手掛かりになるので応答には出さない。
-    json_response(err.status(), &serde_json::json!({ "error": "webhook verification failed" }))
+    json_response(
+        err.status(),
+        &serde_json::json!({ "error": "webhook verification failed" }),
+    )
 }
 
 /// 本文を上限つきで読み、署名を検証して返す。重複は `409`。
@@ -304,27 +329,45 @@ mod tests {
         let cfg = WebhookConfig::github(GH_SECRET);
         let h = hdr(&[("x-hub-signature-256", GH_SIG)]);
         assert_eq!(verify(&cfg, &h, GH_BODY, 0), Ok(()));
-        assert_eq!(verify(&cfg, &h, b"Hello, World?", 0), Err(WebhookError::BadSignature));
+        assert_eq!(
+            verify(&cfg, &h, b"Hello, World?", 0),
+            Err(WebhookError::BadSignature)
+        );
     }
 
     #[test]
     fn rejects_missing_malformed_and_wrong_prefix() {
         let cfg = WebhookConfig::github(GH_SECRET);
-        assert_eq!(verify(&cfg, &HeaderMap::new(), GH_BODY, 0), Err(WebhookError::MissingSignature));
+        assert_eq!(
+            verify(&cfg, &HeaderMap::new(), GH_BODY, 0),
+            Err(WebhookError::MissingSignature)
+        );
         let h = hdr(&[("x-hub-signature-256", "sha256=zz")]);
-        assert_eq!(verify(&cfg, &h, GH_BODY, 0), Err(WebhookError::BadSignature));
+        assert_eq!(
+            verify(&cfg, &h, GH_BODY, 0),
+            Err(WebhookError::BadSignature)
+        );
         let h = hdr(&[("x-hub-signature-256", &GH_SIG["sha256=".len()..])]);
-        assert_eq!(verify(&cfg, &h, GH_BODY, 0), Err(WebhookError::BadSignature));
+        assert_eq!(
+            verify(&cfg, &h, GH_BODY, 0),
+            Err(WebhookError::BadSignature)
+        );
         // 短い/空の署名も拒否(長さ違いで通ってはならない)。
         let h = hdr(&[("x-hub-signature-256", "sha256=")]);
-        assert_eq!(verify(&cfg, &h, GH_BODY, 0), Err(WebhookError::BadSignature));
+        assert_eq!(
+            verify(&cfg, &h, GH_BODY, 0),
+            Err(WebhookError::BadSignature)
+        );
     }
 
     #[test]
     fn empty_secret_is_refused() {
         let cfg = WebhookConfig::github(Vec::<u8>::new());
         let h = hdr(&[("x-hub-signature-256", GH_SIG)]);
-        assert_eq!(verify(&cfg, &h, GH_BODY, 0), Err(WebhookError::NoSecretConfigured));
+        assert_eq!(
+            verify(&cfg, &h, GH_BODY, 0),
+            Err(WebhookError::NoSecretConfigured)
+        );
     }
 
     #[test]
@@ -344,12 +387,26 @@ mod tests {
     fn slack_scheme_with_timestamp_window() {
         let cfg = WebhookConfig::slack("s3cret");
         let ts = "1700000000";
-        let sig = format!("v0={}", sign(b"s3cret", format!("v0:{ts}:payload").as_bytes()));
-        let h = hdr(&[("x-slack-request-timestamp", ts), ("x-slack-signature", &sig)]);
+        let sig = format!(
+            "v0={}",
+            sign(b"s3cret", format!("v0:{ts}:payload").as_bytes())
+        );
+        let h = hdr(&[
+            ("x-slack-request-timestamp", ts),
+            ("x-slack-signature", &sig),
+        ]);
         assert_eq!(verify(&cfg, &h, b"payload", 1_700_000_100), Ok(()));
-        assert_eq!(verify(&cfg, &h, b"payload", 1_700_001_000), Err(WebhookError::StaleTimestamp));
         assert_eq!(
-            verify(&cfg, &hdr(&[("x-slack-signature", &sig)]), b"payload", 1_700_000_100),
+            verify(&cfg, &h, b"payload", 1_700_001_000),
+            Err(WebhookError::StaleTimestamp)
+        );
+        assert_eq!(
+            verify(
+                &cfg,
+                &hdr(&[("x-slack-signature", &sig)]),
+                b"payload",
+                1_700_000_100
+            ),
             Err(WebhookError::MissingTimestamp)
         );
     }
@@ -361,13 +418,19 @@ mod tests {
         assert_eq!(verify(&cfg, &hdr(&[("x-sig", &sig)]), b"body", 0), Ok(()));
 
         let mut cfg = WebhookConfig::generic("k", "X-Sig", "");
-        if let SignatureScheme::Generic { timestamp_header, .. } = &mut cfg.scheme {
+        if let SignatureScheme::Generic {
+            timestamp_header, ..
+        } = &mut cfg.scheme
+        {
             *timestamp_header = Some("x-ts".to_string());
         }
         let sig = sign(b"k", b"100.body");
         let h = hdr(&[("x-sig", &sig), ("x-ts", "100")]);
         assert_eq!(verify(&cfg, &h, b"body", 150), Ok(()));
-        assert_eq!(verify(&cfg, &h, b"body", 10_000), Err(WebhookError::StaleTimestamp));
+        assert_eq!(
+            verify(&cfg, &h, b"body", 10_000),
+            Err(WebhookError::StaleTimestamp)
+        );
     }
 
     #[test]
@@ -388,10 +451,13 @@ mod tests {
         use crate::hyper_compat::{serve, Router};
         use hyper::Method;
 
-        let handler = webhook_handler(WebhookConfig::github(GH_SECRET).with_max_body_bytes(1024), |hook| async move {
-            assert_eq!(&hook.body[..], GH_BODY);
-            accepted()
-        });
+        let handler = webhook_handler(
+            WebhookConfig::github(GH_SECRET).with_max_body_bytes(1024),
+            |hook| async move {
+                assert_eq!(&hook.body[..], GH_BODY);
+                accepted()
+            },
+        );
         let router = Router::new().route(Method::POST, "/hook", handler);
         let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
         let client = reqwest::Client::new();
@@ -419,7 +485,12 @@ mod tests {
         assert_eq!(dup.status(), 409);
 
         // 署名なし/不正は401、上限超過は413。
-        let bad = client.post(&url).body(GH_BODY.to_vec()).send().await.unwrap();
+        let bad = client
+            .post(&url)
+            .body(GH_BODY.to_vec())
+            .send()
+            .await
+            .unwrap();
         assert_eq!(bad.status(), 401);
         let big = client
             .post(&url)

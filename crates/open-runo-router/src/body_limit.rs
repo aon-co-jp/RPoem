@@ -87,28 +87,57 @@ mod tests {
             Arc::new(|_r, _p| Box::pin(async { empty_status(StatusCode::OK) })),
             100,
         );
-        let router = Router::new()
-            .route(Method::POST, "/read", read)
-            .route(Method::POST, "/guarded", guarded);
+        let router = Router::new().route(Method::POST, "/read", read).route(
+            Method::POST,
+            "/guarded",
+            guarded,
+        );
         let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
         let c = reqwest::Client::new();
 
-        let r = c.post(format!("http://{addr}/read")).body(vec![0u8; 900]).send().await.unwrap();
+        let r = c
+            .post(format!("http://{addr}/read"))
+            .body(vec![0u8; 900])
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), 200);
-        let r = c.post(format!("http://{addr}/read")).body(vec![0u8; 1001]).send().await.unwrap();
+        let r = c
+            .post(format!("http://{addr}/read"))
+            .body(vec![0u8; 1001])
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), 413);
 
         // Content-Lengthなし(chunked)でも、読み取り中に上限で止まる。
         let frames: Vec<Result<hyper::body::Frame<Bytes>, std::io::Error>> = (0..5)
             .map(|_| Ok(hyper::body::Frame::data(Bytes::from(vec![0u8; 400]))))
             .collect();
-        let body = reqwest::Body::wrap(http_body_util::StreamBody::new(futures::stream::iter(frames)));
-        let r = c.post(format!("http://{addr}/read")).body(body).send().await.unwrap();
+        let body = reqwest::Body::wrap(http_body_util::StreamBody::new(futures::stream::iter(
+            frames,
+        )));
+        let r = c
+            .post(format!("http://{addr}/read"))
+            .body(body)
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), 413);
 
-        let r = c.post(format!("http://{addr}/guarded")).body(vec![0u8; 101]).send().await.unwrap();
+        let r = c
+            .post(format!("http://{addr}/guarded"))
+            .body(vec![0u8; 101])
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), 413);
-        let r = c.post(format!("http://{addr}/guarded")).body(vec![0u8; 100]).send().await.unwrap();
+        let r = c
+            .post(format!("http://{addr}/guarded"))
+            .body(vec![0u8; 100])
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), 200);
     }
 }

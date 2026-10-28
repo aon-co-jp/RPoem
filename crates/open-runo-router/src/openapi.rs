@@ -117,11 +117,17 @@ pub(crate) fn spec() -> Value {
     document().build()
 }
 
-fn text_response(status: StatusCode, content_type: &'static str, body: String) -> crate::hyper_compat::Response {
+fn text_response(
+    status: StatusCode,
+    content_type: &'static str,
+    body: String,
+) -> crate::hyper_compat::Response {
     hyper::Response::builder()
         .status(status)
         .header("content-type", content_type)
-        .body(crate::hyper_compat::fixed_body(hyper::body::Bytes::from(body)))
+        .body(crate::hyper_compat::fixed_body(hyper::body::Bytes::from(
+            body,
+        )))
         .expect("fixed valid headers")
 }
 
@@ -136,7 +142,10 @@ pub fn openapi_handler() -> Handler {
 pub fn swagger_ui_handler() -> Handler {
     Arc::new(move |_req, _params| {
         Box::pin(async move {
-            crate::hyper_compat::html_response(StatusCode::OK, docs_html(DocsUi::SwaggerUi, "open-runo REST API", "/api/openapi.json"))
+            crate::hyper_compat::html_response(
+                StatusCode::OK,
+                docs_html(DocsUi::SwaggerUi, "open-runo REST API", "/api/openapi.json"),
+            )
         })
     })
 }
@@ -145,7 +154,10 @@ pub fn swagger_ui_handler() -> Handler {
 pub fn redoc_handler() -> Handler {
     Arc::new(move |_req, _params| {
         Box::pin(async move {
-            crate::hyper_compat::html_response(StatusCode::OK, docs_html(DocsUi::Redoc, "open-runo REST API", "/api/openapi.json"))
+            crate::hyper_compat::html_response(
+                StatusCode::OK,
+                docs_html(DocsUi::Redoc, "open-runo REST API", "/api/openapi.json"),
+            )
         })
     })
 }
@@ -153,19 +165,33 @@ pub fn redoc_handler() -> Handler {
 /// `GET /api/openapi.graphql` — Cosmo/WunderGraph互換のGraphQL SDL。
 pub fn graphql_sdl_handler() -> Handler {
     Arc::new(move |_req, _params| {
-        Box::pin(async move { text_response(StatusCode::OK, "text/plain; charset=utf-8", document().to_graphql_sdl()) })
+        Box::pin(async move {
+            text_response(
+                StatusCode::OK,
+                "text/plain; charset=utf-8",
+                document().to_graphql_sdl(),
+            )
+        })
     })
 }
 
 /// `GET /api/openapi.tauri.json` — Tauri invokeマニフェスト。
 pub fn tauri_manifest_handler() -> Handler {
-    Arc::new(move |_req, _params| Box::pin(async move { json_response(StatusCode::OK, &document().to_tauri_manifest()) }))
+    Arc::new(move |_req, _params| {
+        Box::pin(async move { json_response(StatusCode::OK, &document().to_tauri_manifest()) })
+    })
 }
 
 /// `GET /api/client.ts` / `GET /api/client.tauri.ts` — TypeScriptクライアント。
 pub fn typescript_handler(client: TsClient) -> Handler {
     Arc::new(move |_req, _params| {
-        Box::pin(async move { text_response(StatusCode::OK, "text/plain; charset=utf-8", document().to_typescript(client)) })
+        Box::pin(async move {
+            text_response(
+                StatusCode::OK,
+                "text/plain; charset=utf-8",
+                document().to_typescript(client),
+            )
+        })
     })
 }
 
@@ -177,7 +203,11 @@ pub fn typescript_handler(client: TsClient) -> Handler {
 ///
 /// 他リポジトリのサーバー(`hyper_compat::Router` 利用)は、自分のルートを
 /// `Spec` に宣言してこれを1回呼ぶだけで、型付きのAPIドキュメントを得られる。
-pub fn mount_docs(router: crate::hyper_compat::Router, prefix: &str, spec: Spec) -> crate::hyper_compat::Router {
+pub fn mount_docs(
+    router: crate::hyper_compat::Router,
+    prefix: &str,
+    spec: Spec,
+) -> crate::hyper_compat::Router {
     use hyper::Method;
     let prefix = prefix.trim_end_matches('/');
     let title = spec.title().to_owned();
@@ -199,7 +229,9 @@ pub fn mount_docs(router: crate::hyper_compat::Router, prefix: &str, spec: Spec)
         let s = Arc::clone(&spec);
         Arc::new(move |_r, _p| {
             let s = Arc::clone(&s);
-            Box::pin(async move { text_response(StatusCode::OK, "text/plain; charset=utf-8", f(&s)) })
+            Box::pin(
+                async move { text_response(StatusCode::OK, "text/plain; charset=utf-8", f(&s)) },
+            )
         })
     };
     let s = Arc::clone(&spec);
@@ -209,12 +241,32 @@ pub fn mount_docs(router: crate::hyper_compat::Router, prefix: &str, spec: Spec)
     });
     router
         .route(Method::GET, &format!("{prefix}/openapi.json"), h_json)
-        .route(Method::GET, &format!("{prefix}/docs"), html(DocsUi::SwaggerUi))
+        .route(
+            Method::GET,
+            &format!("{prefix}/docs"),
+            html(DocsUi::SwaggerUi),
+        )
         .route(Method::GET, &format!("{prefix}/redoc"), html(DocsUi::Redoc))
-        .route(Method::GET, &format!("{prefix}/openapi.graphql"), text(Spec::to_graphql_sdl))
-        .route(Method::GET, &format!("{prefix}/openapi.tauri.json"), h_tauri)
-        .route(Method::GET, &format!("{prefix}/client.ts"), text(|s| s.to_typescript(TsClient::Fetch)))
-        .route(Method::GET, &format!("{prefix}/client.tauri.ts"), text(|s| s.to_typescript(TsClient::TauriInvoke)))
+        .route(
+            Method::GET,
+            &format!("{prefix}/openapi.graphql"),
+            text(Spec::to_graphql_sdl),
+        )
+        .route(
+            Method::GET,
+            &format!("{prefix}/openapi.tauri.json"),
+            h_tauri,
+        )
+        .route(
+            Method::GET,
+            &format!("{prefix}/client.ts"),
+            text(|s| s.to_typescript(TsClient::Fetch)),
+        )
+        .route(
+            Method::GET,
+            &format!("{prefix}/client.tauri.ts"),
+            text(|s| s.to_typescript(TsClient::TauriInvoke)),
+        )
 }
 
 #[cfg(test)]
@@ -273,11 +325,13 @@ mod tests {
         // and all four (plus every other protected endpoint) share the
         // same named 401/429 response components.
         assert_eq!(
-            body["paths"]["/api/schemas"]["post"]["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+            body["paths"]["/api/schemas"]["post"]["requestBody"]["content"]["application/json"]
+                ["schema"]["$ref"],
             "#/components/schemas/RegisterSchemaRequest"
         );
         assert_eq!(
-            body["paths"]["/api/schemas"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            body["paths"]["/api/schemas"]["post"]["responses"]["200"]["content"]
+                ["application/json"]["schema"]["$ref"],
             "#/components/schemas/SchemaVersion"
         );
         assert_eq!(
@@ -285,7 +339,8 @@ mod tests {
             "#/components/responses/RateLimited"
         );
         assert_eq!(
-            body["components"]["responses"]["RateLimited"]["content"]["application/json"]["schema"]["$ref"],
+            body["components"]["responses"]["RateLimited"]["content"]["application/json"]["schema"]
+                ["$ref"],
             "#/components/schemas/RateLimitedResponse"
         );
     }
@@ -323,19 +378,25 @@ mod tests {
             "FeatureFlagListResponse",
             "FeatureFlagEvaluationResponse",
         ] {
-            assert!(schemas[name].is_object(), "components.schemas.{name} should exist");
+            assert!(
+                schemas[name].is_object(),
+                "components.schemas.{name} should exist"
+            );
         }
 
         assert_eq!(
-            body["paths"]["/api/db/{table}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            body["paths"]["/api/db/{table}"]["get"]["responses"]["200"]["content"]
+                ["application/json"]["schema"]["$ref"],
             "#/components/schemas/DbRecordListResponse"
         );
         assert_eq!(
-            body["paths"]["/api/db/{table}/{key}"]["put"]["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+            body["paths"]["/api/db/{table}/{key}"]["put"]["requestBody"]["content"]
+                ["application/json"]["schema"]["$ref"],
             "#/components/schemas/DbUpsertRequest"
         );
         assert_eq!(
-            body["paths"]["/api/db/{table}/{key}"]["delete"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            body["paths"]["/api/db/{table}/{key}"]["delete"]["responses"]["200"]["content"]
+                ["application/json"]["schema"]["$ref"],
             "#/components/schemas/DbDeleteResponse"
         );
 
@@ -349,11 +410,13 @@ mod tests {
         assert!(body["paths"]["/api/feature-flags/{name}"]["delete"].is_object());
         assert!(body["paths"]["/api/feature-flags/{name}/evaluate"]["get"].is_object());
         assert_eq!(
-            body["paths"]["/api/feature-flags"]["post"]["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+            body["paths"]["/api/feature-flags"]["post"]["requestBody"]["content"]
+                ["application/json"]["schema"]["$ref"],
             "#/components/schemas/FeatureFlagRequest"
         );
         assert_eq!(
-            body["paths"]["/api/feature-flags/{name}/evaluate"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            body["paths"]["/api/feature-flags/{name}/evaluate"]["get"]["responses"]["200"]
+                ["content"]["application/json"]["schema"]["$ref"],
             "#/components/schemas/FeatureFlagEvaluationResponse"
         );
     }
@@ -372,9 +435,14 @@ mod generated_tests {
         let mut rest = src;
         while let Some(i) = rest.find("Method::") {
             rest = &rest[i + 8..];
-            let method: String = rest.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+            let method: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphabetic())
+                .collect();
             let after = rest[method.len()..].trim_start();
-            let Some(after) = after.strip_prefix(',') else { continue };
+            let Some(after) = after.strip_prefix(',') else {
+                continue;
+            };
             let after = after.trim_start();
             if let Some(p) = after.strip_prefix('"') {
                 if let Some(end) = p.find('"') {
@@ -386,11 +454,16 @@ mod generated_tests {
         // 静的アセット(WASM管理UI)はAPIではないので対象外。
         let routes: Vec<(String, String)> = routes
             .into_iter()
-            .filter(|(_, p)| !(p == "/" || p.starts_with("/pkg/") || p == "/icon.svg" || p == "/manifest.json"))
+            .filter(|(_, p)| {
+                !(p == "/" || p.starts_with("/pkg/") || p == "/icon.svg" || p == "/manifest.json")
+            })
             .collect();
         let doc = document();
         let missing = doc.undocumented(routes.iter().map(|(m, p)| (m.as_str(), p.as_str())));
-        assert!(missing.is_empty(), "ドキュメント未定義のルート: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "ドキュメント未定義のルート: {missing:?}"
+        );
     }
 
     #[test]
@@ -433,11 +506,23 @@ mod generated_tests {
             .route(Method::GET, "/api/docs", swagger_ui_handler())
             .route(Method::GET, "/api/redoc", redoc_handler())
             .route(Method::GET, "/api/openapi.graphql", graphql_sdl_handler())
-            .route(Method::GET, "/api/openapi.tauri.json", tauri_manifest_handler())
-            .route(Method::GET, "/api/client.ts", typescript_handler(TsClient::Fetch));
-        let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind");
+            .route(
+                Method::GET,
+                "/api/openapi.tauri.json",
+                tauri_manifest_handler(),
+            )
+            .route(
+                Method::GET,
+                "/api/client.ts",
+                typescript_handler(TsClient::Fetch),
+            );
+        let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind");
         let get = |p: &'static str| async move {
-            let r = reqwest::get(format!("http://{addr}{p}")).await.expect("request");
+            let r = reqwest::get(format!("http://{addr}{p}"))
+                .await
+                .expect("request");
             assert_eq!(r.status(), 200, "{p}");
             let ct = r.headers()["content-type"].to_str().unwrap().to_owned();
             (ct, r.text().await.unwrap())
@@ -467,15 +552,37 @@ mod generated_tests {
         struct Pong {
             ok: bool,
         }
-        let spec = Spec::new("custom", "9.9.9").op(Op::get("/ping").summary("ping").public().ok::<Pong>("pong"));
+        let spec = Spec::new("custom", "9.9.9")
+            .op(Op::get("/ping").summary("ping").public().ok::<Pong>("pong"));
         let router = mount_docs(Router::new(), "/docs-root/", spec);
-        let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind");
-        let doc: Value = reqwest::get(format!("http://{addr}/docs-root/openapi.json")).await.unwrap().json().await.unwrap();
+        let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind");
+        let doc: Value = reqwest::get(format!("http://{addr}/docs-root/openapi.json"))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
         assert_eq!(doc["info"]["title"], "custom");
-        assert_eq!(doc["paths"]["/ping"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"], "#/components/schemas/Pong");
-        let html = reqwest::get(format!("http://{addr}/docs-root/docs")).await.unwrap().text().await.unwrap();
+        assert_eq!(
+            doc["paths"]["/ping"]["get"]["responses"]["200"]["content"]["application/json"]
+                ["schema"]["$ref"],
+            "#/components/schemas/Pong"
+        );
+        let html = reqwest::get(format!("http://{addr}/docs-root/docs"))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
         assert!(html.contains("/docs-root/openapi.json"));
-        let sdl = reqwest::get(format!("http://{addr}/docs-root/openapi.graphql")).await.unwrap().text().await.unwrap();
+        let sdl = reqwest::get(format!("http://{addr}/docs-root/openapi.graphql"))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
         assert!(sdl.contains("getPing: Pong"), "{sdl}");
     }
 }

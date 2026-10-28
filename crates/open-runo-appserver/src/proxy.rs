@@ -73,7 +73,9 @@ fn read_head<R: BufRead>(r: &mut R) -> Result<RequestHead, ProxyError> {
         };
         let (k, v) = (k.trim().to_string(), v.trim().to_string());
         if k.eq_ignore_ascii_case("content-length") {
-            content_length = v.parse().map_err(|_| ProxyError::BadRequest("bad content-length"))?;
+            content_length = v
+                .parse()
+                .map_err(|_| ProxyError::BadRequest("bad content-length"))?;
             if content_length > MAX_BODY_BYTES {
                 return Err(ProxyError::TooLarge("body exceeds limit"));
             }
@@ -245,7 +247,8 @@ mod tests {
                 while let Ok((c, addr)) = front.accept() {
                     let d = d.clone();
                     thread::spawn(move || {
-                        let _ = proxy_once(c, &addr.to_string(), d.as_ref(), Duration::from_secs(15));
+                        let _ =
+                            proxy_once(c, &addr.to_string(), d.as_ref(), Duration::from_secs(15));
                     });
                 }
             });
@@ -281,8 +284,14 @@ mod tests {
             thread::sleep(Duration::from_millis(50));
         }
 
-        assert!(resp.contains("fwd=shop.example.jp"), "X-Forwarded-Host must carry original host: {resp}");
-        assert!(resp.contains("body=hello=world"), "body must be relayed: {resp}");
+        assert!(
+            resp.contains("fwd=shop.example.jp"),
+            "X-Forwarded-Host must carry original host: {resp}"
+        );
+        assert!(
+            resp.contains("body=hello=world"),
+            "body must be relayed: {resp}"
+        );
         assert!(
             resp.contains(&format!("upstream-host=127.0.0.1:{up_port}")),
             "Host must be rewritten to upstream: {resp}"

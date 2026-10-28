@@ -3,7 +3,10 @@
 //! 検証する統合テスト(単体テストではcrateの自己参照dev-dependencyが
 //! 使えないため、この`tests/`統合テストの形にした)。
 
-use open_runo_poem_compat::{empty_status_ok, get, handler_fn, Method, Params, Request, Response, Route, Server, StatusCode, TcpListener};
+use open_runo_poem_compat::{
+    empty_status_ok, get, handler_fn, Method, Params, Request, Response, Route, Server, StatusCode,
+    TcpListener,
+};
 use std::net::SocketAddr;
 
 #[open_runo_poem_compat_macro::handler]
@@ -12,10 +15,17 @@ async fn macro_ping(_req: Request, _params: Params) -> Response {
 }
 
 async fn spawn(app: Route) -> (SocketAddr, tokio::task::JoinHandle<()>) {
-    Server::new(TcpListener::bind(([127, 0, 0, 1], 0))).run(app).await.expect("bind ephemeral port")
+    Server::new(TcpListener::bind(([127, 0, 0, 1], 0)))
+        .run(app)
+        .await
+        .expect("bind ephemeral port")
 }
 
-async fn send(addr: SocketAddr, method: Method, path: &str) -> hyper::Response<hyper::body::Incoming> {
+async fn send(
+    addr: SocketAddr,
+    method: Method,
+    path: &str,
+) -> hyper::Response<hyper::body::Incoming> {
     let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
     let io = hyper_util::rt::TokioIo::new(stream);
     let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await.unwrap();
@@ -45,7 +55,9 @@ async fn handler_macro_generates_poem_style_zero_arg_route_reference() {
 async fn handler_fn_style_still_works_alongside_macro_style() {
     let app = Route::new().at(
         "/manual-ping",
-        get(handler_fn(|_req: Request, _p: Params| async { empty_status_ok() })),
+        get(handler_fn(|_req: Request, _p: Params| async {
+            empty_status_ok()
+        })),
     );
     let (addr, handle) = spawn(app).await;
     let resp = send(addr, Method::GET, "/manual-ping").await;

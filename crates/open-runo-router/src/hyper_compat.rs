@@ -138,12 +138,15 @@ where
         Tick,
         End,
     }
-    let events = stream.map(|e| Item::Event(e.encode())).chain(futures::stream::once(async { Item::End }));
+    let events = stream
+        .map(|e| Item::Event(e.encode()))
+        .chain(futures::stream::once(async { Item::End }));
     let start = tokio::time::Instant::now() + every;
-    let ticks = futures::stream::unfold(tokio::time::interval_at(start, every), |mut i| async move {
-        i.tick().await;
-        Some((Item::Tick, i))
-    });
+    let ticks =
+        futures::stream::unfold(tokio::time::interval_at(start, every), |mut i| async move {
+            i.tick().await;
+            Some((Item::Tick, i))
+        });
     let merged = futures::stream::select(events, ticks)
         .take_while(|i| futures::future::ready(!matches!(i, Item::End)))
         .map(|i| {
@@ -229,7 +232,10 @@ fn validate_upgrade_request(req: &Request) -> Option<String> {
         headers
             .get(name)
             .and_then(|v| v.to_str().ok())
-            .map(|v| v.split(',').any(|part| part.trim().eq_ignore_ascii_case(token)))
+            .map(|v| {
+                v.split(',')
+                    .any(|part| part.trim().eq_ignore_ascii_case(token))
+            })
             .unwrap_or(false)
     };
 
@@ -313,7 +319,11 @@ async fn read_frame<R: AsyncReadExt + Unpin>(io: &mut R) -> std::io::Result<Opti
         }
     }
 
-    Ok(Some(RawFrame { fin, opcode, payload }))
+    Ok(Some(RawFrame {
+        fin,
+        opcode,
+        payload,
+    }))
 }
 
 /// Write one raw, unmasked frame (server→client frames must never be
@@ -351,7 +361,8 @@ impl std::fmt::Debug for WebSocketConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // `TokioIo<Upgraded>` は Debug 非実装かつ内部状態を晒す意味も無いため、
         // 型名だけの不透明表示にとどめる。
-        f.debug_struct("WebSocketConnection").finish_non_exhaustive()
+        f.debug_struct("WebSocketConnection")
+            .finish_non_exhaustive()
     }
 }
 
@@ -372,24 +383,26 @@ impl WebSocketConnection {
                 OP_PING => {
                     let _ = write_frame(&mut self.io, OP_PONG, &frame.payload).await;
                     continue;
-                }
+                },
                 OP_PONG => continue,
                 OP_CLOSE => {
                     let _ = write_frame(&mut self.io, OP_CLOSE, &frame.payload).await;
                     return None;
-                }
+                },
                 OP_TEXT | OP_BINARY => {
                     fragment_opcode = frame.opcode;
                     fragments = frame.payload;
-                }
+                },
                 OP_CONTINUATION => {
                     fragments.extend_from_slice(&frame.payload);
-                }
+                },
                 _ => continue, // unknown opcode: ignore rather than tear down.
             }
             if frame.fin {
                 return match fragment_opcode {
-                    OP_TEXT => Some(WsMessage::Text(String::from_utf8_lossy(&fragments).into_owned())),
+                    OP_TEXT => Some(WsMessage::Text(
+                        String::from_utf8_lossy(&fragments).into_owned(),
+                    )),
                     OP_BINARY => Some(WsMessage::Binary(fragments)),
                     _ => continue,
                 };
@@ -455,12 +468,14 @@ where
     tokio::spawn(async move {
         match upgrade_fut.await {
             Ok(upgraded) => {
-                let conn = WebSocketConnection { io: TokioIo::new(upgraded) };
+                let conn = WebSocketConnection {
+                    io: TokioIo::new(upgraded),
+                };
                 on_upgrade(conn).await;
-            }
+            },
             Err(e) => {
                 tracing::warn!(error = %e, "WebSocket upgrade failed");
-            }
+            },
         }
     });
 
@@ -500,7 +515,7 @@ fn percent_decode(s: &str) -> String {
             b'+' => {
                 out.push(b' ');
                 i += 1;
-            }
+            },
             b'%' if i + 2 < bytes.len() => {
                 if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
                     out.push(byte);
@@ -509,19 +524,17 @@ fn percent_decode(s: &str) -> String {
                     out.push(bytes[i]);
                     i += 1;
                 }
-            }
+            },
             b => {
                 out.push(b);
                 i += 1;
-            }
+            },
         }
     }
     String::from_utf8_lossy(&out).into_owned()
 }
 
-pub async fn read_json_body<T: serde::de::DeserializeOwned>(
-    req: Request,
-) -> Result<T, Response> {
+pub async fn read_json_body<T: serde::de::DeserializeOwned>(req: Request) -> Result<T, Response> {
     let bytes = match req.into_body().collect().await {
         Ok(collected) => collected.to_bytes(),
         Err(_) => {
@@ -529,7 +542,7 @@ pub async fn read_json_body<T: serde::de::DeserializeOwned>(
                 StatusCode::BAD_REQUEST,
                 &serde_json::json!({ "error": "failed to read request body" }),
             ))
-        }
+        },
     };
     sonic_rs::from_slice::<T>(&bytes).map_err(|e| {
         json_response(
@@ -628,7 +641,7 @@ pub async fn read_multipart_body(req: Request) -> Result<Vec<MultipartField>, Re
                 StatusCode::BAD_REQUEST,
                 &serde_json::json!({ "error": "failed to read request body" }),
             ))
-        }
+        },
     };
 
     let delimiter = format!("--{boundary}").into_bytes();
@@ -663,7 +676,8 @@ pub async fn read_multipart_body(req: Request) -> Result<Vec<MultipartField>, Re
         for line in headers_str.split("\r\n") {
             let lower = line.to_ascii_lowercase();
             if lower.starts_with("content-disposition:") {
-                let (n, f) = parse_content_disposition(&line[line.find(':').map(|i| i + 1).unwrap_or(0)..]);
+                let (n, f) =
+                    parse_content_disposition(&line[line.find(':').map(|i| i + 1).unwrap_or(0)..]);
                 name = n;
                 filename = f;
             } else if lower.starts_with("content-type:") {
@@ -682,7 +696,12 @@ pub async fn read_multipart_body(req: Request) -> Result<Vec<MultipartField>, Re
         let data = bytes[body_start..body_end].to_vec();
 
         if let Some(name) = name {
-            fields.push(MultipartField { name, filename, content_type: part_content_type, data });
+            fields.push(MultipartField {
+                name,
+                filename,
+                content_type: part_content_type,
+                data,
+            });
         }
 
         pos = next_boundary + delimiter.len();
@@ -736,7 +755,7 @@ pub fn health_handler(state: Arc<crate::state::AppState>) -> Handler {
                             backend: state.db.backend_name(),
                         },
                     )
-                }
+                },
             }
         })
     })
@@ -762,29 +781,63 @@ pub fn static_file_handler(path: std::path::PathBuf, content_type: &'static str)
 /// `cache_control`に`None`を渡すと[`static_file_handler`]と同じ従来通りの
 /// 挙動(ヘッダー無し)を維持する——WASMバンドル等、ファイル名にハッシュを
 /// 含めて長期キャッシュを前提にしている既存の呼び出し元を壊さないため。
-pub fn static_file_handler_with_cache_control(path: std::path::PathBuf, content_type: &'static str, cache_control: Option<&'static str>) -> Handler {
+pub fn static_file_handler_with_cache_control(
+    path: std::path::PathBuf,
+    content_type: &'static str,
+    cache_control: Option<&'static str>,
+) -> Handler {
     Arc::new(move |req, _params| {
         let path = path.clone();
-        let accept_encoding = req.headers().get("accept-encoding").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-        let if_none_match = req.headers().get("if-none-match").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        let accept_encoding = req
+            .headers()
+            .get("accept-encoding")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let if_none_match = req
+            .headers()
+            .get("if-none-match")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
         Box::pin(async move {
             // 2026-10-24: ETag(更新時刻+大きさ)で304を返し、テキスト系はgzipして配る。
             // 大量アクセス時の転送量(1MBのapp.jsが毎回丸ごと)と帯域・メモリを減らす
             // (Apache mod_deflate / mod_cache 相当をRPoem側で持つ)。圧縮結果はメモリに1つだけ保持する。
-            let Ok(meta) = tokio::fs::metadata(&path).await else { return empty_status(StatusCode::NOT_FOUND) };
-            let mtime = meta.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
+            let Ok(meta) = tokio::fs::metadata(&path).await else {
+                return empty_status(StatusCode::NOT_FOUND);
+            };
+            let mtime = meta
+                .modified()
+                .ok()
+                .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
             let etag = format!("W/\"{:x}-{:x}\"", meta.len(), mtime);
-            let gzip_ok = compressible(content_type) && meta.len() >= 1024 && accepts_gzip(&accept_encoding);
+            let gzip_ok =
+                compressible(content_type) && meta.len() >= 1024 && accepts_gzip(&accept_encoding);
             let tag = if gzip_ok { format!("{etag}-gz") } else { etag };
-            if if_none_match.split(',').any(|t| t.trim() == tag || t.trim() == "*") {
-                let mut b = HyperResponse::builder().status(StatusCode::NOT_MODIFIED).header("etag", &tag).header("vary", "Accept-Encoding");
+            if if_none_match
+                .split(',')
+                .any(|t| t.trim() == tag || t.trim() == "*")
+            {
+                let mut b = HyperResponse::builder()
+                    .status(StatusCode::NOT_MODIFIED)
+                    .header("etag", &tag)
+                    .header("vary", "Accept-Encoding");
                 if let Some(cc) = cache_control {
                     b = b.header("cache-control", cc);
                 }
                 return b.body(fixed_body(Bytes::new())).expect("valid headers");
             }
-            let Ok(bytes) = tokio::fs::read(&path).await else { return empty_status(StatusCode::NOT_FOUND) };
-            let (body, encoded) = if gzip_ok { (gzip_cached(&path, &tag, &bytes), true) } else { (Bytes::from(bytes), false) };
+            let Ok(bytes) = tokio::fs::read(&path).await else {
+                return empty_status(StatusCode::NOT_FOUND);
+            };
+            let (body, encoded) = if gzip_ok {
+                (gzip_cached(&path, &tag, &bytes), true)
+            } else {
+                (Bytes::from(bytes), false)
+            };
             let mut builder = HyperResponse::builder()
                 .status(StatusCode::OK)
                 .header("content-type", content_type)
@@ -796,20 +849,32 @@ pub fn static_file_handler_with_cache_control(path: std::path::PathBuf, content_
             if let Some(cc) = cache_control {
                 builder = builder.header("cache-control", cc);
             }
-            builder.body(fixed_body(body)).expect("building a response from a fixed set of valid headers cannot fail")
+            builder
+                .body(fixed_body(body))
+                .expect("building a response from a fixed set of valid headers cannot fail")
         })
     })
 }
 
 fn compressible(content_type: &str) -> bool {
     let ct = content_type.split(';').next().unwrap_or("").trim();
-    ct.starts_with("text/") || matches!(ct, "application/javascript" | "application/json" | "image/svg+xml" | "application/xml" | "application/wasm")
+    ct.starts_with("text/")
+        || matches!(
+            ct,
+            "application/javascript"
+                | "application/json"
+                | "image/svg+xml"
+                | "application/xml"
+                | "application/wasm"
+        )
 }
 
 fn accepts_gzip(accept_encoding: &str) -> bool {
     accept_encoding.split(',').any(|e| {
         let mut it = e.trim().split(';');
-        it.next().is_some_and(|n| n.trim().eq_ignore_ascii_case("gzip")) && !it.any(|q| q.trim().replace(' ', "") == "q=0")
+        it.next()
+            .is_some_and(|n| n.trim().eq_ignore_ascii_case("gzip"))
+            && !it.any(|q| q.trim().replace(' ', "") == "q=0")
     })
 }
 
@@ -820,13 +885,26 @@ fn gzip_cached(path: &std::path::Path, tag: &str, raw: &[u8]) -> Bytes {
     use std::sync::Mutex;
     const GZIP_CACHE_FILES: usize = 64;
     static CACHE: Mutex<Option<HashMap<std::path::PathBuf, (String, Bytes)>>> = Mutex::new(None);
-    if let Some((t, b)) = CACHE.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(path).cloned())) {
+    if let Some((t, b)) = CACHE
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().and_then(|m| m.get(path).cloned()))
+    {
         if t == tag {
             return b;
         }
     }
-    let mut enc = flate2::write::GzEncoder::new(Vec::with_capacity(raw.len() / 3), flate2::Compression::new(6));
-    let out = if enc.write_all(raw).is_ok() { enc.finish().map(Bytes::from).unwrap_or_else(|_| Bytes::copy_from_slice(raw)) } else { Bytes::copy_from_slice(raw) };
+    let mut enc = flate2::write::GzEncoder::new(
+        Vec::with_capacity(raw.len() / 3),
+        flate2::Compression::new(6),
+    );
+    let out = if enc.write_all(raw).is_ok() {
+        enc.finish()
+            .map(Bytes::from)
+            .unwrap_or_else(|_| Bytes::copy_from_slice(raw))
+    } else {
+        Bytes::copy_from_slice(raw)
+    };
     if let Ok(mut g) = CACHE.lock() {
         let m = g.get_or_insert_with(HashMap::new);
         if m.len() >= GZIP_CACHE_FILES && !m.contains_key(path) {
@@ -840,7 +918,10 @@ fn gzip_cached(path: &std::path::Path, tag: &str, raw: &[u8]) -> Bytes {
 /// Serve `router` over a real TCP listener; returns the bound address and a
 /// task handle. Used by tests (and, eventually, `main.rs`) to run the
 /// poem-free stack end to end.
-pub async fn serve(router: Router, addr: std::net::SocketAddr) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+pub async fn serve(
+    router: Router,
+    addr: std::net::SocketAddr,
+) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
     // No shutdown signal wired in -- runs forever until the process is
     // killed. Kept for callers (tests, quick examples) that don't care
     // about graceful shutdown. Production entrypoints should prefer
@@ -880,7 +961,11 @@ pub async fn serve_with_shutdown(
     router: Router,
     addr: std::net::SocketAddr,
     shutdown: impl Future<Output = ()> + Send + 'static,
-) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>, Arc<tokio::sync::Notify>)> {
+) -> std::io::Result<(
+    std::net::SocketAddr,
+    tokio::task::JoinHandle<()>,
+    Arc<tokio::sync::Notify>,
+)> {
     use hyper::server::conn::http1;
     use hyper_util::rt::TokioIo;
     use tokio::net::TcpListener;
@@ -977,7 +1062,7 @@ pub async fn shutdown_signal() {
         match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
             Ok(mut sig) => {
                 sig.recv().await;
-            }
+            },
             Err(_) => std::future::pending::<()>().await,
         }
     };
@@ -1020,14 +1105,22 @@ pub mod tls {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         if certs.is_empty() {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "no certificates found in cert file"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "no certificates found in cert file",
+            ));
         }
 
         let key_file = std::fs::File::open(key_path)?;
         let mut key_reader = io::BufReader::new(key_file);
         let key: PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut key_reader)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no private key found in key file"))?;
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "no private key found in key file",
+                )
+            })?;
 
         // reqwest 0.13 の rustls が aws-lc-rs を引き込み、rustls に暗号プロバイダが2つ
         // 有効になるため、暗黙の既定に頼らず ring を明示する。
@@ -1076,9 +1169,14 @@ pub mod tls {
                     let io = TokioIo::new(tls_stream);
                     let service = hyper::service::service_fn(move |req: Request| {
                         let router = Arc::clone(&router);
-                        async move { Ok::<Response, std::convert::Infallible>(router.dispatch(req).await) }
+                        async move {
+                            Ok::<Response, std::convert::Infallible>(router.dispatch(req).await)
+                        }
                     });
-                    let _ = http1::Builder::new().serve_connection(io, service).with_upgrades().await;
+                    let _ = http1::Builder::new()
+                        .serve_connection(io, service)
+                        .with_upgrades()
+                        .await;
                 });
             }
         });
@@ -1110,7 +1208,8 @@ pub mod tls {
             let _ = rustls::crypto::ring::default_provider().install_default();
         }
 
-        fn self_signed_cert_files() -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        fn self_signed_cert_files() -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf)
+        {
             let dir = std::env::temp_dir().join(format!("orn-tls-test-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&dir).unwrap();
             let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
@@ -1128,7 +1227,11 @@ pub mod tls {
             let (cert_path, key_path, dir) = self_signed_cert_files();
             let tls_config = load_tls_config(&cert_path, &key_path).expect("load tls config");
 
-            let router = Router::new().route(Method::GET, "/health", health_handler(Arc::new(crate::state::AppState::new())));
+            let router = Router::new().route(
+                Method::GET,
+                "/health",
+                health_handler(Arc::new(crate::state::AppState::new())),
+            );
             let (addr, _handle) = serve_tls(router, "127.0.0.1:0".parse().unwrap(), tls_config)
                 .await
                 .expect("bind ephemeral TLS port");
@@ -1160,7 +1263,11 @@ pub mod tls {
             let (cert_path, key_path, dir) = self_signed_cert_files();
             let tls_config = load_tls_config(&cert_path, &key_path).expect("load tls config");
 
-            let router = Router::new().route(Method::GET, "/health", health_handler(Arc::new(crate::state::AppState::new())));
+            let router = Router::new().route(
+                Method::GET,
+                "/health",
+                health_handler(Arc::new(crate::state::AppState::new())),
+            );
             let (addr, _handle) = serve_tls(router, "127.0.0.1:0".parse().unwrap(), tls_config)
                 .await
                 .expect("bind ephemeral TLS port");
@@ -1171,14 +1278,20 @@ pub mod tls {
             // not just happening to work because the two ports overlap.
             let client = reqwest::Client::new();
             let result = client.get(format!("http://{addr}/health")).send().await;
-            assert!(result.is_err(), "plain HTTP to a TLS-only listener should fail, not succeed");
+            assert!(
+                result.is_err(),
+                "plain HTTP to a TLS-only listener should fail, not succeed"
+            );
 
             let _ = std::fs::remove_dir_all(&dir);
         }
 
         #[test]
         fn load_tls_config_errors_on_missing_files() {
-            let result = load_tls_config(Path::new("/no/such/cert.pem"), Path::new("/no/such/key.pem"));
+            let result = load_tls_config(
+                Path::new("/no/such/cert.pem"),
+                Path::new("/no/such/key.pem"),
+            );
             assert!(result.is_err());
         }
     }
@@ -1314,7 +1427,11 @@ impl Router {
     }
 
     fn match_path(&self, route: &Route, path: &str) -> Option<Params> {
-        let path_segments: Vec<&str> = path.trim_matches('/').split('/').filter(|s| !s.is_empty()).collect();
+        let path_segments: Vec<&str> = path
+            .trim_matches('/')
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
         if path_segments.len() != route.segments.len() {
             return None;
         }
@@ -1325,10 +1442,10 @@ impl Router {
                     if lit != actual {
                         return None;
                     }
-                }
+                },
                 Segment::Param(name) => {
                     params.insert(name.clone(), actual.to_string());
-                }
+                },
             }
         }
         Some(Params(params))
@@ -1403,9 +1520,16 @@ mod tests {
     fn router_matches_literal_then_param_routes() {
         let router = Router::new()
             .route(Method::GET, "/health", h(StatusCode::OK))
-            .route(Method::GET, "/api/db/:table/:key", h(StatusCode::IM_A_TEAPOT));
+            .route(
+                Method::GET,
+                "/api/db/:table/:key",
+                h(StatusCode::IM_A_TEAPOT),
+            );
 
-        let health = router.routes.iter().find(|r| r.method == Method::GET && matches!(r.segments.first(), Some(Segment::Literal(s)) if s == "health"));
+        let health = router.routes.iter().find(|r| {
+            r.method == Method::GET
+                && matches!(r.segments.first(), Some(Segment::Literal(s)) if s == "health")
+        });
         assert!(health.is_some());
 
         let dyn_route = &router.routes[1];
@@ -1441,7 +1565,10 @@ mod tests {
             .expect("bind ephemeral port");
 
         let resp = reqwest::Client::new()
-            .request(reqwest::Method::OPTIONS, format!("http://{addr}/api/db/users/42"))
+            .request(
+                reqwest::Method::OPTIONS,
+                format!("http://{addr}/api/db/users/42"),
+            )
             .header("origin", "https://example.com")
             .send()
             .await
@@ -1457,8 +1584,16 @@ mod tests {
             .route(Method::OPTIONS, "/x", h(StatusCode::IM_A_TEAPOT))
             .with_cors_preflight();
 
-        let options_routes: Vec<_> = router.routes.iter().filter(|r| r.method == Method::OPTIONS).collect();
-        assert_eq!(options_routes.len(), 1, "should not add a second OPTIONS route for the same path");
+        let options_routes: Vec<_> = router
+            .routes
+            .iter()
+            .filter(|r| r.method == Method::OPTIONS)
+            .collect();
+        assert_eq!(
+            options_routes.len(),
+            1,
+            "should not add a second OPTIONS route for the same path"
+        );
     }
 
     #[test]
@@ -1471,7 +1606,11 @@ mod tests {
             .route(Method::DELETE, "/api/db/:table/:key", h(StatusCode::OK))
             .with_cors_preflight();
 
-        let options_routes: Vec<_> = router.routes.iter().filter(|r| r.method == Method::OPTIONS).collect();
+        let options_routes: Vec<_> = router
+            .routes
+            .iter()
+            .filter(|r| r.method == Method::OPTIONS)
+            .collect();
         assert_eq!(options_routes.len(), 1);
     }
 
@@ -1481,8 +1620,16 @@ mod tests {
     #[tokio::test]
     async fn health_endpoint_serves_over_real_http() {
         let router = Router::new()
-            .route(Method::GET, "/health", health_handler(Arc::new(crate::state::AppState::new())))
-            .route(Method::GET, "/healthz", health_handler(Arc::new(crate::state::AppState::new())));
+            .route(
+                Method::GET,
+                "/health",
+                health_handler(Arc::new(crate::state::AppState::new())),
+            )
+            .route(
+                Method::GET,
+                "/healthz",
+                health_handler(Arc::new(crate::state::AppState::new())),
+            );
 
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
@@ -1539,7 +1686,7 @@ mod tests {
                                 })
                                 .collect();
                             json_response(StatusCode::OK, &summary)
-                        }
+                        },
                         Err(resp) => resp,
                     }
                 })
@@ -1572,7 +1719,12 @@ mod tests {
         let fields = body.as_array().expect("array of fields");
         assert_eq!(fields.len(), 3);
 
-        let by_name = |name: &str| fields.iter().find(|f| f["name"] == name).expect("field present");
+        let by_name = |name: &str| {
+            fields
+                .iter()
+                .find(|f| f["name"] == name)
+                .expect("field present")
+        };
         assert_eq!(by_name("service_name")["data"], "users");
         assert_eq!(by_name("stage")["data"], "local");
         let file_field = by_name("sdl_file");
@@ -1628,8 +1780,16 @@ mod tests {
         std::fs::write(&file_path, b"hello static world").unwrap();
 
         let router = Router::new()
-            .route(Method::GET, "/hello.txt", static_file_handler(file_path.clone(), "text/plain"))
-            .route(Method::GET, "/missing.txt", static_file_handler(dir.join("missing.txt"), "text/plain"));
+            .route(
+                Method::GET,
+                "/hello.txt",
+                static_file_handler(file_path.clone(), "text/plain"),
+            )
+            .route(
+                Method::GET,
+                "/missing.txt",
+                static_file_handler(dir.join("missing.txt"), "text/plain"),
+            );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -1662,15 +1822,37 @@ mod tests {
         std::fs::write(&file_path, b"hello static world").unwrap();
 
         let router = Router::new()
-            .route(Method::GET, "/no-cache.txt", static_file_handler_with_cache_control(file_path.clone(), "text/plain", Some("no-cache")))
-            .route(Method::GET, "/default.txt", static_file_handler_with_cache_control(file_path.clone(), "text/plain", None));
-        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+            .route(
+                Method::GET,
+                "/no-cache.txt",
+                static_file_handler_with_cache_control(
+                    file_path.clone(),
+                    "text/plain",
+                    Some("no-cache"),
+                ),
+            )
+            .route(
+                Method::GET,
+                "/default.txt",
+                static_file_handler_with_cache_control(file_path.clone(), "text/plain", None),
+            );
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
         let client = reqwest::Client::new();
 
-        let resp = client.get(format!("http://{addr}/no-cache.txt")).send().await.expect("request should succeed");
+        let resp = client
+            .get(format!("http://{addr}/no-cache.txt"))
+            .send()
+            .await
+            .expect("request should succeed");
         assert_eq!(resp.headers().get("cache-control").unwrap(), "no-cache");
 
-        let resp = client.get(format!("http://{addr}/default.txt")).send().await.expect("request should succeed");
+        let resp = client
+            .get(format!("http://{addr}/default.txt"))
+            .send()
+            .await
+            .expect("request should succeed");
         assert!(resp.headers().get("cache-control").is_none(), "None must mean no header at all, matching the pre-existing static_file_handler behavior");
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1681,10 +1863,25 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("orn-static-gz-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let file_path = dir.join("big.js");
-        std::fs::write(&file_path, "console.log('hello');
-".repeat(500)).unwrap();
-        let router = Router::new().route(Method::GET, "/big.js", static_file_handler_with_cache_control(file_path, "application/javascript", Some("no-cache")));
-        let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind");
+        std::fs::write(
+            &file_path,
+            "console.log('hello');
+"
+            .repeat(500),
+        )
+        .unwrap();
+        let router = Router::new().route(
+            Method::GET,
+            "/big.js",
+            static_file_handler_with_cache_control(
+                file_path,
+                "application/javascript",
+                Some("no-cache"),
+            ),
+        );
+        let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind");
         let client = reqwest::Client::builder().no_gzip().build().unwrap();
         let url = format!("http://{addr}/big.js");
 
@@ -1692,13 +1889,33 @@ mod tests {
         assert!(plain.headers().get("content-encoding").is_none());
         let plain_len = plain.bytes().await.unwrap().len();
 
-        let gz = client.get(&url).header("accept-encoding", "gzip").send().await.unwrap();
+        let gz = client
+            .get(&url)
+            .header("accept-encoding", "gzip")
+            .send()
+            .await
+            .unwrap();
         assert_eq!(gz.headers().get("content-encoding").unwrap(), "gzip");
-        let etag = gz.headers().get("etag").unwrap().to_str().unwrap().to_string();
+        let etag = gz
+            .headers()
+            .get("etag")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
         let gz_len = gz.bytes().await.unwrap().len();
-        assert!(gz_len * 5 < plain_len, "gzip must shrink repetitive JS a lot ({gz_len} vs {plain_len})");
+        assert!(
+            gz_len * 5 < plain_len,
+            "gzip must shrink repetitive JS a lot ({gz_len} vs {plain_len})"
+        );
 
-        let again = client.get(&url).header("accept-encoding", "gzip").header("if-none-match", &etag).send().await.unwrap();
+        let again = client
+            .get(&url)
+            .header("accept-encoding", "gzip")
+            .header("if-none-match", &etag)
+            .send()
+            .await
+            .unwrap();
         assert_eq!(again.status(), 304);
         assert_eq!(again.headers().get("cache-control").unwrap(), "no-cache");
         let _ = std::fs::remove_dir_all(&dir);

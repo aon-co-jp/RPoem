@@ -54,7 +54,9 @@ pub fn upsert_handler(dispatcher: Arc<SharedDispatcher>, guardian: Arc<KeyGuardi
                 Err(resp) => return resp,
             };
 
-            let Some(addr) = open_runo_appserver::tenant_bridge::parse_backend_addr(&body.backend_addr) else {
+            let Some(addr) =
+                open_runo_appserver::tenant_bridge::parse_backend_addr(&body.backend_addr)
+            else {
                 return json_response(
                     StatusCode::BAD_REQUEST,
                     &serde_json::json!({ "error": format!("invalid backend_addr: {}", body.backend_addr) }),
@@ -62,7 +64,10 @@ pub fn upsert_handler(dispatcher: Arc<SharedDispatcher>, guardian: Arc<KeyGuardi
             };
 
             dispatcher.upsert(&body.host, addr);
-            json_response(StatusCode::OK, &serde_json::json!({ "status": "registered", "host": body.host }))
+            json_response(
+                StatusCode::OK,
+                &serde_json::json!({ "status": "registered", "host": body.host }),
+            )
         })
     })
 }
@@ -80,7 +85,10 @@ pub fn list_handler(dispatcher: Arc<SharedDispatcher>, guardian: Arc<KeyGuardian
             let entries: Vec<TenantEntry> = dispatcher
                 .list()
                 .into_iter()
-                .map(|(host, addr)| TenantEntry { host, backend_addr: format!("{}:{}", addr.host, addr.port) })
+                .map(|(host, addr)| TenantEntry {
+                    host,
+                    backend_addr: format!("{}:{}", addr.host, addr.port),
+                })
                 .collect();
             json_response(StatusCode::OK, &entries)
         })
@@ -100,7 +108,10 @@ pub fn remove_handler(dispatcher: Arc<SharedDispatcher>, guardian: Arc<KeyGuardi
             }
 
             dispatcher.remove(&host);
-            json_response(StatusCode::OK, &serde_json::json!({ "status": "removed", "host": host }))
+            json_response(
+                StatusCode::OK,
+                &serde_json::json!({ "status": "removed", "host": host }),
+            )
         })
     })
 }
@@ -108,11 +119,26 @@ pub fn remove_handler(dispatcher: Arc<SharedDispatcher>, guardian: Arc<KeyGuardi
 /// テスト・呼び出し側の利便性のため、`(method, pattern, handler)`の3件を
 /// まとめて返す(`main.rs`側での`.route(...)`呼び出し3行をこの1呼び出しに
 /// 集約する)。
-pub fn routes(dispatcher: Arc<SharedDispatcher>, guardian: Arc<KeyGuardian>) -> Vec<(Method, &'static str, Handler)> {
+pub fn routes(
+    dispatcher: Arc<SharedDispatcher>,
+    guardian: Arc<KeyGuardian>,
+) -> Vec<(Method, &'static str, Handler)> {
     vec![
-        (Method::POST, "/admin/appserver-tenants", upsert_handler(Arc::clone(&dispatcher), Arc::clone(&guardian))),
-        (Method::GET, "/admin/appserver-tenants", list_handler(Arc::clone(&dispatcher), Arc::clone(&guardian))),
-        (Method::DELETE, "/admin/appserver-tenants/:host", remove_handler(dispatcher, guardian)),
+        (
+            Method::POST,
+            "/admin/appserver-tenants",
+            upsert_handler(Arc::clone(&dispatcher), Arc::clone(&guardian)),
+        ),
+        (
+            Method::GET,
+            "/admin/appserver-tenants",
+            list_handler(Arc::clone(&dispatcher), Arc::clone(&guardian)),
+        ),
+        (
+            Method::DELETE,
+            "/admin/appserver-tenants/:host",
+            remove_handler(dispatcher, guardian),
+        ),
     ]
 }
 
@@ -131,13 +157,18 @@ mod tests {
     /// リクエストを手で組み立てることはできない)。
     async fn test_server() -> (std::net::SocketAddr, Arc<SharedDispatcher>) {
         let state = Arc::new(AppState::new());
-        let guardian = Arc::new(KeyGuardian::new(Arc::clone(&state.db), GuardianConfig::from_env()));
+        let guardian = Arc::new(KeyGuardian::new(
+            Arc::clone(&state.db),
+            GuardianConfig::from_env(),
+        ));
         let dispatcher = Arc::new(SharedDispatcher::new());
         let mut router = Router::new();
         for (method, pattern, handler) in routes(Arc::clone(&dispatcher), guardian) {
             router = router.route(method, pattern, handler);
         }
-        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
         (addr, dispatcher)
     }
 
@@ -171,7 +202,9 @@ mod tests {
         assert_eq!(body[0]["backend_addr"], "127.0.0.1:9001");
 
         let resp = client
-            .delete(format!("http://{addr}/admin/appserver-tenants/shop.example.jp"))
+            .delete(format!(
+                "http://{addr}/admin/appserver-tenants/shop.example.jp"
+            ))
             .header("x-api-key", "test-key")
             .send()
             .await

@@ -37,7 +37,10 @@ fn main() -> open_runo_core::Result<()> {
         "full history has {} versions",
         registry.history("users-service").len()
     );
-    assert!(Stage::Local < Stage::Production, "stage ordering enables promotion gating");
+    assert!(
+        Stage::Local < Stage::Production,
+        "stage ordering enables promotion gating"
+    );
 
     Ok(())
 }

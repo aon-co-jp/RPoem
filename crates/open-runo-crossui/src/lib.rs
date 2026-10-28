@@ -18,7 +18,13 @@ pub enum Target {
     Web,
 }
 
-pub const ALL_TARGETS: &[Target] = &[Target::Windows, Target::MacOs, Target::Linux, Target::Android, Target::Web];
+pub const ALL_TARGETS: &[Target] = &[
+    Target::Windows,
+    Target::MacOs,
+    Target::Linux,
+    Target::Android,
+    Target::Web,
+];
 
 impl Target {
     pub fn dir(self) -> &'static str {
@@ -48,10 +54,18 @@ pub struct Bridge {
 
 impl Default for Bridge {
     fn default() -> Self {
-        Self { key_path: "/key".into(), health_path: "/health".into(), input_id: "t".into(), preedit_id: "pre".into(), cands_id: "c".into(), status_id: "st".into() }
+        Self {
+            key_path: "/key".into(),
+            health_path: "/health".into(),
+            input_id: "t".into(),
+            preedit_id: "pre".into(),
+            cands_id: "c".into(),
+            status_id: "st".into(),
+        }
     }
 }
 
+#[derive(Debug)]
 pub struct AppSpec {
     pub id: String,
     pub name: String,
@@ -204,7 +218,10 @@ t.addEventListener("focus",()=>{{if(help&&st.textContent==="engine offline"){{fe
 /// 全 OS 共通のページ(SSR された HTML)。`engine_base` が空なら同一オリジン(エンジン自身が配る場合)。
 pub fn page_html(app: &AppSpec, engine_base: &str) -> String {
     let head = format!("<style>{}</style>", app.css);
-    let js = app.script.clone().unwrap_or_else(|| bridge_js(&app.bridge, engine_base));
+    let js = app
+        .script
+        .clone()
+        .unwrap_or_else(|| bridge_js(&app.bridge, engine_base));
     let scripts = format!("<script>{}</script>", js);
     let mut p = SsrPage::default_for(&app.root);
     p.title = &app.name;
@@ -224,7 +241,15 @@ fn write(out: &Path, rel: &str, body: &str, files: &mut Vec<PathBuf>) -> std::io
 }
 
 fn slug(id: &str) -> String {
-    id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' }).collect()
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }
 
 /// 指定した OS 向けの成果物を `out/<target>/` に書く。書いたファイルを返す。
@@ -321,7 +346,17 @@ textarea{width:100%;box-sizing:border-box;min-height:40vh;background:transparent
 /// aruaru-IME の標準の定義。
 pub fn ime_app(engine_url: &str, version: &str) -> AppSpec {
     let b = Bridge::default();
-    AppSpec { id: "aruaru-ime".into(), name: "aruaru-IME".into(), version: version.into(), engine_url: engine_url.into(), root: ime_root(&b), bridge: b, css: IME_CSS.into(), script: None, daemon: "aruaru-ime-daemon".into() }
+    AppSpec {
+        id: "aruaru-ime".into(),
+        name: "aruaru-IME".into(),
+        version: version.into(),
+        engine_url: engine_url.into(),
+        root: ime_root(&b),
+        bridge: b,
+        css: IME_CSS.into(),
+        script: None,
+        daemon: "aruaru-ime-daemon".into(),
+    }
 }
 
 #[cfg(test)]
@@ -334,7 +369,12 @@ mod tests {
         assert!(h.contains("<textarea") && h.contains("id=\"t\""), "{h}");
         assert!(h.contains("fetch(BASE+HEALTH)") && h.contains("const BASE=\"\""));
         assert!(h.contains("<title>aruaru-IME</title>"));
-        assert!(h.contains("releases") && h.contains("ダウンロードはこちら") && h.contains("id=\"help\""), "ダウンロードのリンクと接続の案内");
+        assert!(
+            h.contains("releases")
+                && h.contains("ダウンロードはこちら")
+                && h.contains("id=\"help\""),
+            "ダウンロードのリンクと接続の案内"
+        );
     }
 
     #[test]
@@ -347,8 +387,14 @@ mod tests {
         }
         assert!(d.join("windows/launch.cmd").is_file() && d.join("macos/launch.command").is_file());
         assert!(d.join("linux/aruaru-ime.desktop").is_file());
-        assert!(std::fs::read_to_string(d.join("android/manifest.json")).unwrap().contains("\"shell\":\"webview\""));
-        assert_eq!(std::fs::read_to_string(d.join("windows/index.html")).unwrap(), std::fs::read_to_string(d.join("android/index.html")).unwrap(), "ページは全OS共通");
+        assert!(std::fs::read_to_string(d.join("android/manifest.json"))
+            .unwrap()
+            .contains("\"shell\":\"webview\""));
+        assert_eq!(
+            std::fs::read_to_string(d.join("windows/index.html")).unwrap(),
+            std::fs::read_to_string(d.join("android/index.html")).unwrap(),
+            "ページは全OS共通"
+        );
     }
 
     #[test]

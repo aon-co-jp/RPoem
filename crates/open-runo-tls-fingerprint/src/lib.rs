@@ -135,6 +135,7 @@ pub fn chrome_signature_schemes() -> Vec<SignatureScheme> {
 /// `provider`には、目的のTLS1.3スイートを含む`CryptoProvider`
 /// (通常は`rustls::crypto::aws_lc_rs::default_provider()`または
 /// `rustls::crypto::ring::default_provider()`)を渡す。
+#[allow(clippy::expect_used)] // 呼び出し側の契約違反(標準スイートの欠落)は設定ミスなので、起動時に止めてよい
 pub fn chrome_tls13_cipher_suites(
     all_cipher_suites: &[SupportedCipherSuite],
 ) -> Vec<SupportedCipherSuite> {
