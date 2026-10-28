@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: 兄弟リポジトリを取得(パス依存: open-web-server とその依存)
+      - name: 兄弟リポジトリを取得(パス依存のopen-web-serverとその依存)
         run: |
           for r in open-web-server RS-SmartTCP open-cpu open-raid-z; do
             git clone --quiet --depth 1 "https://github.com/aon-co-jp/$r.git" "../$r"
