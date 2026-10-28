@@ -125,6 +125,44 @@ where
         .expect("building a response from a fixed set of valid headers cannot fail")
 }
 
+/// [`sse_response`] に、`every` ごとのコメント行(`: keep-alive`)を足した版。
+/// 無通信が続くとプロキシ(nginx等)が接続を切るのを防ぐ。コメント行は
+/// `EventSource` には届かない(イベントとして扱われない)。ストリームが終われば応答も終わる。
+pub fn sse_response_keepalive<S>(stream: S, every: std::time::Duration) -> Response
+where
+    S: Stream<Item = SseEvent> + Send + Sync + 'static,
+{
+    use futures::StreamExt;
+    enum Item {
+        Event(Bytes),
+        Tick,
+        End,
+    }
+    let events = stream.map(|e| Item::Event(e.encode())).chain(futures::stream::once(async { Item::End }));
+    let start = tokio::time::Instant::now() + every;
+    let ticks = futures::stream::unfold(tokio::time::interval_at(start, every), |mut i| async move {
+        i.tick().await;
+        Some((Item::Tick, i))
+    });
+    let merged = futures::stream::select(events, ticks)
+        .take_while(|i| futures::future::ready(!matches!(i, Item::End)))
+        .map(|i| {
+            let bytes = match i {
+                Item::Event(b) => b,
+                _ => Bytes::from_static(b": keep-alive\n\n"),
+            };
+            Ok::<_, Infallible>(Frame::data(bytes))
+        });
+    let body: Body = BodyExt::boxed(StreamBody::new(merged));
+    HyperResponse::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/event-stream")
+        .header("cache-control", "no-cache")
+        .header("x-accel-buffering", "no")
+        .body(body)
+        .expect("building a response from a fixed set of valid headers cannot fail")
+}
+
 // ── Generic WebSocket support (RFC 6455) ─────────────────────────────────
 //
 // Poem-free equivalent of `poem::web::websocket::WebSocket`. Hand-rolled

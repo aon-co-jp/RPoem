@@ -4438,3 +4438,9 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 - **共有値の受け取り**: 型引数(`Fn(Req, State<T>)`のような抽出子)にはしなかった。ハンドラが取る引数を総称にすると、既存の`|body, ctx|`のようにctxの型注釈が無いクロージャで型推論が通らなくなり、全利用側の書き換えが要るため。代わりに`Ctx::shared::<T>() -> ApiResult<Arc<T>>`を追加(所有権つきなので`tokio::spawn`やストリームの中へ持ち出せる)。`ctx.data::<T>()`(参照・Option)、`ctx.state::<T>()?`(参照・無ければ500)は従来どおり。
 - TSクライアント: テキスト応答(`content-type`がJSONでない)を`JSON.parse`せず文字列で返すよう修正。生成物は`tsc --strict`で型検査済み(`api_streaming.rs`の`dump_typescript`で書き出せる)。
 - 試験: `tests/api_streaming.rs` 10件(実TCP・実WebSocket(tokio-tungstenite))。未対応・今後: multipartのファイルを逐次処理するストリーミング版(現状は1ファイルずつメモリへ)、WebSocketのバイナリメッセージの型付け、SSEのイベント名・keep-alive。
+
+## 2026-10-28(続き2) 逐次アップロード・SSEのkeep-alive/イベント名・WebSocketバイナリ
+- **`api::upload::<Form,_,_,_>(op, &[FileField..], |mut up: UploadStream, ctx| ..)`**: `multipart_stream`を使う逐次版。`up.next_field()`でパートを到着順に進め、`up.chunk()`で届いたぶんだけ受ける(8MiBのファイルが複数チャンクで届くことを試験で確認)。`up.text(limit)`/`up.bytes(limit)`で小さなパートをまとめて読む。上限の既定は全体・1パートとも1GiB(`Route::max_body`で変更、超過413)。`MultipartError`→`ApiError`変換あり。ファイルより前に必要なテキスト値は、クライアントが先に送る約束にする。
+- **SSE**: `api::sse`は15秒ごとに`: keep-alive`を送る(`hyper_compat::sse_response_keepalive`、`X-Accel-Buffering: no`付き)。間隔は`api::sse_opts(op, Some(dur)|None, f)`。イベント名つきは`api::sse_named(op, &["tick","done"], keep_alive, f)`でストリームの要素は`Named::new("tick", data)`(宣言に無い名前は送らず捨てる)。文書は`x-sse-events`、TSは名前ごとの`addEventListener`で`onEvent(name, data)`。
+- **WebSocketバイナリ**: `WsSession::recv_any()`→`WsIncoming::{Message(In), Binary(Vec<u8>), Invalid(..)}`、`send_binary(&[u8])`。文書は`ApiHandler::binary(Some("クライアントが送るバイナリの意味"), Some("サーバーが送る意味"))`で`x-websocket-binary`、TSに`sendBinary`/`onBinary`が付く。`recv()`は従来どおりバイナリを`Err`で返す。
+- 試験: `tests/api_streaming_more.rs` 5件+生成TSの`tsc --strict`検査(`dump_typescript`、`RPOEM_DUMP_TS2`)。

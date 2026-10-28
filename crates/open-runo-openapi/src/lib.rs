@@ -377,6 +377,17 @@ impl Operation {
         self.stream = Some(StreamKind::WebSocket);
         self
     }
+    /// SSEの取りうるイベント名(`event:` 行)。文書(`x-sse-events`)とTSクライアントに出る。
+    pub fn sse_events(mut self, names: &[&str]) -> Self {
+        self.extensions.insert("x-sse-events".into(), json!(names));
+        self
+    }
+    /// WebSocketがバイナリメッセージも使うことの宣言(`x-websocket-binary`)。
+    /// `client` / `server` はそれぞれの向きのバイナリの意味(使わない向きは `None`)。
+    pub fn websocket_binary(mut self, client: Option<&str>, server: Option<&str>) -> Self {
+        self.extensions.insert("x-websocket-binary".into(), json!({ "client": client, "server": server }));
+        self
+    }
     /// 型なしのボディ(multipart・生バイト列など)。
     pub fn body_raw(mut self, content_type: &str) -> Self {
         self.request_body = Some(json!({

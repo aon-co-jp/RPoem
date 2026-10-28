@@ -425,22 +425,100 @@ where
     ApiHandler { op, handler }
 }
 
+// ───────────────── multipart(逐次処理版) ─────────────────
+
+pub use crate::multipart_stream::FieldInfo;
+
+impl From<crate::multipart_stream::MultipartError> for ApiError {
+    fn from(e: crate::multipart_stream::MultipartError) -> Self {
+        ApiError::new(e.status(), e.to_string())
+    }
+}
+
+/// `multipart/form-data` を到着順に1パートずつ読む入れ物(`api::upload` のハンドラが受け取る)。
+/// ファイル全体をメモリへ集めない: `chunk()` で届いたぶんだけ受け、ディスクや下流へ流せる
+/// (使うメモリは1チャンク程度でファイルの大きさに依存しない)。
+pub struct UploadStream {
+    inner: crate::multipart_stream::MultipartStream<http_body_util::BodyDataStream<hyper::body::Incoming>>,
+}
+
+impl UploadStream {
+    /// 次のパートへ進む(読み残しは読み捨てる)。無ければ `None`。
+    /// フォームのフィールドは送られた順に来るので、ファイルより前に必要な値は
+    /// クライアントが先に送る約束にする。
+    pub async fn next_field(&mut self) -> ApiResult<Option<FieldInfo>> {
+        Ok(self.inner.next_field().await?)
+    }
+    /// 現在のパートの次のチャンク。終わりで `None`。
+    pub async fn chunk(&mut self) -> ApiResult<Option<bytes::Bytes>> {
+        Ok(self.inner.chunk().await?)
+    }
+    /// 現在のパートを文字列として読む(テキストフィールド向け、`limit` バイトまで)。
+    pub async fn text(&mut self, limit: usize) -> ApiResult<String> {
+        Ok(String::from_utf8_lossy(&self.inner.field_bytes(limit).await?).into_owned())
+    }
+    /// 現在のパートをまとめてメモリへ読む(`limit` バイトまで。大きなファイルには `chunk` を使う)。
+    pub async fn bytes(&mut self, limit: usize) -> ApiResult<Vec<u8>> {
+        Ok(self.inner.field_bytes(limit).await?)
+    }
+}
+
+/// 大きなファイルのアップロード用: `multipart/form-data` を逐次処理で受け、`Res` をJSONで返す。
+/// 文書は `api::multipart` と同じ(`Form` はテキストフィールドの宣言用で、値の取り出しは
+/// ハンドラ側で `UploadStream::text` を使う)。上限の既定は全体・1パートとも1GiB
+/// (`Route::max_body` で変更)、超過は413。
+pub fn upload<Form, Res, F, Fut>(op: Operation, files: &[FileField], f: F) -> ApiHandler
+where
+    Form: JsonSchema + 'static,
+    Res: Serialize + JsonSchema + 'static,
+    F: Fn(UploadStream, Ctx) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ApiResult<Res>> + Send + 'static,
+{
+    let op = with_errors(op.body_multipart::<Form>(files).ok::<Res>("OK"), true).response::<ApiErrorBody>(413, "本文が大きすぎる");
+    let f = Arc::new(f);
+    let handler: Handler = Arc::new(move |req: Request, params: Params| {
+        let f = Arc::clone(&f);
+        Box::pin(async move {
+            let ctx = Ctx::from_request(&req, params);
+            let n = explicit_body_limit(&ctx).unwrap_or(1 << 30) as u64;
+            let limits = crate::multipart_stream::MultipartLimits { max_total_bytes: n, max_field_bytes: n, ..Default::default() };
+            let inner = match crate::multipart_stream::MultipartStream::from_request(req, limits) {
+                Ok(m) => m,
+                Err(resp) => return resp,
+            };
+            finish(f(UploadStream { inner }, ctx).await, StatusCode::OK)
+        })
+    });
+    ApiHandler { op, handler }
+}
+
 // ───────────────────────── SSE ─────────────────────────
 
-/// Server-Sent Events。`f` が返すストリームの各要素 `Ev` を、1イベント1JSONとして流す。
-/// 文書には `text/event-stream` として `Ev` の型が載り、TypeScriptクライアントは
-/// `EventSource` で受けるコールバック、GraphQLでは `Subscription` になる。
-/// クライアントが切断するとストリームは次のイベントの送信時に止まる。
-pub fn sse<Ev, S, F, Fut>(op: Operation, f: F) -> ApiHandler
+/// SSEの既定のkeep-alive間隔(無通信でプロキシに切られないよう `: keep-alive` を送る)。
+pub const SSE_KEEP_ALIVE: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// イベント名つきのSSEイベント(`event: <名前>` + `data: <JSON>`)。`api::sse_named` 用。
+#[derive(Debug, Clone)]
+pub struct Named<T> {
+    pub event: &'static str,
+    pub data: T,
+}
+
+impl<T> Named<T> {
+    pub fn new(event: &'static str, data: T) -> Self {
+        Self { event, data }
+    }
+}
+
+fn sse_handler<T, S, F, Fut>(f: F, keep_alive: Option<std::time::Duration>, to_event: fn(T) -> Option<hyper_compat::SseEvent>) -> Handler
 where
-    Ev: Serialize + JsonSchema + Send + 'static,
-    S: futures::Stream<Item = Ev> + Send + Unpin + 'static,
+    T: Send + 'static,
+    S: futures::Stream<Item = T> + Send + Unpin + 'static,
     F: Fn(Ctx) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ApiResult<S>> + Send + 'static,
 {
-    let op = with_errors(op.response_sse::<Ev>("イベントストリーム(1イベント=1JSON)"), false);
     let f = Arc::new(f);
-    let handler: Handler = Arc::new(move |req: Request, params: Params| {
+    Arc::new(move |req: Request, params: Params| {
         let f = Arc::clone(&f);
         Box::pin(async move {
             let ctx = Ctx::from_request(&req, params);
@@ -453,16 +531,75 @@ where
             let (mut tx, rx) = futures::channel::mpsc::channel::<hyper_compat::SseEvent>(16);
             tokio::spawn(async move {
                 use futures::{SinkExt, StreamExt};
-                while let Some(ev) = stream.next().await {
-                    let Ok(data) = serde_json::to_string(&ev) else { continue };
-                    if tx.send(hyper_compat::SseEvent { event_type: None, data }).await.is_err() {
+                while let Some(item) = stream.next().await {
+                    let Some(ev) = to_event(item) else { continue };
+                    if tx.send(ev).await.is_err() {
                         break;
                     }
                 }
             });
-            hyper_compat::sse_response(rx)
+            match keep_alive {
+                Some(every) => hyper_compat::sse_response_keepalive(rx, every),
+                None => hyper_compat::sse_response(rx),
+            }
         })
-    });
+    })
+}
+
+/// Server-Sent Events。`f` が返すストリームの各要素 `Ev` を、1イベント1JSONとして流す。
+/// 文書には `text/event-stream` として `Ev` の型が載り、TypeScriptクライアントは
+/// `EventSource` で受けるコールバック、GraphQLでは `Subscription` になる。
+/// 15秒ごとに keep-alive を送る(変えるなら `sse_opts`)。
+/// クライアントが切断するとストリームは次のイベントの送信時に止まる。
+pub fn sse<Ev, S, F, Fut>(op: Operation, f: F) -> ApiHandler
+where
+    Ev: Serialize + JsonSchema + Send + 'static,
+    S: futures::Stream<Item = Ev> + Send + Unpin + 'static,
+    F: Fn(Ctx) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ApiResult<S>> + Send + 'static,
+{
+    sse_opts(op, Some(SSE_KEEP_ALIVE), f)
+}
+
+/// `sse` の、keep-alive間隔を指定する版(`None` で送らない)。
+pub fn sse_opts<Ev, S, F, Fut>(op: Operation, keep_alive: Option<std::time::Duration>, f: F) -> ApiHandler
+where
+    Ev: Serialize + JsonSchema + Send + 'static,
+    S: futures::Stream<Item = Ev> + Send + Unpin + 'static,
+    F: Fn(Ctx) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ApiResult<S>> + Send + 'static,
+{
+    let op = with_errors(op.response_sse::<Ev>("イベントストリーム(1イベント=1JSON)"), false);
+    let handler = sse_handler(f, keep_alive, |ev: Ev| serde_json::to_string(&ev).ok().map(|data| hyper_compat::SseEvent { event_type: None, data }));
+    ApiHandler { op, handler }
+}
+
+/// イベント名つきのSSE。ストリームの要素は `Named::new("tick", data)`。`names` は文書に載せる
+/// 取りうるイベント名(TypeScriptクライアントはそれぞれに `addEventListener` する)。
+/// 名前が `names` に無いイベントは送られず捨てられる(文書と実際がずれない)。
+pub fn sse_named<Ev, S, F, Fut>(op: Operation, names: &'static [&'static str], keep_alive: Option<std::time::Duration>, f: F) -> ApiHandler
+where
+    Ev: Serialize + JsonSchema + Send + 'static,
+    S: futures::Stream<Item = Named<Ev>> + Send + Unpin + 'static,
+    F: Fn(Ctx) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ApiResult<S>> + Send + 'static,
+{
+    let op = with_errors(op.response_sse::<Ev>("イベントストリーム(イベント名つき、1イベント=1JSON)").sse_events(names), false);
+    let allowed = names;
+    // 関数ポインタに状態を持たせられないため、許可名の検査はストリームの手前で行う。
+    let f = Arc::new(f);
+    let handler = sse_handler(
+        move |ctx: Ctx| {
+            let f = Arc::clone(&f);
+            async move {
+                use futures::StreamExt;
+                let s = f(ctx).await?;
+                Ok(Box::pin(s.filter(move |n| futures::future::ready(allowed.contains(&n.event)))))
+            }
+        },
+        keep_alive,
+        |n: Named<Ev>| serde_json::to_string(&n.data).ok().map(|data| hyper_compat::SseEvent { event_type: Some(n.event), data }),
+    );
     ApiHandler { op, handler }
 }
 
@@ -485,6 +622,17 @@ impl std::fmt::Display for WsDecodeError {
 }
 impl std::error::Error for WsDecodeError {}
 
+/// `WsSession::recv_any` が返す、受信メッセージの種類。
+#[derive(Debug)]
+pub enum WsIncoming<In> {
+    /// 型に合うJSONテキスト。
+    Message(In),
+    /// バイナリメッセージ。
+    Binary(Vec<u8>),
+    /// 型に合わないテキスト(接続は続く)。
+    Invalid(WsDecodeError),
+}
+
 impl<In: DeserializeOwned, Out: Serialize> WsSession<In, Out> {
     /// 次のメッセージを `In` として読む。接続が閉じたら `None`。
     /// 型に合わないメッセージは `Some(Err(..))`(接続は閉じない。続けて読める)。
@@ -493,6 +641,21 @@ impl<In: DeserializeOwned, Out: Serialize> WsSession<In, Out> {
             hyper_compat::WsMessage::Text(t) => Some(serde_json::from_str(&t).map_err(|e| WsDecodeError(format!("invalid message: {e}")))),
             hyper_compat::WsMessage::Binary(_) => Some(Err(WsDecodeError("binary messages are not supported".into()))),
         }
+    }
+    /// `recv` の、バイナリメッセージも `WsIncoming::Binary` で受ける版(文書には
+    /// `ApiHandler::binary` で宣言する)。接続が閉じたら `None`。
+    pub async fn recv_any(&mut self) -> Option<WsIncoming<In>> {
+        Some(match self.conn.recv().await? {
+            hyper_compat::WsMessage::Text(t) => match serde_json::from_str(&t) {
+                Ok(v) => WsIncoming::Message(v),
+                Err(e) => WsIncoming::Invalid(WsDecodeError(format!("invalid message: {e}"))),
+            },
+            hyper_compat::WsMessage::Binary(b) => WsIncoming::Binary(b),
+        })
+    }
+    /// バイナリメッセージを送る(画像・音声のチャンクなど)。
+    pub async fn send_binary(&mut self, data: &[u8]) -> std::io::Result<()> {
+        self.conn.send_binary(data).await
     }
     /// `Out` をJSONテキストで送る。
     pub async fn send(&mut self, msg: &Out) -> std::io::Result<()> {
@@ -545,6 +708,13 @@ pub(crate) fn to_hyper_method(m: open_runo_openapi::Method) -> Method {
 }
 
 impl ApiHandler {
+    /// WebSocketがバイナリメッセージも使うことを文書に載せる(`client`=クライアントが送るバイナリ、
+    /// `server`=サーバーが送るバイナリの意味。使わない向きは `None`)。TSクライアントに
+    /// `sendBinary` / `onBinary` が付く。受信は `WsSession::recv_any`、送信は `send_binary`。
+    pub fn binary(mut self, client: Option<&str>, server: Option<&str>) -> Self {
+        self.op = self.op.websocket_binary(client, server);
+        self
+    }
     /// このハンドラが返しうるエラーを文書に載せる(本文は `{"error": ..}`)。
     /// 例: `.error(404, "見つからない").error(409, "重複")`。
     pub fn error(mut self, status: u16, description: &str) -> Self {

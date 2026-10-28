@@ -347,14 +347,45 @@ impl Spec {
                     let ev = stream_event_schema(op).map_or("unknown".to_owned(), ts_type);
                     let a = if fields.is_empty() { String::new() } else { format!("{args}, ") };
                     match kind {
-                        StreamKind::Sse => out.push_str(&format!(
-                            "    /** {summary}(SSE) 戻り値の関数で切断する */\n    {id}: ({a}onEvent: (e: {ev}) => void, onError?: (e: Event) => void): (() => void) => {{\n      const es = new EventSource(url({path}, {{ {} }}));\n      es.onmessage = (m) => onEvent(JSON.parse(m.data));\n      if (onError) es.onerror = onError;\n      return () => es.close();\n    }},\n",
-                            qkeys.join(", ")
-                        )),
+                        StreamKind::Sse => {
+                            let names: Vec<String> = op
+                                .extensions
+                                .get("x-sse-events")
+                                .and_then(Value::as_array)
+                                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                                .unwrap_or_default();
+                            // イベント名つきは名前ごとに購読し、第1引数でイベント名も渡す。
+                            let (cb, listen) = if names.is_empty() {
+                                (format!("onEvent: (e: {ev}) => void"), "      es.onmessage = (m) => onEvent(JSON.parse(m.data));\n".to_owned())
+                            } else {
+                                let union = names.iter().map(|n| serde_json::to_string(n).unwrap_or_default()).collect::<Vec<_>>().join(" | ");
+                                let mut l = String::new();
+                                for n in &names {
+                                    let q = serde_json::to_string(n).unwrap_or_default();
+                                    l.push_str(&format!("      es.addEventListener({q}, (m) => onEvent({q}, JSON.parse((m as MessageEvent).data)));\n"));
+                                }
+                                (format!("onEvent: (name: {union}, e: {ev}) => void"), l)
+                            };
+                            out.push_str(&format!(
+                                "    /** {summary}(SSE) 戻り値の関数で切断する */\n    {id}: ({a}{cb}, onError?: (e: Event) => void): (() => void) => {{\n      const es = new EventSource(url({path}, {{ {} }}));\n{listen}      if (onError) es.onerror = onError;\n      return () => es.close();\n    }},\n",
+                                qkeys.join(", ")
+                            ));
+                        }
                         StreamKind::WebSocket => {
                             let sent = ws_client_schema(op).map_or("unknown".to_owned(), ts_type);
+                            let bin = op.extensions.get("x-websocket-binary");
+                            let to_server = bin.and_then(|b| b.get("client")).is_some_and(|v| !v.is_null());
+                            let from_server = bin.and_then(|b| b.get("server")).is_some_and(|v| !v.is_null());
+                            let on_bin = if from_server { ", onBinary?: (data: ArrayBuffer) => void" } else { "" };
+                            let send_bin = if to_server { "; sendBinary: (data: ArrayBuffer | Uint8Array) => void" } else { "" };
+                            let recv = if from_server {
+                                "      ws.binaryType = 'arraybuffer';\n      ws.onmessage = (m) => (typeof m.data === 'string' ? onMessage(JSON.parse(m.data)) : onBinary?.(m.data as ArrayBuffer));\n"
+                            } else {
+                                "      ws.onmessage = (m) => onMessage(JSON.parse(m.data));\n"
+                            };
+                            let send_impl = if to_server { ", sendBinary: (d) => ws.send(d)" } else { "" };
                             out.push_str(&format!(
-                                "    /** {summary}(WebSocket) */\n    {id}: ({a}onMessage: (m: {ev}) => void, onClose?: () => void): {{ send: (m: {sent}) => void; close: () => void }} => {{\n      const ws = new WebSocket(url({path}, {{ {} }}).replace(/^http/, 'ws'));\n      ws.onmessage = (m) => onMessage(JSON.parse(m.data));\n      if (onClose) ws.onclose = onClose;\n      return {{ send: (m) => ws.send(JSON.stringify(m)), close: () => ws.close() }};\n    }},\n",
+                                "    /** {summary}(WebSocket) */\n    {id}: ({a}onMessage: (m: {ev}) => void, onClose?: () => void{on_bin}): {{ send: (m: {sent}) => void; close: () => void{send_bin} }} => {{\n      const ws = new WebSocket(url({path}, {{ {} }}).replace(/^http/, 'ws'));\n{recv}      if (onClose) ws.onclose = onClose;\n      return {{ send: (m) => ws.send(JSON.stringify(m)), close: () => ws.close(){send_impl} }};\n    }},\n",
                                 qkeys.join(", ")
                             ));
                         }
