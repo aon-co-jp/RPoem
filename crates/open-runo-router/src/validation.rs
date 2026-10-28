@@ -67,7 +67,7 @@ pub static FEATURE_FLAG_REQUEST: Lazy<Validator> = Lazy::new(|| {
 pub fn validate(validator: &Validator, body: &Value) -> Result<(), String> {
     let errors: Vec<String> = validator
         .iter_errors(body)
-        .map(|e| format!("{} (at {})", e, e.instance_path))
+        .map(|e| format!("{} (at {})", e, e.instance_path()))
         .collect();
 
     if errors.is_empty() {

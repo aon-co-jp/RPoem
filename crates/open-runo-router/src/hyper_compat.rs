@@ -1029,7 +1029,11 @@ pub mod tls {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no private key found in key file"))?;
 
-        ServerConfig::builder()
+        // reqwest 0.13 の rustls が aws-lc-rs を引き込み、rustls に暗号プロバイダが2つ
+        // 有効になるため、暗黙の既定に頼らず ring を明示する。
+        ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?
             .with_no_client_auth()
             .with_single_cert(certs, key)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
@@ -1114,7 +1118,7 @@ pub mod tls {
             let cert_path = dir.join("cert.pem");
             let key_path = dir.join("key.pem");
             std::fs::write(&cert_path, cert.cert.pem()).unwrap();
-            std::fs::write(&key_path, cert.key_pair.serialize_pem()).unwrap();
+            std::fs::write(&key_path, cert.signing_key.serialize_pem()).unwrap();
             (cert_path, key_path, dir)
         }
 

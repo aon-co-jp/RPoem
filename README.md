@@ -34,6 +34,8 @@
 
 ---
 
+> 2026-10-28: 依存クレートを最新のメジャー版へ更新(rust-version 1.88、sqlx 0.9 / reqwest 0.13 / jsonwebtoken 11 ほか)。詳細は`PORTING.md`末尾。 / Dependencies bumped to latest majors (details at the end of `PORTING.md`).
+
 ## RPoem とは
 
 REST API の乱立(BFF 地獄・`/v1 /v2` のバージョン爆発・エンドポイント管理の崩壊)を

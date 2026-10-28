@@ -376,7 +376,7 @@ pub fn db_put_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
 
             let errors: Vec<String> = DB_UPSERT_REQUEST
                 .iter_errors(&raw)
-                .map(|e| format!("{} (at {})", e, e.instance_path))
+                .map(|e| format!("{} (at {})", e, e.instance_path()))
                 .collect();
             if !errors.is_empty() {
                 return json_response(
@@ -763,7 +763,7 @@ pub fn register_schema_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
 
             let errors: Vec<String> = REGISTER_SCHEMA_REQUEST
                 .iter_errors(&raw)
-                .map(|e| format!("{} (at {})", e, e.instance_path))
+                .map(|e| format!("{} (at {})", e, e.instance_path()))
                 .collect();
             if !errors.is_empty() {
                 return json_response(
@@ -2193,7 +2193,7 @@ pub fn feature_flag_upsert_handler(state: Arc<AppState>, guardian: Arc<KeyGuardi
 
             let errors: Vec<String> = FEATURE_FLAG_REQUEST
                 .iter_errors(&raw)
-                .map(|e| format!("{} (at {})", e, e.instance_path))
+                .map(|e| format!("{} (at {})", e, e.instance_path()))
                 .collect();
             if !errors.is_empty() {
                 return json_response(
@@ -4323,9 +4323,9 @@ mod tests {
         let reply = ws.next().await.expect("a reply frame").expect("valid frame");
         assert_eq!(reply, Message::Text("hello websocket".into()));
 
-        ws.send(Message::Binary(vec![1, 2, 3, 4])).await.expect("send binary");
+        ws.send(Message::Binary(vec![1u8, 2, 3, 4].into())).await.expect("send binary");
         let reply = ws.next().await.expect("a reply frame").expect("valid frame");
-        assert_eq!(reply, Message::Binary(vec![1, 2, 3, 4]));
+        assert_eq!(reply, Message::Binary(vec![1u8, 2, 3, 4].into()));
 
         ws.close(None).await.expect("close should send cleanly");
     }

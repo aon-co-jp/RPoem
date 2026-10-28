@@ -12,7 +12,7 @@ description = "Shared REST API request/response types for open-runo-router, open
 workspace = true
 
 [dependencies]
-sonic-rs = "0.3"
+sonic-rs = "0.5"
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }

@@ -533,3 +533,18 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 **Adoption**: in `Cargo.toml`, `rust-json = { path = "../RS-JSON", features = ["fast"] }`. Example in `RS-JSON/README.md`.
 
 **Status in this repository**: Not yet applied (policy only). Code will be switched over place by place, starting where measurements show large or frequent JSON reads.
+
+## 2026-10-28 依存クレートの一括メジャー更新 / Major dependency update (2026-10-28)
+**日本語**: 自動保守で残っていたメジャー更新を全て適用。`cargo check/test/clippy --workspace --all-features --all-targets` が通る(clippyは警告のみ・既存分)。
+利用側(aruaru-search・realdata.pro・open-english/server)も新RPoemで`cargo check --all-targets`成功。
+- 上げた版: base64 0.23 / clickhouse 0.15 / deadpool-redis 0.23 / hmac 0.13 / jsonschema 0.60 / jsonwebtoken 11.1 / lopdf 0.46 / opentelemetry・_sdk・-otlp 0.33 / tracing-opentelemetry 0.34 / rcgen 0.14 / redis 1.8 / reqwest 0.13 / serde_html_form 0.4 / sha1・sha2 0.11 / sonic-rs 0.5 / sqlx 0.9 / surrealdb 3 / syn 3 / thiserror 2 / tokio-tungstenite 0.30 / toml 1.1。`poem`・`poem-derive`・`indexmap`の厳密ピン(=3.1.0/=2.2.6)を解除(lopdf 0.46がindexmap 2.14+を要求)、`rust-version`を1.75→1.88。
+- 破壊的変更への対応:
+  - **sqlx 0.9**: feature `runtime-tokio-rustls`は廃止→`runtime-tokio`+`tls-rustls-ring-webpki`。`raw_sql`は動的文字列を`sqlx::AssertSqlSafe(..)`で包む必要あり(本コードは`sql_escape`済みのリテラルのみ)。
+  - **clickhouse 0.15**: `Client::insert::<Row>(table)`が非同期(`.await`)かつ型引数必須。
+  - **jsonwebtoken 11**: 暗号バックエンド必須→`features = ["use_pem","rust_crypto"]`(純Rust)。無いと実行時panic。
+  - **reqwest 0.13**: `rustls-tls`→`rustls`、`.query()`は`query` feature。さらに**aws-lc-rsが引き込まれrustlsのプロバイダが2つ有効になる**ため、暗黙の既定(`ServerConfig::builder()`)は実行時panic→`builder_with_provider(ring)`で明示(`hyper_compat::load_tls_config`・`acme`)。利用側が`ServerConfig::builder()`を直接使うと同じ罠。
+  - **jsonschema 0.60**: `ValidationError::instance_path`はフィールド→メソッド。 **hmac 0.13**: `new_from_slice`は`KeyInit`トレイト。 **rcgen 0.14**: `CertifiedKey.key_pair`→`signing_key`。 **tokio-tungstenite 0.30**: `Message::Binary`は`Bytes`。
+  - 副次: `edfs`機能の`decode_event`が`sonic_rs::Error`を返す型不一致(更新前から全機能ビルドで失敗)を`serde_json::from_str`で修正。
+- 注意: appserver/gateway のテストは先に`cargo build -p open-runo-appserver --bin open-runo-dummy-http-server`が必要。
+- 未対応: なし(`serde`/`tokio`等の同一メジャー内の更新は`cargo update`で追従済み)。
+**English**: Applied all pending major bumps (list above); workspace build/test/clippy pass with all features and the three consumers still `cargo check`. Notable breaking changes: sqlx 0.9 (`runtime-tokio`+`tls-rustls-ring-webpki`, `AssertSqlSafe` for dynamic `raw_sql`), clickhouse 0.15 (async typed `insert::<Row>`), jsonwebtoken 11 (must pick `rust_crypto`/`aws_lc_rs`), reqwest 0.13 (`rustls` feature, `query` feature, and it pulls in aws-lc-rs so rustls has two providers — implicit `ServerConfig::builder()` now panics; pass ring explicitly), jsonschema/hmac/rcgen/tungstenite API tweaks. Pins on poem/indexmap removed and `rust-version` raised to 1.88.

@@ -313,7 +313,8 @@ pub mod clickhouse_sink {
         async fn write_batch(&self, rows: &[RequestMetricRow]) -> Result<(), String> {
             let mut insert = self
                 .client
-                .insert(&self.table)
+                .insert::<ClickHouseRow>(&self.table)
+                .await
                 .map_err(|e| format!("ClickHouse insert init: {e}"))?;
             for row in rows {
                 insert

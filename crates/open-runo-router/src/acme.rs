@@ -667,7 +667,13 @@ mod client {
         /// a validation) and `http/1.1` (so ordinary HTTPS traffic keeps
         /// negotiating normally the rest of the time).
         pub fn server_config(resolver: Arc<TlsAlpnResolver>) -> ServerConfig {
-            let mut config = ServerConfig::builder().with_no_client_auth().with_cert_resolver(resolver);
+            // ring を明示(aws-lc-rs と同時に有効でも既定プロバイダの曖昧さで落ちないように)。
+            #[allow(clippy::expect_used)]
+            let mut config = ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .expect("ring supports the default TLS protocol versions")
+                .with_no_client_auth()
+                .with_cert_resolver(resolver);
             config.alpn_protocols = vec![ACME_TLS_ALPN_1.as_bytes().to_vec(), b"http/1.1".to_vec()];
             config
         }
@@ -894,7 +900,9 @@ mod client {
 
                 impl NoServerAuth {
                     pub fn config() -> ClientConfig {
-                        ClientConfig::builder()
+                        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                            .with_safe_default_protocol_versions()
+                            .unwrap()
                             .dangerous()
                             .with_custom_certificate_verifier(Arc::new(NoVerify))
                             .with_no_client_auth()

@@ -553,7 +553,7 @@ pub mod aruaru {
         /// manually via `sql_escape` instead of binding them.
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
             let pk = sql_escape(&crate::migration::aruaru_pk(table, key));
-            let mut rows = sqlx::raw_sql(&format!("SELECT value FROM kv_store WHERE pk = '{pk}'"))
+            let mut rows = sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SELECT value FROM kv_store WHERE pk = '{pk}'")))
                 .fetch_all(&self.pool).await
                 .map_err(|e| AppError::Internal(format!("aruaru-db get: {e}")))?;
             Ok(match rows.pop() {
@@ -571,9 +571,9 @@ pub mod aruaru {
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
             let table_esc = sql_escape(table);
-            let rows = sqlx::raw_sql(&format!(
+            let rows = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 "SELECT key,value FROM kv_store WHERE table_name = '{table_esc}' ORDER BY key"
-            )).fetch_all(&self.pool).await
+            ))).fetch_all(&self.pool).await
             .map_err(|e| AppError::Internal(format!("aruaru-db list: {e}")))?;
             rows.into_iter().map(|row| {
                 let key = row.try_get::<String, _>(0)
@@ -608,7 +608,7 @@ pub mod aruaru {
             let sql = format!(
                 "SELECT value FROM kv_store WHERE pk = '{pk}' AS OF COMMIT '{commit_esc}'"
             );
-            let mut rows = sqlx::raw_sql(&sql)
+            let mut rows = sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
                 .fetch_all(&self.pool)
                 .await
                 .map_err(|e| AppError::Internal(format!("aruaru-db get_at_commit: {e}")))?;
@@ -634,7 +634,7 @@ pub mod aruaru {
             self.put(table, key, value).await?;
             use sqlx::Row;
             let message_esc = sql_escape(commit_message);
-            let mut rows = sqlx::raw_sql(&format!("SELECT aruaru_commit('{message_esc}')"))
+            let mut rows = sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SELECT aruaru_commit('{message_esc}')")))
                 .fetch_all(&self.pool)
                 .await
                 .map_err(|e| AppError::Internal(format!("aruaru-db put_versioned: aruaru_commit: {e}")))?;
@@ -926,7 +926,8 @@ pub mod clickhouse_backend {
     impl DbBackend for ClickHouseBackend {
         fn backend_name(&self) -> &'static str { "clickhouse" }
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
-            let mut ins = self.client.insert(table)
+            let mut ins = self.client.insert::<KvRow>(table)
+                .await
                 .map_err(|e| AppError::Internal(format!("ClickHouse insert: {e}")))?;
             ins.write(&KvRow { key: key.into(), value: value.into() }).await
                 .map_err(|e| AppError::Internal(format!("ClickHouse write: {e}")))?;

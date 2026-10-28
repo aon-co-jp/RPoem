@@ -191,7 +191,7 @@ async fn websocket_binary_messages_round_trip_and_are_documented() {
     use tokio_tungstenite::tungstenite::Message;
     let srv = TestServer::start(echo_app()).await;
     let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}/echo", srv.addr)).await.unwrap();
-    ws.send(Message::Binary(vec![1, 2, 3, 250])).await.unwrap();
+    ws.send(Message::Binary(vec![1u8, 2, 3, 250].into())).await.unwrap();
     let Message::Binary(b) = ws.next().await.unwrap().unwrap() else { panic!("expected binary") };
     assert_eq!(b, vec![250, 3, 2, 1]);
     // テキストとバイナリが混在できる

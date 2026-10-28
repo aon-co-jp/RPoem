@@ -13,7 +13,7 @@
 use crate::body_limit::read_body_limited;
 use crate::hyper_compat::{empty_status, json_response, Handler, Request, Response};
 use bytes::Bytes;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use hyper::{HeaderMap, StatusCode};
 use sha2::Sha256;
 use std::collections::HashMap;

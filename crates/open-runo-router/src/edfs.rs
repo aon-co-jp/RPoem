@@ -58,7 +58,7 @@ pub fn encode_event(event: &SchemaEvent) -> Result<String, serde_json::Error> {
 /// `broadcast::Sender<SchemaEvent>` is.
 #[cfg(feature = "edfs")]
 pub fn decode_event(payload: &str) -> Result<SchemaEvent, serde_json::Error> {
-    sonic_rs::from_str(payload)
+    serde_json::from_str(payload)
 }
 
 /// Publish `event` to `channel` on the Redis server at `redis_url`.

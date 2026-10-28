@@ -110,7 +110,7 @@ async fn aruaru_commit(pool: &PgPool, message: &str) -> String {
     // extended-query `query_as`/`query` path relies on Describe to know
     // column shape and fails against it. `raw_sql` uses the simple query
     // protocol instead, which this server answers with real column data.
-    let mut rows = sqlx::raw_sql(&format!("SELECT aruaru_commit('{}')", message.replace('\'', "''")))
+    let mut rows = sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SELECT aruaru_commit('{}')", message.replace('\'', "''"))))
         .fetch_all(pool)
         .await
         .expect("aruaru_commit");
