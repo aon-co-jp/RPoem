@@ -29,6 +29,9 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Build dummy HTTP server (appserver/gatewayのテストが使う)
+        run: cargo build -p open-runo-appserver --bin open-runo-dummy-http-server
+
       - name: Test
         run: cargo test --workspace
 
