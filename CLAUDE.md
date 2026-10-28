@@ -4429,3 +4429,12 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 - 端のケース試験で見つけて直した不具合: パスパラメータが%復号されない/JSON本文に上限が無い(20MBが通る)/404・405が空本文。巨大本文はサーバーが413を返して接続を閉じる(クライアントは送信エラーになり得る。`try_request`はその場合も`Err`で受ける)。
 - 実サービスでの検証: `open-raid-z/web`の`/healthz`と`/api/create`を型駆動ハンドラへ置き換え、実バイナリで200/400/401/500と文書(200/400/401/403/500/502/503)を確認。使用例は`crates/open-runo-poem-compat/tests/api_handlers.rs`。
 - 未対応・今後: クエリの配列(`?a=1&a=2`)・multipartの型駆動版・WebSocket/SSEの型付き宣言・`State`を型引数で受ける形(現状は`ctx.state::<T>()?`)。
+
+## 2026-10-28(続き) クエリ配列・multipart・SSE・WebSocketの型付き宣言
+- **クエリ配列**: `Ctx::query` を `serde_html_form` に変更。`?tag=a&tag=b` を `tag: Vec<String>` で受けられる(0個・1個も配列)。文書は`Operation::query::<Q>()`が配列スキーマに展開。TSクライアントは配列を繰り返しキーで送る。
+- **`api::multipart::<Form,_,_,_>(op, &[FileField::required("avatar","説明"), FileField::optional("files","添付").multiple()], |m: Multipart<Form>, ctx| ..)`**: テキストフィールド→`Form`構造体(`Vec`・`Option`・数値も可)、`filename=`付きのパート→`m.files`(`m.file("avatar")`/`m.files_named("files")`)。必須ファイル欠落・型不一致は400、上限超過は413(既定: 全体64MiB・1ファイル32MiB、`Route::max_body`指定時はそれ)。テキスト無しは`NoFields`。文書は`multipart/form-data`の`allOf[Form, ファイルフィールド(format: binary)]`、TSは`body: FormData`。実装は既存のストリーミングパーサ`multipart_stream`。
+- **`api::sse::<Ev,_,_,_>(op, |ctx| async { Ok(stream) })`**: `Stream<Item=Ev>`を1イベント1JSONで流す。任意のストリームを受けるためチャネルを1段挟み、切断するとタスクも止まる(試験済み)。文書は`text/event-stream`+`Ev`、GraphQL SDLは`type Subscription`、TSは`EventSource`のコールバック(戻り値で切断)。ストリーム開始前のエラーは通常のJSONエラー。
+- **`api::websocket::<In,Out,_,_>(op, |mut ws: WsSession<In,Out>, ctx| async {..})`**: `ws.recv()`は`Option<Result<In,WsDecodeError>>`(型に合わないメッセージは`Err`で接続は続く)、`ws.send(&Out)`、`ws.raw()`で生の接続。パスパラメータ・ヘッダは`ctx`から。不正なアップグレードは400。文書は`101`+`x-websocket: {client, server}`、GraphQLは`Subscription`、TSは`send(In)`/`onMessage(Out)`を持つ接続。`hyper_compat::websocket_upgrade(req, on_upgrade)`を新設(`websocket_handler`の下回り、リクエストごとの文脈を持ち込める)。EventSource/WebSocketはブラウザの制約でヘッダを付けられない(TSクライアントのコメントに明記、認証はクエリ等で)。
+- **共有値の受け取り**: 型引数(`Fn(Req, State<T>)`のような抽出子)にはしなかった。ハンドラが取る引数を総称にすると、既存の`|body, ctx|`のようにctxの型注釈が無いクロージャで型推論が通らなくなり、全利用側の書き換えが要るため。代わりに`Ctx::shared::<T>() -> ApiResult<Arc<T>>`を追加(所有権つきなので`tokio::spawn`やストリームの中へ持ち出せる)。`ctx.data::<T>()`(参照・Option)、`ctx.state::<T>()?`(参照・無ければ500)は従来どおり。
+- TSクライアント: テキスト応答(`content-type`がJSONでない)を`JSON.parse`せず文字列で返すよう修正。生成物は`tsc --strict`で型検査済み(`api_streaming.rs`の`dump_typescript`で書き出せる)。
+- 試験: `tests/api_streaming.rs` 10件(実TCP・実WebSocket(tokio-tungstenite))。未対応・今後: multipartのファイルを逐次処理するストリーミング版(現状は1ファイルずつメモリへ)、WebSocketのバイナリメッセージの型付け、SSEのイベント名・keep-alive。

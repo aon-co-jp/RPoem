@@ -1,7 +1,7 @@
 //! 同じ操作定義から、Cosmo(GraphQL)・Tauri(invoke)・TypeScript向けの
 //! 出力を作る。
 
-use crate::{Method, Operation, Spec};
+use crate::{Method, Operation, Spec, StreamKind};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
@@ -59,6 +59,23 @@ fn first_success_schema(op: &Operation) -> Option<&Value> {
                     .and_then(|m| m.get("schema"))
             })
         })
+}
+
+fn is_multipart(op: &Operation) -> bool {
+    op.request_body.as_ref().and_then(|b| b.pointer("/content/multipart~1form-data")).is_some()
+}
+
+/// SSE/WebSocketの操作で、サーバーから流れてくる1メッセージのスキーマ。
+fn stream_event_schema(op: &Operation) -> Option<&Value> {
+    match op.stream? {
+        StreamKind::Sse => first_success_schema(op),
+        StreamKind::WebSocket => op.extensions.get("x-websocket")?.get("server"),
+    }
+}
+
+/// WebSocketでクライアントが送る1メッセージのスキーマ。
+fn ws_client_schema(op: &Operation) -> Option<&Value> {
+    op.extensions.get("x-websocket")?.get("client")
 }
 
 fn body_schema(op: &Operation) -> Option<&Value> {
@@ -163,6 +180,7 @@ impl Spec {
         }
         let mut queries = String::new();
         let mut mutations = String::new();
+        let mut subscriptions = String::new();
         for op in self.operations() {
             let mut args: Vec<String> = op
                 .path_params
@@ -181,7 +199,8 @@ impl Spec {
             } else if op.request_body.is_some() {
                 args.push("input: String!".into());
             }
-            let ret = first_success_schema(op).map_or("JSON".to_owned(), |s| gql_field_type(s, false, false));
+            let ret_schema = if op.stream.is_some() { stream_event_schema(op) } else { first_success_schema(op) };
+            let ret = ret_schema.map_or("JSON".to_owned(), |s| gql_field_type(s, false, false));
             let arglist = if args.is_empty() { String::new() } else { format!("({})", args.join(", ")) };
             let line = format!(
                 "  \"\"\"{} {}\"\"\"\n  {}{}: {}\n",
@@ -191,7 +210,9 @@ impl Spec {
                 arglist,
                 ret
             );
-            if op.method == Method::Get {
+            if op.stream.is_some() {
+                subscriptions.push_str(&line);
+            } else if op.method == Method::Get {
                 queries.push_str(&line);
             } else {
                 mutations.push_str(&line);
@@ -206,6 +227,9 @@ impl Spec {
         out.push_str(&format!("type Query {{\n{queries}}}\n"));
         if !mutations.is_empty() {
             out.push_str(&format!("\ntype Mutation {{\n{mutations}}}\n"));
+        }
+        if !subscriptions.is_empty() {
+            out.push_str(&format!("\ntype Subscription {{\n{subscriptions}}}\n"));
         }
         out
     }
@@ -231,6 +255,7 @@ impl Spec {
                         "body": body_schema(op).cloned(),
                     },
                     "returns": first_success_schema(op).cloned(),
+                    "stream": op.stream.map(|k| match k { StreamKind::Sse => "sse", StreamKind::WebSocket => "websocket" }),
                 })
             })
             .collect();
@@ -256,7 +281,32 @@ impl Spec {
         }
         match client {
             TsClient::Fetch => {
-                out.push_str("export function createClient(baseUrl: string, headers: Record<string, string> = {}) {\n  async function call(method: string, path: string, query: Record<string, unknown>, body?: unknown) {\n    const qs = new URLSearchParams();\n    for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== null) qs.set(k, String(v));\n    const q = qs.toString();\n    const res = await fetch(baseUrl + path + (q ? '?' + q : ''), {\n      method,\n      headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },\n      body: body === undefined ? undefined : JSON.stringify(body),\n    });\n    if (!res.ok) throw new Error(`${method} ${path}: ${res.status}`);\n    const text = await res.text();\n    return text ? JSON.parse(text) : undefined;\n  }\n  return {\n");
+                out.push_str(concat!(
+                    "export function createClient(baseUrl: string, headers: Record<string, string> = {}) {\n",
+                    "  function url(path: string, query: Record<string, unknown>) {\n",
+                    "    const qs = new URLSearchParams();\n",
+                    "    for (const [k, v] of Object.entries(query)) {\n",
+                    "      if (v === undefined || v === null) continue;\n",
+                    "      if (Array.isArray(v)) for (const x of v) qs.append(k, String(x)); else qs.set(k, String(v));\n",
+                    "    }\n",
+                    "    const q = qs.toString();\n",
+                    "    return baseUrl + path + (q ? '?' + q : '');\n",
+                    "  }\n",
+                    "  async function call(method: string, path: string, query: Record<string, unknown>, body?: unknown) {\n",
+                    "    const isForm = typeof FormData !== 'undefined' && body instanceof FormData;\n",
+                    "    const res = await fetch(url(path, query), {\n",
+                    "      method,\n",
+                    "      headers: { ...(body === undefined || isForm ? {} : { 'Content-Type': 'application/json' }), ...headers },\n",
+                    "      body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),\n",
+                    "    });\n",
+                    "    if (!res.ok) throw new Error(`${method} ${path}: ${res.status}`);\n",
+                    "    const text = await res.text();\n",
+                    "    const json = (res.headers.get('content-type') ?? '').includes('json');\n",
+                    "    return text ? (json ? JSON.parse(text) : text) : undefined;\n",
+                    "  }\n",
+                    "  // SSE/WebSocketはブラウザの仕組み上ヘッダを付けられない(認証はクエリ等で)。\n",
+                    "  return {\n"
+                ));
             }
             TsClient::TauriInvoke => {
                 out.push_str("import { invoke } from '@tauri-apps/api/core';\n\nexport const api = {\n");
@@ -273,11 +323,45 @@ impl Spec {
             }
             if let Some(b) = body_schema(op) {
                 fields.push(format!("body: {}", ts_type(b)));
+            } else if is_multipart(op) {
+                fields.push("body: FormData".into());
             } else if op.request_body.is_some() {
                 fields.push("body: string | Uint8Array".into());
             }
             let ret = first_success_schema(op).map_or("unknown".to_owned(), ts_type);
             let args = if fields.is_empty() { String::new() } else { format!("args: {{ {} }}", fields.join("; ")) };
+            if let Some(kind) = op.stream {
+                // 長く続く接続は、Promiseではなくコールバックで受ける(Tauriのinvokeでは扱えない)。
+                if client == TsClient::Fetch {
+                    let mut path = format!("`{}`", op.path);
+                    for p in &op.path_params {
+                        path = path.replace(&format!("{{{p}}}"), &format!("${{encodeURIComponent(args.{})}}", ident(p)));
+                    }
+                    let qkeys: Vec<String> = op
+                        .params
+                        .iter()
+                        .filter_map(|p| p.get("name").and_then(Value::as_str))
+                        .map(|n| format!("{}: args.{}", serde_json::to_string(n).unwrap_or_default(), ident(n)))
+                        .collect();
+                    let summary = op.summary.clone().unwrap_or_else(|| op.route_label());
+                    let ev = stream_event_schema(op).map_or("unknown".to_owned(), ts_type);
+                    let a = if fields.is_empty() { String::new() } else { format!("{args}, ") };
+                    match kind {
+                        StreamKind::Sse => out.push_str(&format!(
+                            "    /** {summary}(SSE) 戻り値の関数で切断する */\n    {id}: ({a}onEvent: (e: {ev}) => void, onError?: (e: Event) => void): (() => void) => {{\n      const es = new EventSource(url({path}, {{ {} }}));\n      es.onmessage = (m) => onEvent(JSON.parse(m.data));\n      if (onError) es.onerror = onError;\n      return () => es.close();\n    }},\n",
+                            qkeys.join(", ")
+                        )),
+                        StreamKind::WebSocket => {
+                            let sent = ws_client_schema(op).map_or("unknown".to_owned(), ts_type);
+                            out.push_str(&format!(
+                                "    /** {summary}(WebSocket) */\n    {id}: ({a}onMessage: (m: {ev}) => void, onClose?: () => void): {{ send: (m: {sent}) => void; close: () => void }} => {{\n      const ws = new WebSocket(url({path}, {{ {} }}).replace(/^http/, 'ws'));\n      ws.onmessage = (m) => onMessage(JSON.parse(m.data));\n      if (onClose) ws.onclose = onClose;\n      return {{ send: (m) => ws.send(JSON.stringify(m)), close: () => ws.close() }};\n    }},\n",
+                                qkeys.join(", ")
+                            ));
+                        }
+                    }
+                }
+                continue;
+            }
             match client {
                 TsClient::TauriInvoke => {
                     let a = if fields.is_empty() { "" } else { ", args" };
@@ -296,7 +380,7 @@ impl Spec {
                         .params
                         .iter()
                         .filter_map(|p| p.get("name").and_then(Value::as_str))
-                        .map(|n| format!("{}: args.{}", ident(n), ident(n)))
+                        .map(|n| format!("{}: args.{}", serde_json::to_string(n).unwrap_or_default(), ident(n)))
                         .collect();
                     let body = if op.request_body.is_some() { ", args.body" } else { "" };
                     out.push_str(&format!(

@@ -387,43 +387,52 @@ where
     F: Fn(WebSocketConnection) -> BoxFuture<()> + Send + Sync + 'static,
 {
     let f = Arc::new(f);
-    Arc::new(move |mut req: Request, _params: Params| {
+    Arc::new(move |req: Request, _params: Params| {
         let f = Arc::clone(&f);
-        Box::pin(async move {
-            let Some(accept) = validate_upgrade_request(&req) else {
-                return json_response(
-                    StatusCode::BAD_REQUEST,
-                    &serde_json::json!({ "error": "invalid WebSocket upgrade request" }),
-                );
-            };
-
-            // `hyper::upgrade::on` must be called on the *server-observed*
-            // request before the response is returned; the returned future
-            // only resolves after this handler's response has actually been
-            // flushed back to the client, so it's spawned as its own task
-            // rather than awaited inline here.
-            let upgrade_fut = hyper::upgrade::on(&mut req);
-            tokio::spawn(async move {
-                match upgrade_fut.await {
-                    Ok(upgraded) => {
-                        let conn = WebSocketConnection { io: TokioIo::new(upgraded) };
-                        f(conn).await;
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "WebSocket upgrade failed");
-                    }
-                }
-            });
-
-            HyperResponse::builder()
-                .status(StatusCode::SWITCHING_PROTOCOLS)
-                .header("upgrade", "websocket")
-                .header("connection", "Upgrade")
-                .header("sec-websocket-accept", accept)
-                .body(fixed_body(Bytes::new()))
-                .expect("building a response from a fixed set of valid headers cannot fail")
-        })
+        Box::pin(async move { websocket_upgrade(req, move |conn| f(conn)) })
     })
+}
+
+/// [`websocket_handler`] の下回り。リクエストごとに違う文脈(パスパラメータ・
+/// ヘッダなど)をコールバックへ持ち込みたいときに、ハンドラの中から直接呼ぶ。
+/// ハンドシェイクが不正なら `400`、正しければ `101` を返し、接続が実際に
+/// アップグレードされた後で `on_upgrade` を別タスクで実行する。
+pub fn websocket_upgrade<F>(mut req: Request, on_upgrade: F) -> Response
+where
+    F: FnOnce(WebSocketConnection) -> BoxFuture<()> + Send + 'static,
+{
+    let Some(accept) = validate_upgrade_request(&req) else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            &serde_json::json!({ "error": "invalid WebSocket upgrade request" }),
+        );
+    };
+
+    // `hyper::upgrade::on` must be called on the *server-observed*
+    // request before the response is returned; the returned future
+    // only resolves after this handler's response has actually been
+    // flushed back to the client, so it's spawned as its own task
+    // rather than awaited inline here.
+    let upgrade_fut = hyper::upgrade::on(&mut req);
+    tokio::spawn(async move {
+        match upgrade_fut.await {
+            Ok(upgraded) => {
+                let conn = WebSocketConnection { io: TokioIo::new(upgraded) };
+                on_upgrade(conn).await;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "WebSocket upgrade failed");
+            }
+        }
+    });
+
+    HyperResponse::builder()
+        .status(StatusCode::SWITCHING_PROTOCOLS)
+        .header("upgrade", "websocket")
+        .header("connection", "Upgrade")
+        .header("sec-websocket-accept", accept)
+        .body(fixed_body(Bytes::new()))
+        .expect("building a response from a fixed set of valid headers cannot fail")
 }
 
 /// Parse the request's `?a=1&b=2` query string into a lookup map. Minimal

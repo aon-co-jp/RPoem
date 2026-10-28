@@ -199,6 +199,45 @@ pub struct Operation {
     pub(crate) request_body: Option<Value>,
     pub(crate) responses: BTreeMap<String, Value>,
     schemas: Vec<(String, Value)>,
+    /// SSE/WebSocketの操作(通常のリクエスト/レスポンスでは表せない)。
+    pub(crate) stream: Option<StreamKind>,
+    /// `x-...` の拡張フィールド(WebSocketのメッセージ型など)。
+    pub(crate) extensions: BTreeMap<String, Value>,
+}
+
+/// 操作が長く続く接続(サーバープッシュ)であることの種別。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamKind {
+    /// Server-Sent Events(`text/event-stream`)。
+    Sse,
+    /// WebSocket(RFC 6455)。
+    WebSocket,
+}
+
+/// `multipart/form-data` のファイルフィールドの宣言。
+#[derive(Debug, Clone)]
+pub struct FileField {
+    pub name: String,
+    pub description: String,
+    pub required: bool,
+    /// 同じ名前で複数ファイルを受ける(`format: binary` の配列)。
+    pub multiple: bool,
+}
+
+impl FileField {
+    /// 必須のファイルフィールド。
+    pub fn required(name: &str, description: &str) -> Self {
+        Self { name: name.into(), description: description.into(), required: true, multiple: false }
+    }
+    /// 任意のファイルフィールド。
+    pub fn optional(name: &str, description: &str) -> Self {
+        Self { name: name.into(), description: description.into(), required: false, multiple: false }
+    }
+    /// 同名で複数ファイルを受ける。
+    pub fn multiple(mut self) -> Self {
+        self.multiple = true;
+        self
+    }
 }
 
 impl Operation {
@@ -218,6 +257,8 @@ impl Operation {
             request_body: None,
             responses: BTreeMap::new(),
             schemas: vec![],
+            stream: None,
+            extensions: BTreeMap::new(),
         }
     }
     pub fn get(path: &str) -> Self {
@@ -283,6 +324,57 @@ impl Operation {
             "required": true,
             "content": { "application/json": { "schema": s } }
         }));
+        self
+    }
+    /// `multipart/form-data` のボディ。テキストフィールドは構造体 `T` から、
+    /// ファイルフィールドは `files` から文書に載る。
+    pub fn body_multipart<T: JsonSchema>(mut self, files: &[FileField]) -> Self {
+        let (text, defs) = schema_of::<T>();
+        self.schemas.extend(defs);
+        let mut props = serde_json::Map::new();
+        let mut required = Vec::new();
+        for f in files {
+            let schema = if f.multiple {
+                json!({ "type": "array", "items": { "type": "string", "format": "binary" }, "description": f.description })
+            } else {
+                json!({ "type": "string", "format": "binary", "description": f.description })
+            };
+            props.insert(f.name.clone(), schema);
+            if f.required {
+                required.push(Value::String(f.name.clone()));
+            }
+        }
+        let mut file_part = json!({ "type": "object", "properties": props });
+        if !required.is_empty() {
+            file_part["required"] = Value::Array(required);
+        }
+        self.request_body = Some(json!({
+            "required": true,
+            "content": { "multipart/form-data": { "schema": { "allOf": [text, file_part] } } }
+        }));
+        self
+    }
+    /// Server-Sent Events。接続すると `T` のJSONがイベントとして流れてくる
+    /// (`data:` 行に1イベント1JSON)。
+    pub fn response_sse<T: JsonSchema>(mut self, description: &str) -> Self {
+        let (s, defs) = schema_of::<T>();
+        self.schemas.extend(defs);
+        self.responses.insert(
+            "200".to_string(),
+            json!({ "description": description, "content": { "text/event-stream": { "schema": s } } }),
+        );
+        self.stream = Some(StreamKind::Sse);
+        self
+    }
+    /// WebSocket。クライアントが `In`、サーバーが `Out` のJSONテキストを送る。
+    pub fn websocket<In: JsonSchema, Out: JsonSchema>(mut self, description: &str) -> Self {
+        let (cs, cdefs) = schema_of::<In>();
+        let (ss, sdefs) = schema_of::<Out>();
+        self.schemas.extend(cdefs);
+        self.schemas.extend(sdefs);
+        self.responses.insert("101".to_string(), json!({ "description": description }));
+        self.extensions.insert("x-websocket".into(), json!({ "client": cs, "server": ss }));
+        self.stream = Some(StreamKind::WebSocket);
         self
     }
     /// 型なしのボディ(multipart・生バイト列など)。
@@ -502,6 +594,9 @@ impl Spec {
             }
             if let Some(b) = &op.request_body {
                 o.insert("requestBody".into(), b.clone());
+            }
+            for (k, v) in &op.extensions {
+                o.insert(k.clone(), v.clone());
             }
             let mut responses: Map<String, Value> =
                 op.responses.iter().map(|(k, v)| (k.clone(), v.clone())).collect();

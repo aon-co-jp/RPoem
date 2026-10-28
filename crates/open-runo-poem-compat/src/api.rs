@@ -143,9 +143,17 @@ impl Ctx {
         self.header("authorization").and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")))
     }
     /// クエリ文字列を型 `Q` として取り出す。不正なら400。
+    /// 同じキーの繰り返し(`?tag=a&tag=b`)は `Vec<T>` のフィールドで受けられる。
     pub fn query<Q: DeserializeOwned>(&self) -> ApiResult<Q> {
-        serde_urlencoded::from_str(self.uri.query().unwrap_or(""))
+        serde_html_form::from_str(self.uri.query().unwrap_or(""))
             .map_err(|e| ApiError::bad_request(format!("invalid query: {e}")))
+    }
+    /// `data` の、所有権つき(`Arc<T>`)の版。`tokio::spawn` やストリームの中へ
+    /// 持ち出せる(`&T` はハンドラの外へ持ち出せない)。無ければ500。
+    pub fn shared<T: Send + Sync + 'static>(&self) -> ApiResult<Arc<T>> {
+        let missing = || ApiError::internal(format!("app data not registered: {}", std::any::type_name::<T>()));
+        let any = self.data.as_ref().and_then(|m| m.get(&std::any::TypeId::of::<T>())).ok_or_else(missing)?;
+        Arc::clone(any).downcast::<T>().map_err(|_| missing())
     }
 }
 
@@ -309,6 +317,218 @@ where
                 Err(resp) => return resp,
             };
             finish(f(body, ctx).await, StatusCode::CREATED)
+        })
+    });
+    ApiHandler { op, handler }
+}
+
+// ───────────────────────── multipart ─────────────────────────
+
+pub use open_runo_openapi::FileField;
+
+/// 受け取ったファイル1つ(`multipart/form-data` の `filename=` が付いたパート)。
+#[derive(Debug, Clone)]
+pub struct UploadedFile {
+    /// フォームのフィールド名。
+    pub field: String,
+    pub filename: Option<String>,
+    pub content_type: Option<String>,
+    pub data: Vec<u8>,
+}
+
+/// `multipart/form-data` を型で受けた結果。テキストフィールドは `form`(構造体 `T`)、
+/// ファイルは `files`。
+#[derive(Debug)]
+pub struct Multipart<T> {
+    pub form: T,
+    pub files: Vec<UploadedFile>,
+}
+
+impl<T> Multipart<T> {
+    /// 指定フィールドの最初のファイル。
+    pub fn file(&self, field: &str) -> Option<&UploadedFile> {
+        self.files.iter().find(|f| f.field == field)
+    }
+    /// 指定フィールドの全ファイル(`FileField::multiple()` 用)。
+    pub fn files_named<'a>(&'a self, field: &'a str) -> impl Iterator<Item = &'a UploadedFile> {
+        self.files.iter().filter(move |f| f.field == field)
+    }
+}
+
+/// テキストフィールドが無い `multipart` 用の空の型(`api::multipart::<NoFields, _, _, _>`)。
+#[derive(serde::Deserialize, JsonSchema)]
+pub struct NoFields {}
+
+/// `Route::max_body` を明示したときだけの値(multipartの既定は別に大きい)。
+fn explicit_body_limit(ctx: &Ctx) -> Option<usize> {
+    ctx.data::<BodyLimit>().map(|l| l.0)
+}
+
+async fn read_multipart<T: DeserializeOwned>(req: Request, files: &[FileField], explicit_limit: Option<usize>) -> Result<Multipart<T>, Response> {
+    let mut limits = crate::multipart_stream::MultipartLimits::default();
+    if let Some(n) = explicit_limit {
+        limits.max_total_bytes = n as u64;
+        limits.max_field_bytes = n as u64;
+    }
+    let mut mp = crate::multipart_stream::MultipartStream::from_request(req, limits)?;
+    let mut text: Vec<(String, String)> = Vec::new();
+    let mut uploaded = Vec::new();
+    while let Some(field) = mp.next_field().await.map_err(|e| e.into_response())? {
+        let data = mp.field_bytes(limits.max_field_bytes as usize).await.map_err(|e| e.into_response())?;
+        if field.filename.is_some() {
+            uploaded.push(UploadedFile { field: field.name, filename: field.filename, content_type: field.content_type, data });
+        } else {
+            text.push((field.name, String::from_utf8_lossy(&data).into_owned()));
+        }
+    }
+    for f in files.iter().filter(|f| f.required) {
+        if !uploaded.iter().any(|u| u.field == f.name) {
+            return Err(hyper_compat::json_response(
+                StatusCode::BAD_REQUEST,
+                &ApiErrorBody { error: format!("missing file field: {}", f.name) },
+            ));
+        }
+    }
+    let encoded = serde_urlencoded::to_string(&text).unwrap_or_default();
+    let form = serde_html_form::from_str::<T>(&encoded).map_err(|e| {
+        hyper_compat::json_response(StatusCode::BAD_REQUEST, &ApiErrorBody { error: format!("invalid form fields: {e}") })
+    })?;
+    Ok(Multipart { form, files: uploaded })
+}
+
+/// `multipart/form-data`(ファイルのアップロード)を受け、`Res` をJSONで返す。
+/// テキストフィールドは構造体 `Form`、ファイルは `files` の宣言で文書に載る。
+/// 必須のファイルが無ければ400、上限超過は413(既定: 全体64MiB・1ファイル32MiB、
+/// `Route::max_body` を指定すればそれが上限)。
+pub fn multipart<Form, Res, F, Fut>(op: Operation, files: &[FileField], f: F) -> ApiHandler
+where
+    Form: DeserializeOwned + JsonSchema + Send + 'static,
+    Res: Serialize + JsonSchema + 'static,
+    F: Fn(Multipart<Form>, Ctx) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ApiResult<Res>> + Send + 'static,
+{
+    let op = with_errors(op.body_multipart::<Form>(files).ok::<Res>("OK"), true).response::<ApiErrorBody>(413, "本文が大きすぎる");
+    let files: Arc<Vec<FileField>> = Arc::new(files.to_vec());
+    let f = Arc::new(f);
+    let handler: Handler = Arc::new(move |req: Request, params: Params| {
+        let f = Arc::clone(&f);
+        let files = Arc::clone(&files);
+        Box::pin(async move {
+            let ctx = Ctx::from_request(&req, params);
+            let form = match read_multipart::<Form>(req, &files, explicit_body_limit(&ctx)).await {
+                Ok(m) => m,
+                Err(resp) => return resp,
+            };
+            finish(f(form, ctx).await, StatusCode::OK)
+        })
+    });
+    ApiHandler { op, handler }
+}
+
+// ───────────────────────── SSE ─────────────────────────
+
+/// Server-Sent Events。`f` が返すストリームの各要素 `Ev` を、1イベント1JSONとして流す。
+/// 文書には `text/event-stream` として `Ev` の型が載り、TypeScriptクライアントは
+/// `EventSource` で受けるコールバック、GraphQLでは `Subscription` になる。
+/// クライアントが切断するとストリームは次のイベントの送信時に止まる。
+pub fn sse<Ev, S, F, Fut>(op: Operation, f: F) -> ApiHandler
+where
+    Ev: Serialize + JsonSchema + Send + 'static,
+    S: futures::Stream<Item = Ev> + Send + Unpin + 'static,
+    F: Fn(Ctx) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ApiResult<S>> + Send + 'static,
+{
+    let op = with_errors(op.response_sse::<Ev>("イベントストリーム(1イベント=1JSON)"), false);
+    let f = Arc::new(f);
+    let handler: Handler = Arc::new(move |req: Request, params: Params| {
+        let f = Arc::clone(&f);
+        Box::pin(async move {
+            let ctx = Ctx::from_request(&req, params);
+            let mut stream = match f(ctx).await {
+                Ok(s) => s,
+                Err(e) => return error_response(&e),
+            };
+            // `sse_response` は `Sync` なストリームを要る。どんなストリームでも渡せるよう、
+            // チャネルを1段挟む(受け側が閉じたら=切断されたら送信側のタスクも終わる)。
+            let (mut tx, rx) = futures::channel::mpsc::channel::<hyper_compat::SseEvent>(16);
+            tokio::spawn(async move {
+                use futures::{SinkExt, StreamExt};
+                while let Some(ev) = stream.next().await {
+                    let Ok(data) = serde_json::to_string(&ev) else { continue };
+                    if tx.send(hyper_compat::SseEvent { event_type: None, data }).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            hyper_compat::sse_response(rx)
+        })
+    });
+    ApiHandler { op, handler }
+}
+
+// ───────────────────────── WebSocket ─────────────────────────
+
+/// 型付きのWebSocket接続。クライアントからは `In`、サーバーからは `Out` をJSONテキストで送る。
+pub struct WsSession<In, Out> {
+    conn: hyper_compat::WebSocketConnection,
+    _types: std::marker::PhantomData<fn() -> (In, Out)>,
+}
+
+/// `WsSession::recv` が、JSONとして読めないメッセージを受けたときの情報。
+#[derive(Debug, Clone)]
+pub struct WsDecodeError(pub String);
+
+impl std::fmt::Display for WsDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for WsDecodeError {}
+
+impl<In: DeserializeOwned, Out: Serialize> WsSession<In, Out> {
+    /// 次のメッセージを `In` として読む。接続が閉じたら `None`。
+    /// 型に合わないメッセージは `Some(Err(..))`(接続は閉じない。続けて読める)。
+    pub async fn recv(&mut self) -> Option<Result<In, WsDecodeError>> {
+        match self.conn.recv().await? {
+            hyper_compat::WsMessage::Text(t) => Some(serde_json::from_str(&t).map_err(|e| WsDecodeError(format!("invalid message: {e}")))),
+            hyper_compat::WsMessage::Binary(_) => Some(Err(WsDecodeError("binary messages are not supported".into()))),
+        }
+    }
+    /// `Out` をJSONテキストで送る。
+    pub async fn send(&mut self, msg: &Out) -> std::io::Result<()> {
+        let text = serde_json::to_string(msg).map_err(std::io::Error::other)?;
+        self.conn.send_text(text).await
+    }
+    pub async fn close(&mut self) -> std::io::Result<()> {
+        self.conn.close().await
+    }
+    /// 型を付けない生の接続(バイナリなど)。
+    pub fn raw(&mut self) -> &mut hyper_compat::WebSocketConnection {
+        &mut self.conn
+    }
+}
+
+/// WebSocket。クライアントが `In`、サーバーが `Out` のJSONメッセージを送る。
+/// 文書にはメッセージの型(`x-websocket`)が載り、TypeScriptクライアントは
+/// `send(In)` と `onMessage(Out)` を持つ接続になる。メソッドはGET。
+/// ハンドシェイクが不正なら400。
+pub fn websocket<In, Out, F, Fut>(op: Operation, f: F) -> ApiHandler
+where
+    In: DeserializeOwned + JsonSchema + Send + 'static,
+    Out: Serialize + JsonSchema + Send + 'static,
+    F: Fn(WsSession<In, Out>, Ctx) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    assert!(op.http_method() == open_runo_openapi::Method::Get, "api::websocket needs a GET operation");
+    let op = with_errors(op.websocket::<In, Out>("WebSocketへアップグレード(JSONテキストのメッセージ)"), true);
+    let f = Arc::new(f);
+    let handler: Handler = Arc::new(move |req: Request, params: Params| {
+        let f = Arc::clone(&f);
+        Box::pin(async move {
+            let ctx = Ctx::from_request(&req, params);
+            hyper_compat::websocket_upgrade(req, move |conn| {
+                Box::pin(f(WsSession { conn, _types: std::marker::PhantomData }, ctx))
+            })
         })
     });
     ApiHandler { op, handler }

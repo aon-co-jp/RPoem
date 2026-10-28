@@ -15,11 +15,15 @@ http-body-util = "0.1"
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = "0.7"
+# クエリの配列(?a=1&a=2)を Vec で受けるため。serde_urlencoded と同じ書き味で配列も読める。
+serde_html_form = "0.2"
+futures = { workspace = true }
 schemars = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 open-runo-poem-compat-macro = { path = "../open-runo-poem-compat-macro" }
+tokio-tungstenite = "0.24"
 
 [features]
 # TLS termination(rustls) — open-runo-router::hyper_compat::tlsをそのまま
