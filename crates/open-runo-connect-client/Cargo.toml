@@ -1,0 +1,28 @@
+[package]
+name = "open-runo-connect-client"
+description = "gRPC-web-Connect browser (WASM) client: Connect for unary (HTTP status visible in DevTools), Connect envelopes over ReadableStream for server streaming, automatic fallback to gRPC-web, request log for an inspector."
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0 OR MIT"
+rust-version.workspace = true
+
+[lints.rust]
+unsafe_code = "deny"
+
+[features]
+# 型付きの呼び出し(`call`/`watch`)とDebug表示つきのログ。
+prost = ["dep:prost"]
+
+[dependencies]
+open-runo-connect-core = { path = "../open-runo-connect-core" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+futures = { version = "0.3", default-features = false, features = ["std", "alloc"] }
+js-sys = "0.3"
+prost = { version = "0.14", optional = true }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "AbortController", "AbortSignal", "Headers", "Request", "RequestInit", "RequestMode",
+    "Response", "ReadableStream", "ReadableStreamDefaultReader", "Window", "console",
+] }

@@ -4151,6 +4151,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "open-runo-connect-client"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "js-sys",
+ "open-runo-connect-core",
+ "prost",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "open-runo-connect-core"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde_json",
+]
+
+[[package]]
+name = "open-runo-connect-server"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "open-runo-connect-core",
+ "prost",
+ "prost-reflect",
+ "prost-types",
+ "reqwest 0.13.5",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "open-runo-core"
 version = "0.1.0"
 dependencies = [

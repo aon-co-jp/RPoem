@@ -31,6 +31,9 @@ members = [
     "crates/open-runo-glyph",
     "crates/open-runo-crossui",
     "crates/open-runo-proto",
+    "crates/open-runo-connect-core",
+    "crates/open-runo-connect-server",
+    "crates/open-runo-connect-client",
 ]
 
 resolver = "2"

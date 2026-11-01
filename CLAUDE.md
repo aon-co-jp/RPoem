@@ -49,7 +49,7 @@
 >   `curl` で再現できる)、ストリームは Connect のエンベロープを `ReadableStream` で読み、Connect を話さないサーバーなら **自動で gRPC-web へフォールバック**。
 >   Connect のエラー応答には gRPC の `grpc-status`/`grpc-message` ヘッダも付ける。管理画面に「RPC Inspector」ページ(通信の記録・Connect⇄gRPC-web 切替・
 >   並列20本テスト・イベント購読・コンソール出力)とダッシュボードのライブイベントを追加。この部分は新リポジトリ
->   [`gRPC-web-Connect`](https://github.com/aon-co-jp/gRPC-web-Connect)(core/server/client)へ汎用化済み(RPoem 側の置き換えは次の一手)。
+>   `crates/open-runo-connect-{core,server,client}` へ汎用化済み(旧リポジトリ gRPC-web-Connect は 2026-11-01 にRPoem内へ統合して削除。説明は docs/connect-hybrid.md。RPoem 側の置き換えは次の一手)。
 > - **ブラウザの静的ファイル**: `Cache-Control: no-cache`+ETag 再検証(更新したら自動で新しい WASM が配られる。30日 immutable のせいで古い WASM が残った実害の解消)。
 >
 > **実装方式の判断と理由(tonic を使わず手書き+prost にした)**
