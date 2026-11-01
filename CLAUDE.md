@@ -46,6 +46,12 @@
 > 4. イベント/WebSocket を GraphQL Subscriptions へ統合、OpenAPI 配信(`/api/docs` 等)を廃止。
 > 5. `/api/` のルートと `handlers_hyper.rs` を削除、テストを更新、他リポジトリ・VPS の呼び出しを
 >    GraphQL へ切り替えてから反映(先に呼び出し側を直さないと本番が壊れる)。
+> **REST の呼び出し側(2026-11-01 調査、第5段階の前に直す)**: `open-web-server`(`crates/open-web-server-gateway/src/dual_write.rs` が
+> `/api/db/custom_subdomains/...`、`open-web-server-ledger/src/state_reader.rs` が `/api/db/:table/:key/at/:commit_id` と
+> `/api/keys/self-issue`、`handlers/state_query.rs` も同系統)。`backup-to-discord-by-github` の `/api/backups`・
+> `open-easy-web`・`open-upstream-watch` の `/…/session` は各リポジトリ自身の API で RPoem の REST ではない。
+> `aruaru-search`・`open-audio-sr`・`realdata.pro` の `.deps/RPoem` は RPoem の複製(次回の取得で追従)。
+> 兄弟リポジトリ `open-cosmo`・`open-runo` はほぼ同一のコードで、README は同日に同じ表記へ修正済み(コードの削除は別途そろえる)。
 > 置き換えの設計は `aruaru-db/docs/CONTROL_PLANE_REDESIGN.md`(宣言的 `aruaru.yaml`+
 > reconciliation)と整合させること。**現在は第0段階(文書・README の表記修正)まで完了。**
 
