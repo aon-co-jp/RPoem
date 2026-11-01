@@ -53,7 +53,26 @@
 > `aruaru-search`・`open-audio-sr`・`realdata.pro` の `.deps/RPoem` は RPoem の複製(次回の取得で追従)。
 > 兄弟リポジトリ `open-cosmo`・`open-runo` はほぼ同一のコードで、README は同日に同じ表記へ修正済み(コードの削除は別途そろえる)。
 > 置き換えの設計は `aruaru-db/docs/CONTROL_PLANE_REDESIGN.md`(宣言的 `aruaru.yaml`+
-> reconciliation)と整合させること。**現在は第0段階(文書・README の表記修正)まで完了。**
+> reconciliation)と整合させること。**現在は第1段階まで完了(下記)。**
+>
+> **第1段階の到達点(2026-11-01、REST は未削除)**: `open-runo-gateway` の `EmptyMutation` を
+> `admin::AdminMutation` に置換し、`Query.admin` / `Mutation.admin` の配下に管理操作を追加
+> (`crates/open-runo-gateway/src/admin.rs`)。対象: スキーマ登録・アップロード(`uploadSchema`はSDL本文を渡す)・
+> 取得・履歴、federation compose/status、フィーチャーフラグ(一覧/取得/作成更新/削除/評価)、永続クエリ
+> (登録/取得)、キャッシュ消去(`purgeCache`/`purgeAllCache`)。ロジックは
+> `crates/open-runo-router/src/admin_ops.rs` に切り出し、REST 版ハンドラ(`handlers_hyper.rs`)も同じ関数を呼ぶ
+> (`AdminError.status` が REST のHTTPステータス、GraphQL では `extensions.status`)。`AppState` に
+> `page_cache` を追加(RESTとGraphQLが同じページキャッシュを消去)。認証: `graphql_hyper` が
+> `authenticate_with_session`(`X-Api-Key`/セッション+CSRF)で `Actor` を作りコンテキストへ渡す。RESTも
+> 現状は認証のみでロール別検査が無いため、GraphQLも同じ権限(認証済みなら実行可)。未認証でも `health` 等
+> 既存の公開フィールドは従来どおり動く。テスト: `admin_tests.rs`(RESTとGraphQLに同じ操作を流して結果と
+> エラーステータスを比較、鍵の有無の401も確認)6件、`cargo test --workspace` 通過。
+> **第1段階で未了/注意**: ①`/api/schemas/upload-raw` と multipart のバイナリ経由はGraphQL未提供
+> (`uploadSchema` は文字列のみ)。②poem 版 `graphql_route` は認証層が無く `admin` は常に401。③`/graphql/ws`
+> (Subscriptions)の認証は未実装。④REST側の `ai-stats`・`backup`・`db`・`scim`・`session`・`keys` 等は未移行
+> (第2段階)。**次は第2段階**(認証/セッション/キー発行、DB操作、バックアップ/移行/整合性、分析)。
+> なお初回の `cargo test --workspace` では `open-runo-appserver` のプロセス起動系8件が失敗したが、再実行で全通過
+> (今回の変更と無関係な不安定テスト)。
 
 > **📌 2026-08-25追記: ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証完了・
 > 段階的導入計画をRPoem/aruaru-llm/open-english「トライブリッド」で確定

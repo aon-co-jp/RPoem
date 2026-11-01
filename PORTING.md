@@ -14,6 +14,16 @@
 書き込み系の管理操作がまだ GraphQL で行えない。**このファイルの手順で導入する場合、管理用 REST は
 まだ存在する(移行中)。** 段階的な移行計画と現状は `CLAUDE.md` の「2026-11-01追記」を参照。
 
+**第1段階完了(2026-11-01)**: `open-runo-gateway` の `EmptyMutation` を `admin::AdminMutation` に置換し、
+`query { admin { … } }` / `mutation { admin { … } }` で スキーマ登録・アップロード・取得・履歴、federation
+compose/status、フィーチャーフラグ(一覧/取得/作成更新/削除/評価)、永続クエリ(登録/取得)、キャッシュ消去
+(`purgeCache`/`purgeAllCache`)を操作できる。ロジックは `open-runo-router/src/admin_ops.rs` に集約し、REST 版
+ハンドラも同じ関数を呼ぶ(二重実装なし)。認証は `/graphql` の HTTP 層が `X-Api-Key`/セッションCookie(+CSRF)を
+検査して `Actor` を渡し、無ければ `admin` が `extensions.status=401` で失敗する(公開の `health` 等は従来どおり)。
+REST は未削除。REST/GraphQL 同値性テストは `crates/open-runo-gateway/src/admin_tests.rs`。
+**注意**: poem 版 `graphql_route` は認証層を持たないため `admin` は常に401(本番は hyper 版 `graphql_hyper` を使う)。
+`/graphql/ws`(Subscriptions)は未対応のまま。
+
 ## ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証済み・段階的導入計画(2026-08-25追記)
 
 `experiments/wgpu-browser-spike/`に、`wgpu`(features=`webgpu`+`wgsl`)を

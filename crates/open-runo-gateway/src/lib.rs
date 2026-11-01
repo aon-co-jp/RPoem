@@ -14,6 +14,9 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod admin;
+#[cfg(test)]
+mod admin_tests;
 pub mod appserver_processes;
 pub mod appserver_tenants;
 pub mod demo;
@@ -31,7 +34,7 @@ use open_runo_schema_registry::Stage;
 use poem::{get, handler, web::Data, Endpoint, EndpointExt, IntoResponse, Route};
 use std::sync::Arc;
 
-pub type OpenRunoSchema = Schema<QueryRoot, async_graphql::EmptyMutation, SubscriptionRoot>;
+pub type OpenRunoSchema = Schema<QueryRoot, admin::AdminMutation, SubscriptionRoot>;
 
 /// GraphQL projection of [`open_runo_schema_registry::SchemaVersion`].
 #[derive(SimpleObject)]
@@ -88,11 +91,16 @@ fn parse_stage(s: &str) -> Stage {
     }
 }
 
+/// 既存の公開Query(認証なし)。
 #[derive(Debug, Clone, Copy, Default)]
-pub struct QueryRoot;
+pub struct CoreQuery;
+
+/// Query全体 = 公開の`CoreQuery` + 認証必須の`admin`。
+#[derive(async_graphql::MergedObject, Default)]
+pub struct QueryRoot(CoreQuery, admin::AdminQuery);
 
 #[Object]
-impl QueryRoot {
+impl CoreQuery {
     /// Simple liveness field so clients can smoke-test the `/graphql`
     /// endpoint without touching domain data.
     async fn health(&self) -> &'static str {
@@ -243,7 +251,7 @@ impl SubscriptionRoot {
 
 /// Build the [`OpenRunoSchema`], injecting `state` as query context data.
 pub fn build_schema(state: Arc<AppState>) -> OpenRunoSchema {
-    Schema::build(QueryRoot, async_graphql::EmptyMutation, SubscriptionRoot)
+    Schema::build(QueryRoot::default(), admin::AdminMutation, SubscriptionRoot)
         .data(state)
         .finish()
 }

@@ -79,6 +79,9 @@ pub struct AppState {
     /// 起動しないため増えないだけ(他の`Option`系フィールドと同じ既定
     /// オフの流儀)。
     pub udp_notice_stats: Arc<crate::udp_notice::NoticeStats>,
+    /// HTMLページキャッシュ。RESTの`/api/cache/*`とGraphQLの`purgeCache*`
+    /// ミューテーションが同じインスタンスを消去できるよう`AppState`が持つ。
+    pub page_cache: Arc<crate::middleware::html_cache::HtmlPageCache>,
 }
 
 impl AppState {
@@ -96,6 +99,7 @@ impl AppState {
             edfs_publish: Arc::new(Mutex::new(None)),
             request_metrics: default_request_metrics(),
             udp_notice_stats: Arc::new(crate::udp_notice::NoticeStats::default()),
+            page_cache: default_page_cache(),
         }
     }
 
@@ -113,6 +117,7 @@ impl AppState {
             edfs_publish: Arc::new(Mutex::new(None)),
             request_metrics: default_request_metrics(),
             udp_notice_stats: Arc::new(crate::udp_notice::NoticeStats::default()),
+            page_cache: default_page_cache(),
         }
     }
 
@@ -146,6 +151,12 @@ impl AppState {
 /// buffered (so `buffered_len()`/`flush()` behave identically in tests)
 /// but simply accumulate in an `InMemorySink` that nothing ever reads
 /// back out of in production.
+fn default_page_cache() -> Arc<crate::middleware::html_cache::HtmlPageCache> {
+    Arc::new(crate::middleware::html_cache::HtmlPageCache::new(
+        crate::middleware::html_cache::HtmlCacheConfig::from_env(),
+    ))
+}
+
 fn default_request_metrics() -> Arc<RequestMetrics> {
     #[cfg(feature = "clickhouse")]
     if let Ok(url) = std::env::var("OPEN_RUNO_CLICKHOUSE_URL") {

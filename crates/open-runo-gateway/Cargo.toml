@@ -17,6 +17,7 @@ indexmap = "2"
 open-runo-core             = { workspace = true }
 open-runo-appserver          = { workspace = true }
 open-runo-router            = { workspace = true }
+open-runo-api-types       = { workspace = true }
 open-runo-schema-registry   = { workspace = true }
 open-runo-federation        = { workspace = true }
 open-runo-persisted-queries = { workspace = true }

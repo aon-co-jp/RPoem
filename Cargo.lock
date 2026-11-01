@@ -4142,6 +4142,7 @@ dependencies = [
  "hex",
  "hyper",
  "indexmap",
+ "open-runo-api-types",
  "open-runo-appserver",
  "open-runo-cache",
  "open-runo-core",

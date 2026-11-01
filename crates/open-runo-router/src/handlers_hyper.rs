@@ -27,6 +27,10 @@ use open_runo_schema_registry::{Stage, DEFAULT_NAMESPACE};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+fn admin_err(e: crate::admin_ops::AdminError) -> Response {
+    json_response(e.status, &serde_json::json!({ "error": e.message }))
+}
+
 fn parse_stage(s: &str) -> Stage {
     match s.to_lowercase().as_str() {
         "development" | "dev" => Stage::Development,
@@ -59,18 +63,13 @@ pub fn federation_status_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian
             {
                 return empty_status(status);
             }
-            let schema = state
-                .federation_schema
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .clone();
-            let field_count: usize = schema.types.values().map(|f| f.len()).sum();
+            let st = crate::admin_ops::federation_status(&state);
             json_response(
                 StatusCode::OK,
                 &FederationStatusResponse {
-                    contributing_services: schema.contributing_services,
-                    type_count: schema.types.len(),
-                    field_count,
+                    contributing_services: st.contributing_services,
+                    type_count: st.type_count,
+                    field_count: st.field_count,
                 },
             )
         })
@@ -122,74 +121,26 @@ pub fn compose_schemas_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
                 Err(resp) => return resp,
             };
 
-            let mut service_schemas: Vec<open_runo_federation::ServiceSchema> = Vec::new();
-            for s in body.services {
-                let schema = if let Some(sdl) = s.sdl {
-                    match open_runo_federation::parse_service_sdl(&s.service_name, &sdl) {
-                        Ok(schema) => schema,
-                        Err(e) => {
-                            return json_response(
-                                StatusCode::UNPROCESSABLE_ENTITY,
-                                &serde_json::json!({ "error": e.to_string() }),
-                            )
-                        },
-                    }
-                } else {
-                    open_runo_federation::ServiceSchema {
-                        service_name: s.service_name,
-                        types: s
-                            .types
-                            .into_iter()
-                            .map(|(k, v)| (k, std::collections::BTreeSet::from_iter(v)))
-                            .collect(),
-                    }
-                };
-                service_schemas.push(schema);
-            }
-
-            let new_composed = match open_runo_federation::compose(&service_schemas) {
-                Ok(c) => c,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        &serde_json::json!({ "error": e.to_string() }),
-                    )
-                },
-            };
-
-            let breaking = {
-                let previous = state
-                    .federation_schema
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .clone();
-                if previous.contributing_services.is_empty() {
-                    vec![]
-                } else {
-                    open_runo_federation::detect_breaking_changes(&previous, &new_composed)
-                }
-            };
-
-            let contributing_services = new_composed.contributing_services.clone();
-            let types_out: std::collections::BTreeMap<String, Vec<String>> = new_composed
-                .types
-                .iter()
-                .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+            let services = body
+                .services
+                .into_iter()
+                .map(|s| crate::admin_ops::ComposeService {
+                    service_name: s.service_name,
+                    types: s.types,
+                    sdl: s.sdl,
+                })
                 .collect();
-
-            *state
-                .federation_schema
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = new_composed;
-
-            json_response(
-                StatusCode::OK,
-                &ComposeResponse {
-                    contributing_services,
-                    types: types_out,
-                    breaking_changes: breaking,
-                },
-            )
+            match crate::admin_ops::compose(&state, services) {
+                Ok(out) => json_response(
+                    StatusCode::OK,
+                    &ComposeResponse {
+                        contributing_services: out.contributing_services,
+                        types: out.types,
+                        breaking_changes: out.breaking_changes,
+                    },
+                ),
+                Err(e) => admin_err(e),
+            }
         })
     })
 }
@@ -702,36 +653,14 @@ pub fn get_schema_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> H
             }
             let query = query_params(&req);
             let service = params.get("service").unwrap_or("").to_string();
-            let stage_str = query.get("stage").map(String::as_str).unwrap_or("local");
-            let stage = parse_stage(stage_str);
-            let namespace = query
-                .get("namespace")
-                .map(String::as_str)
-                .unwrap_or(DEFAULT_NAMESPACE);
-
-            let registry = state
-                .schema_registry
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-            match registry.latest_in(namespace, &service, stage) {
-                Some(v) => json_response(
-                    StatusCode::OK,
-                    &SchemaVersion {
-                        id: v.id.to_string(),
-                        namespace: v.namespace.clone(),
-                        service_name: v.service_name.clone(),
-                        sdl: v.sdl.clone(),
-                        stage: stage_name(v.stage).to_string(),
-                        created_at: v.created_at.to_rfc3339(),
-                    },
-                ),
-                None => json_response(
-                    StatusCode::NOT_FOUND,
-                    &serde_json::json!({
-                        "error": format!("no schema found for '{service}' at stage '{stage_str}'")
-                    }),
-                ),
+            match crate::admin_ops::get_schema(
+                &state,
+                query.get("namespace").map(String::as_str),
+                &service,
+                query.get("stage").map(String::as_str),
+            ) {
+                Ok(v) => json_response(StatusCode::OK, &v),
+                Err(e) => admin_err(e),
             }
         })
     })
@@ -752,29 +681,11 @@ pub fn get_schema_history_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
             }
             let query = query_params(&req);
             let service = params.get("service").unwrap_or("").to_string();
-            let namespace = query
-                .get("namespace")
-                .map(String::as_str)
-                .unwrap_or(DEFAULT_NAMESPACE);
-
-            let registry = state
-                .schema_registry
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-            let versions = registry
-                .history_in(namespace, &service)
-                .iter()
-                .map(|v| SchemaVersion {
-                    id: v.id.to_string(),
-                    namespace: v.namespace.clone(),
-                    service_name: v.service_name.clone(),
-                    sdl: v.sdl.clone(),
-                    stage: stage_name(v.stage).to_string(),
-                    created_at: v.created_at.to_rfc3339(),
-                })
-                .collect();
-
+            let versions = crate::admin_ops::schema_history(
+                &state,
+                query.get("namespace").map(String::as_str),
+                &service,
+            );
             json_response(StatusCode::OK, &SchemaHistoryResponse { versions })
         })
     })
@@ -789,63 +700,9 @@ async fn register_schema_and_respond(
     actor: &str,
     body: RegisterSchemaRequest,
 ) -> Response {
-    let stage = parse_stage(&body.stage);
-    let namespace = body
-        .namespace
-        .clone()
-        .unwrap_or_else(|| DEFAULT_NAMESPACE.to_string());
-    let version = state
-        .schema_registry
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .register_in(&namespace, &body.service_name, &body.sdl, stage);
-
-    crate::audit::record(
-        state,
-        actor,
-        "schema.register",
-        format!("{}@{}", body.service_name, body.stage),
-    )
-    .await;
-
-    let event = crate::state::SchemaEvent {
-        service_name: body.service_name.clone(),
-        stage: body.stage.clone(),
-        at: chrono::Utc::now().to_rfc3339(),
-    };
-    let _ = state.events.send(event.clone());
-
-    // EDFS (docs/cosmo-parity.md §4a): if configured, also publish this
-    // event to Redis so instances *other* than this one (in a
-    // load-balanced deployment) pick it up via their own edfs::spawn_bridge
-    // task and deliver it to their locally-connected subscribers. A
-    // publish failure is deliberately non-fatal here -- see edfs.rs's
-    // `publish` doc comment for why -- and is a no-op entirely when the
-    // `edfs` Cargo feature isn't compiled in.
-    #[cfg(feature = "edfs")]
-    {
-        let target = state
-            .edfs_publish
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
-        if let Some((redis_url, channel)) = target {
-            if let Err(error) = crate::edfs::publish(&redis_url, &channel, &event).await {
-                tracing::warn!(%error, "EDFS: failed to publish schema event to Redis");
-            }
-        }
-    }
-
     json_response(
         StatusCode::OK,
-        &SchemaVersion {
-            id: version.id.to_string(),
-            namespace: version.namespace.clone(),
-            service_name: version.service_name.clone(),
-            sdl: version.sdl.clone(),
-            stage: stage_name(version.stage).to_string(),
-            created_at: version.created_at.to_rfc3339(),
-        },
+        &crate::admin_ops::register_schema(state, actor, body).await,
     )
 }
 
@@ -1165,13 +1022,6 @@ pub fn route_request_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -
     })
 }
 
-fn persisted_query_store(state: &AppState) -> open_runo_persisted_queries::PersistedQueryStore {
-    open_runo_persisted_queries::PersistedQueryStore::new(
-        Arc::clone(&state.db),
-        open_runo_persisted_queries::EnforcementMode::Allow,
-    )
-}
-
 #[derive(Deserialize)]
 struct PqRegisterRequest {
     query: String,
@@ -1210,31 +1060,16 @@ pub fn register_persisted_query_handler(
                 Err(resp) => return resp,
             };
 
-            let record = match persisted_query_store(&state).register(&body.query).await {
-                Ok(r) => r,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::BAD_REQUEST,
-                        &serde_json::json!({ "error": e.to_string() }),
-                    )
-                },
-            };
-
-            crate::audit::record(
-                &state,
-                &actor,
-                "persisted_query.register",
-                record.hash.clone(),
-            )
-            .await;
-
-            json_response(
-                StatusCode::OK,
-                &PqRegisterResponse {
-                    hash: record.hash,
-                    registered_at: record.registered_at.to_rfc3339(),
-                },
-            )
+            match crate::admin_ops::persisted_query_register(&state, &actor, &body.query).await {
+                Ok(r) => json_response(
+                    StatusCode::OK,
+                    &PqRegisterResponse {
+                        hash: r.hash,
+                        registered_at: r.registered_at,
+                    },
+                ),
+                Err(e) => admin_err(e),
+            }
         })
     })
 }
@@ -1260,23 +1095,16 @@ pub fn get_persisted_query_handler(state: Arc<AppState>, guardian: Arc<KeyGuardi
                 return empty_status(status);
             }
             let hash = params.get("hash").unwrap_or("").to_string();
-            match persisted_query_store(&state).get(&hash).await {
-                Ok(Some(record)) => json_response(
+            match crate::admin_ops::persisted_query_get(&state, &hash).await {
+                Ok(r) => json_response(
                     StatusCode::OK,
                     &PqQueryResponse {
-                        hash: record.hash,
-                        query: record.document,
-                        registered_at: record.registered_at.to_rfc3339(),
+                        hash: r.hash,
+                        query: r.query,
+                        registered_at: r.registered_at,
                     },
                 ),
-                Ok(None) => json_response(
-                    StatusCode::NOT_FOUND,
-                    &serde_json::json!({ "error": format!("persisted query not found: {hash}") }),
-                ),
-                Err(e) => json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    &serde_json::json!({ "error": e.to_string() }),
-                ),
+                Err(e) => admin_err(e),
             }
         })
     })
@@ -1319,9 +1147,8 @@ pub fn purge_page_handler(
                 Ok(v) => v,
                 Err(resp) => return resp,
             };
-            cache.purge(&body.path).await;
-            crate::audit::record(&state, &actor, "cache.purge", body.path.clone()).await;
-            json_response(StatusCode::OK, &PurgeResponse { purged: body.path })
+            let purged = crate::admin_ops::cache_purge(&state, &cache, &actor, &body.path).await;
+            json_response(StatusCode::OK, &PurgeResponse { purged })
         })
     })
 }
@@ -1350,14 +1177,8 @@ pub fn purge_all_pages_handler(
                     ),
                     Err(status) => return empty_status(status),
                 };
-            cache.purge_all().await;
-            crate::audit::record(&state, &actor, "cache.purge_all", "*").await;
-            json_response(
-                StatusCode::OK,
-                &PurgeResponse {
-                    purged: "*".to_string(),
-                },
-            )
+            let purged = crate::admin_ops::cache_purge_all(&state, &cache, &actor).await;
+            json_response(StatusCode::OK, &PurgeResponse { purged })
         })
     })
 }
@@ -2478,15 +2299,6 @@ pub fn session_logout_handler(sessions: Arc<dyn SessionBackend>) -> Handler {
     })
 }
 
-fn to_flag_response(flag: &FeatureFlag) -> FeatureFlagResponse {
-    FeatureFlagResponse {
-        name: flag.name.clone(),
-        enabled: flag.enabled,
-        rollout_percent: flag.rollout_percent,
-        description: flag.description.clone(),
-    }
-}
-
 /// POST /api/feature-flags — create-or-update a feature flag (Cosmo
 /// Feature Flags parity: canary releases / percentage-based traffic
 /// routing, see `docs/cosmo-parity.md` 4a and
@@ -2537,31 +2349,9 @@ pub fn feature_flag_upsert_handler(state: Arc<AppState>, guardian: Arc<KeyGuardi
                 },
             };
 
-            let flag = FeatureFlag::new(body.name)
-                .enabled(body.enabled)
-                .rollout_percent(body.rollout_percent)
-                .description(body.description);
-
-            // The mutex guard is a temporary here (not bound to a variable),
-            // so it drops at the end of this statement -- before the `.await`
-            // below -- keeping the returned future `Send` (see db/schema
-            // handlers above for the same pattern).
-            let result = state
-                .feature_flags
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .upsert(flag);
-
-            match result {
-                Ok(saved) => {
-                    crate::audit::record(&state, &actor, "feature_flag.upsert", saved.name.clone())
-                        .await;
-                    json_response(StatusCode::OK, &to_flag_response(&saved))
-                },
-                Err(e) => json_response(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    &serde_json::json!({ "error": e.to_string() }),
-                ),
+            match crate::admin_ops::flag_upsert(&state, &actor, body).await {
+                Ok(saved) => json_response(StatusCode::OK, &saved),
+                Err(e) => admin_err(e),
             }
         })
     })
@@ -2579,15 +2369,7 @@ pub fn feature_flag_list_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian
             {
                 return empty_status(status);
             }
-            let registry = state
-                .feature_flags
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let flags = registry
-                .list()
-                .iter()
-                .map(|f| to_flag_response(f))
-                .collect();
+            let flags = crate::admin_ops::flag_list(&state);
             json_response(StatusCode::OK, &FeatureFlagListResponse { flags })
         })
     })
@@ -2606,16 +2388,9 @@ pub fn feature_flag_get_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
                 return empty_status(status);
             }
             let name = params.get("name").unwrap_or("").to_string();
-            let registry = state
-                .feature_flags
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            match registry.get(&name) {
-                Some(flag) => json_response(StatusCode::OK, &to_flag_response(flag)),
-                None => json_response(
-                    StatusCode::NOT_FOUND,
-                    &serde_json::json!({ "error": format!("feature flag not found: {name}") }),
-                ),
+            match crate::admin_ops::flag_get(&state, &name) {
+                Ok(flag) => json_response(StatusCode::OK, &flag),
+                Err(e) => admin_err(e),
             }
         })
     })
@@ -2641,26 +2416,13 @@ pub fn feature_flag_delete_handler(state: Arc<AppState>, guardian: Arc<KeyGuardi
                 };
             let name = params.get("name").unwrap_or("").to_string();
 
-            let existed = {
-                let mut registry = state
-                    .feature_flags
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                registry.delete(&name)
-            };
-
-            if !existed {
-                return json_response(
-                    StatusCode::NOT_FOUND,
-                    &serde_json::json!({ "error": format!("feature flag not found: {name}") }),
-                );
+            match crate::admin_ops::flag_delete(&state, &actor, &name).await {
+                Ok(()) => json_response(
+                    StatusCode::OK,
+                    &serde_json::json!({ "name": name, "deleted": true }),
+                ),
+                Err(e) => admin_err(e),
             }
-
-            crate::audit::record(&state, &actor, "feature_flag.delete", name.clone()).await;
-            json_response(
-                StatusCode::OK,
-                &serde_json::json!({ "name": name, "deleted": true }),
-            )
         })
     })
 }
@@ -2683,23 +2445,9 @@ pub fn feature_flag_evaluate_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
             let query = query_params(&req);
             let bucket_key = query.get("bucket_key").cloned().unwrap_or_default();
 
-            let registry = state
-                .feature_flags
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            match registry.evaluate(&name, &bucket_key) {
-                Some(enabled) => json_response(
-                    StatusCode::OK,
-                    &FeatureFlagEvaluationResponse {
-                        name,
-                        bucket_key,
-                        enabled,
-                    },
-                ),
-                None => json_response(
-                    StatusCode::NOT_FOUND,
-                    &serde_json::json!({ "error": format!("feature flag not found: {name}") }),
-                ),
+            match crate::admin_ops::flag_evaluate(&state, &name, &bucket_key) {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
             }
         })
     })

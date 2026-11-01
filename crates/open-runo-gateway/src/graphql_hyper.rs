@@ -16,7 +16,9 @@ use crate::{
 };
 use open_runo_cache::InMemoryTtlCache;
 use open_runo_persisted_queries::{EnforcementMode, PersistedQueryStore};
+use open_runo_router::auth_hyper::authenticate_with_session;
 use open_runo_router::hyper_compat::{html_response, json_response, read_json_body, Handler};
+use open_runo_router::keyring::{GuardianConfig, KeyGuardian};
 use open_runo_router::state::AppState;
 use std::sync::Arc;
 
@@ -39,17 +41,30 @@ pub fn graphql_post_handler(
     store: Arc<PersistedQueryStore>,
     cache: Arc<GatewayCache>,
     remotes: RemoteSubgraphs,
+    state: Arc<AppState>,
+    guardian: Arc<KeyGuardian>,
 ) -> Handler {
     Arc::new(move |req, _params| {
         let remotes = remotes.clone();
+        let state = Arc::clone(&state);
+        let guardian = Arc::clone(&guardian);
         let schema = schema.clone();
         let store = Arc::clone(&store);
         let cache = Arc::clone(&cache);
         Box::pin(async move {
+            // 管理操作(`admin`)用の認証: 成功時のみ`Actor`をコンテキストへ渡す。
+            // 失敗しても公開フィールドは従来どおり動く(`admin`だけ401相当で失敗)。
+            let actor =
+                authenticate_with_session(req.headers(), req.method(), &guardian, &state.sessions)
+                    .await
+                    .ok();
             let mut request: async_graphql::Request = match read_json_body(req).await {
                 Ok(v) => v,
                 Err(resp) => return resp,
             };
+            if let Some(actor) = actor {
+                request = request.data(actor);
+            }
 
             let hash = persisted_query_hash(&request);
             let raw = if request.query.trim().is_empty() {
@@ -125,6 +140,10 @@ pub fn graphql_post_handler(
 /// `POST /graphql` → query execution can share one path string).
 pub fn graphql_handlers(state: Arc<AppState>) -> (Handler, Handler) {
     let schema = crate::build_schema(Arc::clone(&state));
+    let guardian = Arc::new(KeyGuardian::new(
+        Arc::clone(&state.db),
+        GuardianConfig::from_env(),
+    ));
     let store = Arc::new(PersistedQueryStore::new(
         Arc::clone(&state.db),
         crate::pq_mode_from_env(),
@@ -135,7 +154,14 @@ pub fn graphql_handlers(state: Arc<AppState>) -> (Handler, Handler) {
     });
     (
         graphiql_handler(),
-        graphql_post_handler(schema, store, cache, RemoteSubgraphs::from_env()),
+        graphql_post_handler(
+            schema,
+            store,
+            cache,
+            RemoteSubgraphs::from_env(),
+            state,
+            guardian,
+        ),
     )
 }
 

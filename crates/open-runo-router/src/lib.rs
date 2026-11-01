@@ -26,6 +26,7 @@
 #![recursion_limit = "256"]
 
 pub mod acme;
+pub mod admin_ops;
 pub mod audit;
 pub mod auth_hyper;
 pub mod body_limit;
@@ -76,9 +77,7 @@ pub async fn build_hyper_app(
         Arc::clone(&state.db),
         GuardianConfig::from_env(),
     ));
-    let page_cache = Arc::new(middleware::html_cache::HtmlPageCache::new(
-        middleware::html_cache::HtmlCacheConfig::from_env(),
-    ));
+    let page_cache = Arc::clone(&state.page_cache);
     // `OPEN_RUNO_RATE_LIMIT_REDIS_URL` (+ the `redis-rate-limit` feature)
     // switches this to a Redis-backed limiter shared across every instance
     // behind a load balancer; unset (the default) keeps the existing
