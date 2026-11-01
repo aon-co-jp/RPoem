@@ -24,6 +24,9 @@ pub mod v1 {
 /// `admin.proto` の `FileDescriptorSet`(エンコード済み)。
 pub const FILE_DESCRIPTOR_SET: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/admin_fds.bin"));
 
+/// `admin.proto`の本文(CLIの`proto`コマンドや文書用。定義の唯一の正)。
+pub const ADMIN_PROTO: &str = include_str!("../proto/open_runo/admin/v1/admin.proto");
+
 /// 管理サービスの完全修飾名。
 pub const ADMIN_SERVICE: &str = "open_runo.admin.v1.Admin";
 

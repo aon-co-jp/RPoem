@@ -1,0 +1,18 @@
+<!doctype html><meta charset="utf-8"><title>connect-rust -> RPoem Admin</title>
+<pre id="out">loading</pre>
+<script type="module">
+import init, { self_issue, admin_flow } from "./pkg/admin_probe.js";
+const out = document.getElementById("out");
+const q = new URLSearchParams(location.search);
+const base = q.get("base") || "http://127.0.0.1:8080";
+const lines = [];
+try {
+  await init();
+  for (const json of [false, true]) {
+    const key = await self_issue(base, json);
+    lines.push((json ? "[JSON] " : "[proto] ") + "SelfIssueKey -> " + key.slice(0, 8) + "...");
+    lines.push(await admin_flow(base, key, json));
+  }
+  out.textContent = "OK\n" + lines.join("\n");
+} catch (e) { out.textContent = "ERR: " + e + "\n" + lines.join("\n"); }
+</script>

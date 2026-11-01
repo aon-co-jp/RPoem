@@ -76,13 +76,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await;
 
-    let grpc_web = open_runo_router::middleware_hyper::with_tracing(
-        open_runo_router::middleware_hyper::with_metrics(
-            open_runo_router::middleware_hyper::with_shared_rate_limit(
-                open_runo_router::grpc_admin::grpc_web_handler(admin_grpc.clone()),
-                Arc::clone(&graphql_limiter),
+    // ブラウザ向けの入口(gRPC-web / gRPC-web-text / Connect を同じパスで受ける)。
+    // 別オリジンのブラウザ(connect-rustのWASMクライアント等)から呼べるようCORSも付ける。
+    let grpc_web = open_runo_router::middleware_hyper::with_cors(
+        open_runo_router::middleware_hyper::with_tracing(
+            open_runo_router::middleware_hyper::with_metrics(
+                open_runo_router::middleware_hyper::with_shared_rate_limit(
+                    open_runo_router::grpc_admin::browser_handler(admin_grpc.clone()),
+                    Arc::clone(&graphql_limiter),
+                ),
+                Arc::clone(&request_metrics),
             ),
-            Arc::clone(&request_metrics),
         ),
     );
     let mut app = build_hyper_app(

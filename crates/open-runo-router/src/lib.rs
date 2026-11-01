@@ -26,6 +26,7 @@ pub mod admin_sys;
 pub mod audit;
 pub mod auth_hyper;
 pub mod body_limit;
+pub mod connect;
 pub mod edfs;
 pub mod grpc;
 pub mod grpc_admin;

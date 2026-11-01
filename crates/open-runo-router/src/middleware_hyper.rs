@@ -212,9 +212,16 @@ pub fn with_cors(inner: Handler) -> Handler {
             );
             headers.insert(
                 "access-control-allow-headers",
-                "x-api-key, authorization, content-type".parse().unwrap(),
+                "x-api-key, authorization, content-type, x-csrf-token, connect-protocol-version,                  connect-timeout-ms, connect-content-encoding, x-grpc-web, x-user-agent, grpc-timeout"
+                    .parse()
+                    .unwrap(),
             );
             headers.insert("access-control-max-age", "3600".parse().unwrap());
+            // ブラウザのgRPC-web/Connectクライアントがステータスを読めるようにする。
+            headers.insert(
+                "access-control-expose-headers",
+                "grpc-status, grpc-message, x-request-id".parse().unwrap(),
+            );
             resp
         })
     })

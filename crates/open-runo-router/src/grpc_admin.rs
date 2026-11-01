@@ -499,6 +499,9 @@ enum Wire {
     Grpc,
     /// 本体の末尾にトレーラーフレーム(`0x80`)を置く。
     Web,
+    /// `application/grpc-web-text`: gRPC-webの各フレームをbase64にしたもの(公式の`grpc-web`
+    /// JSクライアントの既定。バイナリのストリーミングが使えない古いブラウザ/XHR向け)。
+    WebText,
 }
 
 /// 管理サービスのパスから`method`を取り出す(`/open_runo.admin.v1.Admin/<method>`)。
@@ -513,6 +516,7 @@ fn head(wire: Wire, extra: &[(&'static str, String)]) -> hyper::http::response::
     let ct = match wire {
         Wire::Grpc => "application/grpc+proto",
         Wire::Web => "application/grpc-web+proto",
+        Wire::WebText => "application/grpc-web-text+proto",
     };
     let mut b = hyper::Response::builder()
         .status(hyper::StatusCode::OK)
@@ -523,8 +527,57 @@ fn head(wire: Wire, extra: &[(&'static str, String)]) -> hyper::http::response::
     b
 }
 
+/// base64(パディング付き)。`grpc-web-text`ではフレームごとに独立してエンコードする
+/// (仕様上、クライアントはパディング付きのbase64チャンクの連結を受け取れる)。
+fn b64(bytes: &[u8]) -> Bytes {
+    use base64::Engine as _;
+    Bytes::from(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// `grpc-web-text`の要求本体(パディング付きチャンクの連結でもよい)を元のバイト列へ戻す。
+pub fn decode_text_body(body: &[u8]) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    let text: Vec<u8> = body
+        .iter()
+        .copied()
+        .filter(|b| !b.is_ascii_whitespace())
+        .collect();
+    let mut out = Vec::new();
+    let mut rest: &[u8] = &text;
+    while !rest.is_empty() {
+        // 次のパディング(`=`)の並びの終わりまでを1チャンクとして読む。
+        let end = match rest.iter().position(|&b| b == b'=') {
+            Some(i) => {
+                let mut j = i;
+                while j < rest.len() && rest[j] == b'=' {
+                    j += 1;
+                }
+                j
+            },
+            None => rest.len(),
+        };
+        out.extend(
+            base64::engine::general_purpose::STANDARD
+                .decode(&rest[..end])
+                .ok()?,
+        );
+        rest = &rest[end..];
+    }
+    Some(out)
+}
+
+/// データフレーム(gRPCのメッセージフレーム)を通信路の形にする。
+fn data_frame(wire: Wire, message: &[u8]) -> Frame<Bytes> {
+    let framed = open_runo_proto::encode_frame(message);
+    match wire {
+        Wire::WebText => Frame::data(b64(&framed)),
+        _ => Frame::data(Bytes::from(framed)),
+    }
+}
+
 fn finish(wire: Wire, status: i32, message: &str) -> Frame<Bytes> {
     match wire {
+        Wire::WebText => Frame::data(b64(&open_runo_proto::encode_web_trailers(status, message))),
         Wire::Web => Frame::data(Bytes::from(open_runo_proto::encode_web_trailers(
             status, message,
         ))),
@@ -547,17 +600,24 @@ fn error_response(wire: Wire, e: &GrpcErr) -> Response {
 
 /// gRPC / gRPC-web の1要求を処理する。
 async fn handle(admin: &AdminGrpc, req: Request, wire: Wire) -> Response {
-    let Some(method) = method_of(req.uri().path()).map(str::to_string) else {
-        return error_response(wire, &GrpcErr::new(code::UNIMPLEMENTED, "unknown service"));
-    };
     let headers = req.headers().clone();
     let ct = headers
         .get("content-type")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_string();
+    // gRPC-webの入口では、Content-Typeでバイナリ版とbase64版を切り替える。
+    let wire = if wire == Wire::Web && ct.starts_with("application/grpc-web-text") {
+        Wire::WebText
+    } else {
+        wire
+    };
+    let Some(method) = method_of(req.uri().path()).map(str::to_string) else {
+        return error_response(wire, &GrpcErr::new(code::UNIMPLEMENTED, "unknown service"));
+    };
     let ok_ct = match wire {
         Wire::Grpc => ct.starts_with("application/grpc") && !ct.starts_with("application/grpc-web"),
-        Wire::Web => ct.starts_with("application/grpc-web"),
+        Wire::Web | Wire::WebText => ct.starts_with("application/grpc-web"),
     };
     if !ok_ct {
         return error_response(
@@ -576,6 +636,19 @@ async fn handle(admin: &AdminGrpc, req: Request, wire: Wire) -> Response {
                 &GrpcErr::new(code::RESOURCE_EXHAUSTED, "request too large"),
             );
         },
+    };
+    let collected = if wire == Wire::WebText {
+        match decode_text_body(&collected) {
+            Some(b) => Bytes::from(b),
+            None => {
+                return error_response(
+                    wire,
+                    &GrpcErr::new(code::INVALID_ARGUMENT, "invalid base64 body"),
+                );
+            },
+        }
+    } else {
+        collected
     };
     let message = match open_runo_proto::split_frame(&collected) {
         Some((0, body, _)) => body.to_vec(),
@@ -601,9 +674,7 @@ async fn handle(admin: &AdminGrpc, req: Request, wire: Wire) -> Response {
             headers,
         }) => {
             let frames = vec![
-                Ok::<_, Infallible>(Frame::data(Bytes::from(open_runo_proto::encode_frame(
-                    &bytes,
-                )))),
+                Ok::<_, Infallible>(data_frame(wire, &bytes)),
                 Ok(finish(wire, code::OK, "")),
             ];
             let body: Body = BodyExt::boxed(StreamBody::new(futures::stream::iter(frames)));
@@ -615,9 +686,7 @@ async fn handle(admin: &AdminGrpc, req: Request, wire: Wire) -> Response {
             reply: Reply::Stream(s),
             headers,
         }) => {
-            let data = s.map(|m| {
-                Ok::<_, Infallible>(Frame::data(Bytes::from(open_runo_proto::encode_frame(&m))))
-            });
+            let data = s.map(move |m| Ok::<_, Infallible>(data_frame(wire, &m)));
             let end =
                 futures::stream::once(
                     async move { Ok::<_, Infallible>(finish(wire, code::OK, "")) },
@@ -636,10 +705,33 @@ pub async fn handle_grpc(admin: &AdminGrpc, req: Request) -> Response {
 }
 
 /// gRPC-web用のHTTPハンドラ。`POST /open_runo.admin.v1.Admin/:method`に載せる。
+/// (Content-Typeが`application/grpc-web*`のものだけ。[`browser_handler`]はConnectも受ける)
 pub fn grpc_web_handler(admin: AdminGrpc) -> crate::hyper_compat::Handler {
     Arc::new(move |req, _params| {
         let admin = admin.clone();
         Box::pin(async move { handle(&admin, req, Wire::Web).await })
+    })
+}
+
+/// ブラウザ向けの入口。同じパスに載せ、Content-Typeで振り分ける:
+/// `application/grpc-web[-text]*` → gRPC-web、`application/proto|json`・`application/connect+*` →
+/// [Connect](crate::connect)。どちらもプロキシ無しで普通のHTTPとして動く。
+pub fn browser_handler(admin: AdminGrpc) -> crate::hyper_compat::Handler {
+    Arc::new(move |req, _params| {
+        let admin = admin.clone();
+        Box::pin(async move {
+            let ct = req
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            if crate::connect::is_connect_content_type(&ct) {
+                crate::connect::handle(&admin, req).await
+            } else {
+                handle(&admin, req, Wire::Web).await
+            }
+        })
     })
 }
 
@@ -953,6 +1045,95 @@ mod tests {
         assert!(
             text.contains("RegisterSchema") && text.contains("WatchEvents"),
             "{text}"
+        );
+    }
+
+    #[test]
+    fn text_body_decoder_accepts_concatenated_padded_chunks() {
+        use base64::Engine as _;
+        let e = base64::engine::general_purpose::STANDARD;
+        let (a, b) = (e.encode(b"hello"), e.encode(b"world!!"));
+        assert_eq!(
+            decode_text_body(format!("{a}{b}").as_bytes()).unwrap(),
+            b"helloworld!!"
+        );
+        assert_eq!(
+            decode_text_body(format!("{a}\n{b}").as_bytes()).unwrap(),
+            b"helloworld!!"
+        );
+        assert!(decode_text_body(b"@@@@").is_none());
+    }
+
+    #[tokio::test]
+    async fn grpc_web_text_round_trips_like_binary() {
+        use crate::hyper_compat::{serve, Router};
+        use base64::Engine as _;
+        let e64 = base64::engine::general_purpose::STANDARD;
+        let (a, _state) = admin();
+        let app = Router::new().route(
+            Method::POST,
+            "/open_runo.admin.v1.Admin/:method",
+            grpc_web_handler(a),
+        );
+        let (addr, _h) = serve(app, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+        let url = |m: &str| format!("http://{addr}/open_runo.admin.v1.Admin/{m}");
+        let post = |m: &str, msg: &[u8], key: Option<&str>| {
+            let mut r = reqwest::Client::new()
+                .post(url(m))
+                .header("content-type", "application/grpc-web-text")
+                .header("accept", "application/grpc-web-text")
+                .body(e64.encode(open_runo_proto::encode_frame(msg)));
+            if let Some(k) = key {
+                r = r.header("x-api-key", k);
+            }
+            async move { r.send().await.unwrap() }
+        };
+        // 応答は base64(データフレーム)+base64(トレーラーフレーム)の連結。
+        let resp = post("SelfIssueKey", &v1::Empty {}.encode_to_vec(), None).await;
+        assert_eq!(
+            resp.headers()["content-type"],
+            "application/grpc-web-text+proto"
+        );
+        let raw = decode_text_body(&resp.bytes().await.unwrap()).unwrap();
+        let (flag, msg, rest) = open_runo_proto::split_frame(&raw).unwrap();
+        assert_eq!(flag, 0);
+        let issued = v1::SelfIssued::decode(msg).unwrap();
+        let (tflag, tbody, _) = open_runo_proto::split_frame(rest).unwrap();
+        assert_eq!(tflag, 0x80);
+        assert_eq!(open_runo_proto::parse_web_trailers(tbody).0, 0);
+
+        // エラーもbase64のトレーラーで返る。
+        let resp = post("DbStatus", &v1::Empty {}.encode_to_vec(), None).await;
+        let raw = decode_text_body(&resp.bytes().await.unwrap()).unwrap();
+        let (_, tbody, _) = open_runo_proto::split_frame(&raw).unwrap();
+        assert_eq!(
+            open_runo_proto::parse_web_trailers(tbody).0,
+            code::UNAUTHENTICATED
+        );
+
+        // 鍵付きなら通る。壊れたbase64はINVALID_ARGUMENT。
+        let resp = post(
+            "DbStatus",
+            &v1::Empty {}.encode_to_vec(),
+            Some(&issued.api_key),
+        )
+        .await;
+        let raw = decode_text_body(&resp.bytes().await.unwrap()).unwrap();
+        let (_, msg, _) = open_runo_proto::split_frame(&raw).unwrap();
+        let s = open_runo_proto::prost_types::Struct::decode(msg).unwrap();
+        assert_eq!(open_runo_proto::struct_to_json(&s)["status"], "ok");
+        let bad = reqwest::Client::new()
+            .post(url("DbStatus"))
+            .header("content-type", "application/grpc-web-text")
+            .body("@@@@")
+            .send()
+            .await
+            .unwrap();
+        let raw = decode_text_body(&bad.bytes().await.unwrap()).unwrap();
+        let (_, tbody, _) = open_runo_proto::split_frame(&raw).unwrap();
+        assert_eq!(
+            open_runo_proto::parse_web_trailers(tbody).0,
+            code::INVALID_ARGUMENT
         );
     }
 }

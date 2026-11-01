@@ -1,0 +1,10 @@
+// connect-rust のワークスペース(examples/admin-probe)に置いて使う。descriptor_set は
+// mkfds(protoxで admin.proto から作る記述子セット)の出力を指す。README 参照。
+fn main() {
+    connectrpc_build::Config::new()
+        .descriptor_set("admin.fds")
+        .files(&["open_runo/admin/v1/admin.proto"])
+        .include_file("_connectrpc.rs")
+        .compile()
+        .expect("failed to compile protos");
+}

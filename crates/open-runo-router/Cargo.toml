@@ -29,6 +29,8 @@ open-runo-scim             = { workspace = true }
 open-runo-cache            = { workspace = true }
 open-runo-api-types        = { workspace = true }
 open-runo-proto            = { workspace = true }
+base64 = "0.23"
+prost-reflect = { version = "0.16", features = ["serde"] }
 open-runo-openapi          = { workspace = true }
 open-runo-feature-flags    = { workspace = true }
 schemars = { workspace = true }
