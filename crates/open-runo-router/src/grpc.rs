@@ -385,7 +385,10 @@ fn build_health_file_descriptor_proto() -> Bytes {
 /// this server doesn't recognize the symbol (the caller should respond
 /// `NOT_FOUND`, mirroring how `Check`/`Watch` already report `NOT_FOUND`
 /// for a health-check request naming an unknown service).
-fn resolve_symbol_file_descriptor(symbol: &str) -> Option<Bytes> {
+fn resolve_symbol_file_descriptor(symbol: &str, admin: bool) -> Option<Vec<Bytes>> {
+    if admin && symbol.starts_with("open_runo.admin.v1") {
+        return admin_descriptor_files("open_runo/admin/v1/admin.proto");
+    }
     const HEALTH_SYMBOLS: &[&str] = &[
         "grpc.health.v1.Health",
         "grpc.health.v1.Health.Check",
@@ -394,10 +397,28 @@ fn resolve_symbol_file_descriptor(symbol: &str) -> Option<Bytes> {
         "grpc.health.v1.HealthCheckResponse",
     ];
     if HEALTH_SYMBOLS.contains(&symbol) {
-        Some(build_health_file_descriptor_proto())
+        Some(vec![build_health_file_descriptor_proto()])
     } else {
         None
     }
+}
+
+/// `admin.proto`(と、それが依存するファイル)の`FileDescriptorProto`群。`open-runo-proto`が
+/// ビルド時に`protox`で生成した記述子セットから取り出す。先頭が要求されたファイル、続いて依存。
+fn admin_descriptor_files(filename: &str) -> Option<Vec<Bytes>> {
+    use open_runo_proto::prost::Message;
+    let fds = open_runo_proto::prost_types::FileDescriptorSet::decode(
+        open_runo_proto::FILE_DESCRIPTOR_SET,
+    )
+    .ok()?;
+    let wanted = fds.file.iter().find(|f| f.name() == filename)?;
+    let mut out = vec![Bytes::from(wanted.encode_to_vec())];
+    for dep in &wanted.dependency {
+        if let Some(d) = fds.file.iter().find(|f| f.name() == dep.as_str()) {
+            out.push(Bytes::from(d.encode_to_vec()));
+        }
+    }
+    Some(out)
 }
 
 /// Resolve a `file_by_filename` request's proto filename to the
@@ -407,10 +428,15 @@ fn resolve_symbol_file_descriptor(symbol: &str) -> Option<Bytes> {
 /// resolves the file path itself -- `grpcurl <addr> descriptor
 /// grpc/health/v1/health.proto` (as opposed to `describe
 /// grpc.health.v1.Health`) is the client-facing use case this closes.
-fn resolve_filename_file_descriptor(filename: &str) -> Option<Bytes> {
+fn resolve_filename_file_descriptor(filename: &str, admin: bool) -> Option<Vec<Bytes>> {
     const HEALTH_PROTO_FILENAME: &str = "grpc/health/v1/health.proto";
     if filename == HEALTH_PROTO_FILENAME {
-        Some(build_health_file_descriptor_proto())
+        Some(vec![build_health_file_descriptor_proto()])
+    } else if admin
+        && (filename == "open_runo/admin/v1/admin.proto"
+            || filename == "google/protobuf/struct.proto")
+    {
+        admin_descriptor_files(filename)
     } else {
         None
     }
@@ -419,9 +445,11 @@ fn resolve_filename_file_descriptor(filename: &str) -> Option<Bytes> {
 /// Build the `ServerReflectionResponse` bytes for a successful
 /// `file_containing_symbol` request: field 4 (`file_descriptor_response`)
 /// wraps a `FileDescriptorResponse { repeated bytes file_descriptor_proto = 1; }`.
-fn encode_file_descriptor_response(file_descriptor_proto: &[u8]) -> Bytes {
+fn encode_file_descriptor_response(files: &[Bytes]) -> Bytes {
     let mut fdr = BytesMut::new();
-    fdr.extend_from_slice(&encode_bytes_field(1, file_descriptor_proto));
+    for file in files {
+        fdr.extend_from_slice(&encode_bytes_field(1, file));
+    }
     let response = encode_embedded_message(4, &fdr);
     response.freeze()
 }
@@ -761,7 +789,7 @@ async fn watch_handler(req: Request) -> Response {
 /// still answered with `UNIMPLEMENTED` -- protobuf extensions aren't a
 /// concept this server's hand-rolled messages use at all, so there is no
 /// meaningful answer to give.
-async fn reflection_handler(req: Request) -> Response {
+async fn reflection_handler(req: Request, admin: bool) -> Response {
     let collected = match req.into_body().collect().await {
         Ok(c) => c.to_bytes(),
         Err(_) => return grpc_response(GrpcStatus::Internal, None),
@@ -771,11 +799,15 @@ async fn reflection_handler(req: Request) -> Response {
         Err(status) => return grpc_response(status, None),
     };
     if request_is_list_services(message) {
-        let response_bytes = encode_list_services_response(KNOWN_SERVICES);
+        let mut services: Vec<&str> = KNOWN_SERVICES.to_vec();
+        if admin {
+            services.push(open_runo_proto::ADMIN_SERVICE);
+        }
+        let response_bytes = encode_list_services_response(&services);
         return grpc_streaming_response(GrpcStatus::Ok, &[response_bytes]);
     }
     if let Some(symbol) = extract_file_containing_symbol(message) {
-        return match resolve_symbol_file_descriptor(&symbol) {
+        return match resolve_symbol_file_descriptor(&symbol, admin) {
             Some(file_descriptor_proto) => {
                 let response_bytes = encode_file_descriptor_response(&file_descriptor_proto);
                 grpc_streaming_response(GrpcStatus::Ok, &[response_bytes])
@@ -786,7 +818,7 @@ async fn reflection_handler(req: Request) -> Response {
         };
     }
     if let Some(filename) = extract_file_by_filename(message) {
-        return match resolve_filename_file_descriptor(&filename) {
+        return match resolve_filename_file_descriptor(&filename, admin) {
             Some(file_descriptor_proto) => {
                 let response_bytes = encode_file_descriptor_response(&file_descriptor_proto);
                 grpc_streaming_response(GrpcStatus::Ok, &[response_bytes])
@@ -801,12 +833,54 @@ async fn reflection_handler(req: Request) -> Response {
     grpc_response(GrpcStatus::Unimplemented, None)
 }
 
+/// 1接続分のサービス(パスでHealth/Reflection/管理サービスへ振り分ける)。
+fn grpc_service(
+    admin: Option<crate::grpc_admin::AdminGrpc>,
+) -> impl hyper::service::Service<
+    Request,
+    Response = Response,
+    Error = Infallible,
+    Future = impl std::future::Future<Output = Result<Response, Infallible>> + Send,
+> + Clone {
+    hyper::service::service_fn(move |req: Request| {
+        let admin = admin.clone();
+        async move {
+            let path = req.uri().path().to_string();
+            let resp = if path == "/grpc.health.v1.Health/Check" {
+                health_check_handler(req).await
+            } else if path == "/grpc.health.v1.Health/Watch" {
+                watch_handler(req).await
+            } else if path == "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo" {
+                reflection_handler(req, admin.is_some()).await
+            } else if let (Some(admin), true) = (
+                admin.as_ref(),
+                crate::grpc_admin::method_of(&path).is_some(),
+            ) {
+                crate::grpc_admin::handle_grpc(admin, req).await
+            } else {
+                grpc_response(GrpcStatus::Unimplemented, None)
+            };
+            Ok::<Response, Infallible>(resp)
+        }
+    })
+}
+
 /// Serve the gRPC health-check service over real HTTP/2 (h2c, prior
 /// knowledge -- no TLS required, matching how most internal/dev gRPC
 /// traffic runs). Returns the bound address and a task handle, same
 /// shape as `hyper_compat::serve`/`hyper_compat::tls::serve_tls`.
 pub async fn serve_grpc(
     addr: std::net::SocketAddr,
+) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    serve_grpc_with(addr, None).await
+}
+
+/// [`serve_grpc`] に管理サービス(`open_runo.admin.v1.Admin`)を載せられる版。
+/// `admin`が`Some`なら、Health/Reflectionに加えて管理サービスを同じポートで提供する
+/// (平文のh2c。本番はTLS1.3必須の[`serve_grpc_tls`]を使う)。
+pub async fn serve_grpc_with(
+    addr: std::net::SocketAddr,
+    admin: Option<crate::grpc_admin::AdminGrpc>,
 ) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
     use hyper_util::rt::{TokioExecutor, TokioIo};
     use tokio::net::TcpListener;
@@ -821,21 +895,16 @@ pub async fn serve_grpc(
                 Err(_) => continue,
             };
             let io = TokioIo::new(stream);
+            let admin = admin.clone();
             tokio::spawn(async move {
-                let service = hyper::service::service_fn(move |req: Request| async move {
-                    let path = req.uri().path();
-                    let resp = if path == "/grpc.health.v1.Health/Check" {
-                        health_check_handler(req).await
-                    } else if path == "/grpc.health.v1.Health/Watch" {
-                        watch_handler(req).await
-                    } else if path == "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo" {
-                        reflection_handler(req).await
-                    } else {
-                        grpc_response(GrpcStatus::Unimplemented, None)
-                    };
-                    Ok::<Response, Infallible>(resp)
-                });
+                let service = grpc_service(admin);
+                // HTTP/2 Rapid Reset(CVE-2023-44487)などストリーム濫用への備え: 1接続あたりの
+                // 同時ストリーム数・リセット済みストリームの滞留数・ローカルエラー由来のリセット数に
+                // 上限を置く(超えるとGOAWAYで切る)。既定値に頼らず明示する。
                 let _ = hyper::server::conn::http2::Builder::new(TokioExecutor::new())
+                    .max_concurrent_streams(128)
+                    .max_pending_accept_reset_streams(Some(20))
+                    .max_local_error_reset_streams(Some(1024))
                     .serve_connection(io, service)
                     .await;
             });
@@ -1416,10 +1485,10 @@ mod tests {
 
     #[test]
     fn resolve_symbol_file_descriptor_recognizes_health_service_and_its_methods() {
-        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health").is_some());
-        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Check").is_some());
-        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Watch").is_some());
-        assert!(resolve_symbol_file_descriptor("no.such.Service").is_none());
+        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health", false).is_some());
+        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Check", false).is_some());
+        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Watch", false).is_some());
+        assert!(resolve_symbol_file_descriptor("no.such.Service", false).is_none());
     }
 
     #[test]
@@ -1444,8 +1513,8 @@ mod tests {
 
     #[test]
     fn resolve_filename_file_descriptor_recognizes_the_health_proto_file() {
-        assert!(resolve_filename_file_descriptor("grpc/health/v1/health.proto").is_some());
-        assert!(resolve_filename_file_descriptor("no/such/file.proto").is_none());
+        assert!(resolve_filename_file_descriptor("grpc/health/v1/health.proto", false).is_some());
+        assert!(resolve_filename_file_descriptor("no/such/file.proto", false).is_none());
     }
 
     #[test]

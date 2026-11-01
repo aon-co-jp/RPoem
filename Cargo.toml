@@ -30,6 +30,7 @@ members = [
     "crates/open-runo-sr",
     "crates/open-runo-glyph",
     "crates/open-runo-crossui",
+    "crates/open-runo-proto",
 ]
 
 resolver = "2"
@@ -101,6 +102,7 @@ open-runo-cache = { path = "crates/open-runo-cache" }
 open-runo-api-types = { path = "crates/open-runo-api-types" }
 open-runo-openapi = { path = "crates/open-runo-openapi" }
 open-runo-feature-flags = { path = "crates/open-runo-feature-flags" }
+open-runo-proto = { path = "crates/open-runo-proto" }
 
 # Quality Gate: workspace-wide lint policy.
 # Individual crates opt in via `[lints] workspace = true`.

@@ -28,6 +28,7 @@ pub mod auth_hyper;
 pub mod body_limit;
 pub mod edfs;
 pub mod grpc;
+pub mod grpc_admin;
 pub mod handlers_hyper;
 pub mod hyper_compat;
 pub mod keyring;

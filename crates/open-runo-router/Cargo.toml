@@ -28,6 +28,7 @@ open-runo-persisted-queries = { workspace = true }
 open-runo-scim             = { workspace = true }
 open-runo-cache            = { workspace = true }
 open-runo-api-types        = { workspace = true }
+open-runo-proto            = { workspace = true }
 open-runo-openapi          = { workspace = true }
 open-runo-feature-flags    = { workspace = true }
 schemars = { workspace = true }
@@ -120,6 +121,7 @@ redis-session = ["dep:redis"]
 clickhouse = ["open-runo-observability/clickhouse"]
 
 [dev-dependencies]
+open-runo-proto = { workspace = true, features = ["client"] }
 jsonwebtoken = { workspace = true }
 poem = { workspace = true, features = ["test"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "multipart"] }

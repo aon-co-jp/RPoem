@@ -35,6 +35,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = Arc::new(AppState::new());
     let request_metrics = Arc::clone(&state.request_metrics);
+    // 管理用 gRPC(`open_runo.admin.v1.Admin`)。通信路は2つ: 素のgRPC(HTTP/2、
+    // `OPEN_RUNO_GRPC_BIND_ADDR`で別ポート)と、ブラウザ(管理画面WASM)向けのgRPC-web
+    // (本体のHTTPルーター上の`POST /open_runo.admin.v1.Admin/:method`)。
+    let grpc_guardian = Arc::new(KeyGuardian::new(
+        Arc::clone(&state.db),
+        GuardianConfig::from_env(),
+    ));
+    let admin_grpc = open_runo_router::grpc_admin::AdminGrpc::new(
+        Arc::clone(&state),
+        Arc::clone(&grpc_guardian),
+    );
     let (graphiql, graphql_post) =
         open_runo_gateway::graphql_hyper::graphql_handlers(Arc::clone(&state));
     let (graphql_sdl, graphql_ws) =
@@ -65,12 +76,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await;
 
+    let grpc_web = open_runo_router::middleware_hyper::with_tracing(
+        open_runo_router::middleware_hyper::with_metrics(
+            open_runo_router::middleware_hyper::with_shared_rate_limit(
+                open_runo_router::grpc_admin::grpc_web_handler(admin_grpc.clone()),
+                Arc::clone(&graphql_limiter),
+            ),
+            Arc::clone(&request_metrics),
+        ),
+    );
     let mut app = build_hyper_app(
         state,
         config.rate_limit_max_requests,
         config.rate_limit_window_secs as i64,
     )
     .await
+    .route(
+        hyper::Method::POST,
+        "/open_runo.admin.v1.Admin/:method",
+        grpc_web,
+    )
     .route(hyper::Method::GET, "/graphql", graphiql)
     .route(hyper::Method::GET, "/graphql/schema.graphql", graphql_sdl)
     .route(hyper::Method::GET, "/graphql/ws", graphql_ws)
@@ -126,6 +151,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
             tracing::info!(bind_addr = %bind, "appserver tenant proxy listening (shared, multi-domain, no per-domain install)");
             Some(server)
+        },
+        None => None,
+    };
+
+    // 素のgRPC(HTTP/2)。本番ではTLS1.3必須(S3で`OPEN_RUNO_GRPC_TLS_*`を追加)。
+    let _grpc_server = match std::env::var("OPEN_RUNO_GRPC_BIND_ADDR").ok() {
+        Some(bind) => {
+            let addr = bind
+                .parse()
+                .map_err(|e| format!("invalid OPEN_RUNO_GRPC_BIND_ADDR {bind:?}: {e}"))?;
+            let (bound, handle) =
+                open_runo_router::grpc::serve_grpc_with(addr, Some(admin_grpc.clone())).await?;
+            tracing::info!(%bound, "admin gRPC listening (h2c)");
+            Some(handle)
         },
         None => None,
     };
