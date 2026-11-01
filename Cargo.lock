@@ -4427,6 +4427,8 @@ dependencies = [
  "open-runo-ai-routing",
  "open-runo-api-types",
  "open-runo-cache",
+ "open-runo-connect-core",
+ "open-runo-connect-server",
  "open-runo-core",
  "open-runo-db",
  "open-runo-feature-flags",
