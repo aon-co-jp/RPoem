@@ -463,3 +463,394 @@ async fn admin_requires_valid_key_like_rest() {
     assert!(ok["admin"]["featureFlags"].is_array());
     assert_eq!(e.gql("{ health }", None).await.unwrap()["health"], "ok");
 }
+
+// ── 第2段階 ─────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn db_operations_match_rest() {
+    let (r, g) = (env().await, env().await);
+
+    let (_, rs) = r.rest(reqwest::Method::GET, "/api/db/status", None).await;
+    let gs = g.gql("{ admin { dbStatus } }", None).await.unwrap();
+    assert_eq!(gs["admin"]["dbStatus"], rs);
+
+    let (_, rr) = r.rest(reqwest::Method::GET, "/api/db/routing", None).await;
+    let gr = g.gql("{ admin { dbRouting } }", None).await.unwrap();
+    assert_eq!(gr["admin"]["dbRouting"], rr);
+
+    let value = json!({ "n": 1, "tags": ["a", "b"] });
+    let (st, rp) = r
+        .rest(
+            reqwest::Method::PUT,
+            "/api/db/notes/k1",
+            Some(json!({ "value": value })),
+        )
+        .await;
+    assert_eq!(st, 200);
+    let gp = g
+        .gql(
+            r#"mutation { admin { dbPut(table: "notes", key: "k1", value: {n: 1, tags: ["a","b"]}) } }"#,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(gp["admin"]["dbPut"], rp);
+
+    let (_, rg) = r.rest(reqwest::Method::GET, "/api/db/notes/k1", None).await;
+    let gg = g
+        .gql(r#"{ admin { dbGet(table: "notes", key: "k1") } }"#, None)
+        .await
+        .unwrap();
+    assert_eq!(gg["admin"]["dbGet"], rg);
+
+    let (_, rl) = r.rest(reqwest::Method::GET, "/api/db/notes", None).await;
+    let gl = g
+        .gql(r#"{ admin { dbList(table: "notes") } }"#, None)
+        .await
+        .unwrap();
+    assert_eq!(gl["admin"]["dbList"], rl);
+
+    // 履歴読み出しはインメモリ実装では未対応(501)。RESTと同じ。
+    let (st, _) = r
+        .rest(reqwest::Method::GET, "/api/db/notes/k1/at/abc", None)
+        .await;
+    let err = g
+        .gql(
+            r#"{ admin { dbGetAtCommit(table: "notes", key: "k1", commitId: "abc") } }"#,
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(i64::from(st), err.0);
+
+    let (_, rd) = r
+        .rest(reqwest::Method::DELETE, "/api/db/notes/k1", None)
+        .await;
+    let gd = g
+        .gql(
+            r#"mutation { admin { dbDelete(table: "notes", key: "k1") } }"#,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(gd["admin"]["dbDelete"], rd);
+    assert_eq!(
+        r.rest(reqwest::Method::GET, "/api/db/notes/k1", None)
+            .await
+            .0,
+        404
+    );
+    assert_eq!(
+        g.gql(r#"{ admin { dbGet(table: "notes", key: "k1") } }"#, None)
+            .await
+            .unwrap_err()
+            .0,
+        404
+    );
+}
+
+#[tokio::test]
+async fn analytics_and_ai_route_match_rest() {
+    let (r, g) = (env().await, env().await);
+
+    let (_, ra) = r
+        .rest(
+            reqwest::Method::GET,
+            "/api/analytics/requests-per-month",
+            None,
+        )
+        .await;
+    let ga = g
+        .gql("{ admin { analyticsRequestsPerMonth } }", None)
+        .await
+        .unwrap();
+    // 件数は直前のリクエスト数で変わるため、形だけ比べる。
+    assert!(ra["months"].is_array());
+    assert!(ga["admin"]["analyticsRequestsPerMonth"]["months"].is_array());
+    let (_, ro) = r
+        .rest(reqwest::Method::GET, "/api/analytics/operations", None)
+        .await;
+    let go = g
+        .gql("{ admin { analyticsOperations } }", None)
+        .await
+        .unwrap();
+    assert!(ro["operations"].is_array());
+    assert!(go["admin"]["analyticsOperations"]["operations"].is_array());
+
+    let (_, rs) = r
+        .rest(reqwest::Method::GET, "/api/cache/ai-stats", None)
+        .await;
+    let gs = g.gql("{ admin { cacheAiStats } }", None).await.unwrap();
+    assert_eq!(gs["admin"]["cacheAiStats"], rs);
+
+    let (st, rr) = r
+        .rest(
+            reqwest::Method::POST,
+            "/api/ai/route",
+            Some(json!({ "policy": "cost", "min_context_length": 8000, "candidates": [
+                { "provider": "openai", "estimated_cost_usd_per_1k_tokens": 0.5, "estimated_latency_ms": 300, "is_local": false, "context_length": 128000 },
+                { "provider": "local", "estimated_cost_usd_per_1k_tokens": 0.0, "estimated_latency_ms": 900, "is_local": true, "context_length": 32000 },
+            ]})),
+        )
+        .await;
+    assert_eq!(st, 200);
+    let gr = g
+        .gql(
+            r#"{ admin { aiRoute(policy: "cost", minContextLength: 8000, candidates: [
+                { provider: "openai", estimatedCostUsdPer1KTokens: 0.5, estimatedLatencyMs: 300, isLocal: false, contextLength: 128000 },
+                { provider: "local", estimatedCostUsdPer1KTokens: 0.0, estimatedLatencyMs: 900, isLocal: true, contextLength: 32000 }
+            ]) } }"#,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(gr["admin"]["aiRoute"], rr);
+
+    // 候補が条件を満たさない場合は同じ422。
+    let (st, _) = r
+        .rest(
+            reqwest::Method::POST,
+            "/api/ai/route",
+            Some(json!({ "policy": "cost", "min_context_length": 999999, "candidates": [
+                { "provider": "openai", "estimated_cost_usd_per_1k_tokens": 0.5, "estimated_latency_ms": 300, "is_local": false, "context_length": 1000 },
+            ]})),
+        )
+        .await;
+    let err = g
+        .gql(
+            r#"{ admin { aiRoute(policy: "cost", minContextLength: 999999, candidates: [
+                { provider: "openai", estimatedCostUsdPer1KTokens: 0.5, estimatedLatencyMs: 300, isLocal: false, contextLength: 1000 }
+            ]) } }"#,
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(i64::from(st), err.0);
+}
+
+#[tokio::test]
+async fn backup_migrate_integrity_match_rest() {
+    let (r, g) = (env().await, env().await);
+    for e in [&r, &g] {
+        e.state.db.put("notes", "k", "{\"v\":1}").await.unwrap();
+    }
+
+    let (st, ri) = r
+        .rest(reqwest::Method::POST, "/api/integrity/check", None)
+        .await;
+    assert_eq!(st, 200);
+    let gi = g
+        .gql("mutation { admin { integrityCheck } }", None)
+        .await
+        .unwrap();
+    assert_eq!(gi["admin"]["integrityCheck"], ri);
+
+    // バックアップは書き出し先のパスが毎回違うので、件数と形を比べる。
+    let (st, rb) = r
+        .rest(reqwest::Method::POST, "/api/backup/export", None)
+        .await;
+    assert_eq!(st, 200);
+    let gb = g
+        .gql("mutation { admin { backupExport } }", None)
+        .await
+        .unwrap();
+    let gb = &gb["admin"]["backupExport"];
+    assert_eq!(gb["records"], rb["records"]);
+    assert_eq!(
+        gb["written"].as_array().unwrap().len(),
+        rb["written"].as_array().unwrap().len()
+    );
+
+    // 書き出したファイルを両方の経路で読み戻せる(同じ件数)。
+    let path = rb["written"][0].as_str().unwrap().to_string();
+    let (st, rimp) = r
+        .rest(
+            reqwest::Method::POST,
+            "/api/backup/import",
+            Some(json!({ "path": path })),
+        )
+        .await;
+    assert_eq!(st, 200);
+    let gimp = g
+        .gql(
+            &format!(
+                r#"mutation {{ admin {{ backupImport(path: {}) }} }}"#,
+                serde_json::to_string(&path).unwrap()
+            ),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(gimp["admin"]["backupImport"], rimp);
+    let (st, _) = r
+        .rest(
+            reqwest::Method::POST,
+            "/api/backup/import",
+            Some(json!({ "path": "/nonexistent/backup.json" })),
+        )
+        .await;
+    let err = g
+        .gql(
+            r#"mutation { admin { backupImport(path: "/nonexistent/backup.json") } }"#,
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(i64::from(st), err.0);
+
+    let (st, _) = r
+        .rest(reqwest::Method::POST, "/api/backup/restore-latest", None)
+        .await;
+    let gr = g
+        .gql("mutation { admin { backupRestoreLatest } }", None)
+        .await;
+    assert_eq!(st == 200, gr.is_ok());
+
+    let (st, rsql) = r
+        .rest(
+            reqwest::Method::POST,
+            "/api/migrate/export-sql",
+            Some(json!({ "dialect": "postgres" })),
+        )
+        .await;
+    assert_eq!(st, 200);
+    let gsql = g
+        .gql(
+            r#"mutation { admin { migrateExportSql(dialect: "postgres") } }"#,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        gsql["admin"]["migrateExportSql"]["written"]
+            .as_array()
+            .unwrap()
+            .len(),
+        rsql["written"].as_array().unwrap().len()
+    );
+    assert_eq!(
+        g.gql(
+            r#"mutation { admin { migrateExportSql(dialect: "oracle") } }"#,
+            None
+        )
+        .await
+        .unwrap_err()
+        .0,
+        422
+    );
+
+    let (st, rcsv) = r
+        .rest(reqwest::Method::POST, "/api/migrate/export-csv", None)
+        .await;
+    assert_eq!(st, 200);
+    let gcsv = g
+        .gql("mutation { admin { migrateExportCsv } }", None)
+        .await
+        .unwrap();
+    assert_eq!(
+        gcsv["admin"]["migrateExportCsv"]["written"]
+            .as_array()
+            .unwrap()
+            .len(),
+        rcsv["written"].as_array().unwrap().len()
+    );
+}
+
+#[tokio::test]
+async fn self_issue_and_session_flow_match_rest() {
+    let e = env().await;
+
+    // 鍵の自己発行: RESTもGraphQLも認証不要で、同じ形の応答。
+    let (st, rk) = e
+        .rest(reqwest::Method::POST, "/api/keys/self-issue", None)
+        .await;
+    assert_eq!(st, 200);
+    let gk = e.gql("mutation { selfIssueKey }", Some("")).await.unwrap();
+    let gk = &gk["selfIssueKey"];
+    assert!(gk["api_key"].as_str().is_some_and(|k| !k.is_empty()));
+    assert!(gk["expires_at"].is_string());
+    assert!(rk["api_key"].is_string() && rk["expires_at"].is_string());
+    let key = gk["api_key"].as_str().unwrap().to_string();
+
+    // セッション: GraphQLのsessionLoginがSet-Cookieを返し、そのCookieで管理操作が通る。
+    let resp = e
+        .client
+        .post(format!("{}/graphql", e.base))
+        .header("x-api-key", &key)
+        .json(&json!({ "query": "mutation { sessionLogin }" }))
+        .send()
+        .await
+        .unwrap();
+    let cookie = resp
+        .headers()
+        .get("set-cookie")
+        .expect("Set-Cookie")
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let body: Value = resp.json().await.unwrap();
+    let login = &body["data"]["sessionLogin"];
+    assert!(login["owner"].is_string());
+    let csrf = login["csrf_token"].as_str().unwrap().to_string();
+
+    // Cookie+CSRFのみで管理Queryが通る(RESTのセッション認証と同じ検査)。
+    let resp = e
+        .client
+        .post(format!("{}/graphql", e.base))
+        .header("cookie", &cookie)
+        .header("x-csrf-token", &csrf)
+        .json(&json!({ "query": "{ admin { featureFlags { name } } }" }))
+        .send()
+        .await
+        .unwrap();
+    let body: Value = resp.json().await.unwrap();
+    assert!(body["errors"].is_null(), "{body}");
+    // CSRFヘッダ無しの更新系は拒否(RESTの403と同じ扱い=admin失敗)。
+    let resp = e
+        .client
+        .post(format!("{}/graphql", e.base))
+        .header("cookie", &cookie)
+        .json(&json!({ "query": "{ admin { featureFlags { name } } }" }))
+        .send()
+        .await
+        .unwrap();
+    let body: Value = resp.json().await.unwrap();
+    assert!(!body["errors"].is_null());
+
+    // ログアウトでCookieが消え、そのセッションは使えなくなる。
+    let resp = e
+        .client
+        .post(format!("{}/graphql", e.base))
+        .header("cookie", &cookie)
+        .header("x-csrf-token", &csrf)
+        .json(&json!({ "query": "mutation { sessionLogout }" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.headers().get("set-cookie").is_some());
+    let resp = e
+        .client
+        .post(format!("{}/graphql", e.base))
+        .header("cookie", &cookie)
+        .header("x-csrf-token", &csrf)
+        .json(&json!({ "query": "{ admin { featureFlags { name } } }" }))
+        .send()
+        .await
+        .unwrap();
+    let body: Value = resp.json().await.unwrap();
+    assert!(!body["errors"].is_null());
+
+    // 無効な鍵でのログインは401(RESTも401)。
+    let guardian = KeyGuardian::new(Arc::clone(&e.state.db), GuardianConfig::from_env());
+    let _ = guardian.issue("t", vec![], None).await.unwrap();
+    assert_eq!(
+        e.gql("mutation { sessionLogin }", Some("bogus"))
+            .await
+            .unwrap_err()
+            .0,
+        401
+    );
+}

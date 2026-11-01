@@ -58,10 +58,22 @@ pub fn graphql_post_handler(
                 authenticate_with_session(req.headers(), req.method(), &guardian, &state.sessions)
                     .await
                     .ok();
+            let http = crate::admin::HttpCtx {
+                api_key: req
+                    .headers()
+                    .get("x-api-key")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_string(),
+                session_id: open_runo_router::session::session_id_from_cookie_header(req.headers()),
+                set_cookie: Default::default(),
+            };
+            let set_cookie = Arc::clone(&http.set_cookie);
             let mut request: async_graphql::Request = match read_json_body(req).await {
                 Ok(v) => v,
                 Err(resp) => return resp,
             };
+            request = request.data(http).data(Arc::clone(&guardian));
             if let Some(actor) = actor {
                 request = request.data(actor);
             }
@@ -129,7 +141,15 @@ pub fn graphql_post_handler(
                 }
             }
 
-            json_response(hyper::StatusCode::OK, &response)
+            let mut resp = json_response(hyper::StatusCode::OK, &response);
+            let cookie = set_cookie
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+            if let Some(value) = cookie.and_then(|c| c.parse().ok()) {
+                resp.headers_mut().insert(hyper::header::SET_COOKIE, value);
+            }
+            resp
         })
     })
 }

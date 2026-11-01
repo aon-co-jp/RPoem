@@ -11,16 +11,19 @@
 //! 無ければ失敗する(RESTの401相当、`extensions.status`=401)。RESTと同じく
 //! ロール別の絞り込みは現状無く、認証済みであれば実行できる。
 
+use async_graphql::types::Json;
 use async_graphql::{Context, ErrorExtensions, InputObject, Object, SimpleObject};
 use open_runo_api_types::{
     FeatureFlagEvaluationResponse, FeatureFlagRequest, FeatureFlagResponse, RegisterSchemaRequest,
     SchemaVersion,
 };
 use open_runo_router::admin_ops::{self, AdminError, ComposeService};
+use open_runo_router::admin_sys::{self, RouteCandidate};
 use open_runo_router::auth_hyper::Actor;
+use open_runo_router::keyring::KeyGuardian;
 use open_runo_router::state::AppState;
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// GraphQLエラーへ変換する。`extensions.status`にREST版と同じHTTPステータスを載せる。
 fn to_gql_error(e: AdminError) -> async_graphql::Error {
@@ -41,6 +44,20 @@ fn actor_label(ctx: &Context<'_>) -> async_graphql::Result<String> {
         )
         .extend_with(|_, ext| ext.set("status", 401))),
     }
+}
+
+/// HTTP層から渡す、認証・セッション系ミューテーション用の入力と出力。
+/// `api_key`は`X-Api-Key`ヘッダ、`session_id`はセッションCookie由来。`set_cookie`に
+/// 入れた値をHTTP層が`Set-Cookie`として返す(GraphQLにはヘッダを書く手段が無いため)。
+#[derive(Debug, Clone, Default)]
+pub struct HttpCtx {
+    pub api_key: String,
+    pub session_id: Option<String>,
+    pub set_cookie: Arc<Mutex<Option<String>>>,
+}
+
+fn js<T: serde::Serialize>(v: &T) -> Json<serde_json::Value> {
+    Json(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
 }
 
 fn state<'a>(ctx: &'a Context<'_>) -> &'a Arc<AppState> {
@@ -157,6 +174,15 @@ impl From<admin_ops::PersistedQueryRecord> for PersistedQueryAdmin {
     }
 }
 
+#[derive(Debug, InputObject)]
+pub struct RouteCandidateInput {
+    provider: String,
+    estimated_cost_usd_per_1k_tokens: f64,
+    estimated_latency_ms: u32,
+    is_local: bool,
+    context_length: u32,
+}
+
 #[derive(Debug, SimpleObject)]
 pub struct PurgeResult {
     purged: String,
@@ -253,6 +279,92 @@ impl AdminQueryFields {
             .map_err(to_gql_error)
     }
 
+    /// `GET /api/db/status`
+    async fn db_status(&self, ctx: &Context<'_>) -> Json<serde_json::Value> {
+        js(&admin_sys::db_status(state(ctx)))
+    }
+
+    /// `GET /api/db/routing`
+    async fn db_routing(&self) -> Json<serde_json::Value> {
+        js(&admin_sys::db_routing())
+    }
+
+    /// `GET /api/db/:table`
+    async fn db_list(
+        &self,
+        ctx: &Context<'_>,
+        table: String,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        admin_sys::db_list(state(ctx), &table)
+            .await
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `GET /api/db/:table/:key`
+    async fn db_get(
+        &self,
+        ctx: &Context<'_>,
+        table: String,
+        key: String,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        admin_sys::db_get(state(ctx), &table, &key)
+            .await
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `GET /api/db/:table/:key/at/:commit_id`
+    async fn db_get_at_commit(
+        &self,
+        ctx: &Context<'_>,
+        table: String,
+        key: String,
+        commit_id: String,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        admin_sys::db_get_at_commit(state(ctx), &table, &key, &commit_id)
+            .await
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `GET /api/analytics/requests-per-month`
+    async fn analytics_requests_per_month(&self, ctx: &Context<'_>) -> Json<serde_json::Value> {
+        Json(admin_sys::requests_per_month(state(ctx)))
+    }
+
+    /// `GET /api/analytics/operations`
+    async fn analytics_operations(&self, ctx: &Context<'_>) -> Json<serde_json::Value> {
+        Json(admin_sys::operations_summary(state(ctx)))
+    }
+
+    /// `GET /api/cache/ai-stats`
+    async fn cache_ai_stats(&self, ctx: &Context<'_>) -> Json<serde_json::Value> {
+        js(&admin_sys::ai_stats(&state(ctx).page_cache))
+    }
+
+    /// `POST /api/ai/route`(副作用なしの選択なのでQueryに置く)
+    async fn ai_route(
+        &self,
+        policy: String,
+        min_context_length: Option<u32>,
+        candidates: Vec<RouteCandidateInput>,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        let candidates: Vec<RouteCandidate> = candidates
+            .into_iter()
+            .map(|c| RouteCandidate {
+                provider: c.provider,
+                estimated_cost_usd_per_1k_tokens: c.estimated_cost_usd_per_1k_tokens,
+                estimated_latency_ms: c.estimated_latency_ms,
+                is_local: c.is_local,
+                context_length: c.context_length,
+            })
+            .collect();
+        admin_sys::ai_route(&policy, min_context_length, &candidates)
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
     /// `GET /api/persisted-queries/:hash`
     async fn persisted_query(
         &self,
@@ -278,6 +390,49 @@ pub struct AdminMutationFields {
 
 #[Object]
 impl AdminMutation {
+    /// `POST /api/keys/self-issue`(認証不要。発行した鍵自体が資格情報)。
+    async fn self_issue_key(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        let guardian = ctx.data_unchecked::<Arc<KeyGuardian>>();
+        admin_sys::self_issue_key(state(ctx), guardian)
+            .await
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `POST /api/session/login`。`X-Api-Key`ヘッダをセッションCookie+CSRFへ交換する
+    /// (Cookieは応答の`Set-Cookie`で返る)。
+    async fn session_login(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        let http = ctx.data_opt::<HttpCtx>().cloned().unwrap_or_default();
+        let guardian = ctx.data_unchecked::<Arc<KeyGuardian>>();
+        let (login, cookie) =
+            admin_sys::session_login(guardian, &state(ctx).sessions, &http.api_key)
+                .await
+                .map_err(to_gql_error)?;
+        *http
+            .set_cookie
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(cookie);
+        Ok(js(&login))
+    }
+
+    /// `POST /api/session/logout`(冪等)。
+    async fn session_logout(&self, ctx: &Context<'_>) -> bool {
+        let http = ctx.data_opt::<HttpCtx>().cloned().unwrap_or_default();
+        let cookie =
+            admin_sys::session_logout(&state(ctx).sessions, http.session_id.as_deref()).await;
+        *http
+            .set_cookie
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(cookie);
+        true
+    }
+
     /// 管理操作(書き込み)。`X-Api-Key`またはセッション(+CSRF)が必要。
     async fn admin(&self, ctx: &Context<'_>) -> async_graphql::Result<AdminMutationFields> {
         Ok(AdminMutationFields {
@@ -421,6 +576,103 @@ impl AdminMutationFields {
         admin_ops::persisted_query_register(state(ctx), &self.actor, &query)
             .await
             .map(Into::into)
+            .map_err(to_gql_error)
+    }
+
+    /// `PUT /api/db/:table/:key`
+    async fn db_put(
+        &self,
+        ctx: &Context<'_>,
+        table: String,
+        key: String,
+        value: Json<serde_json::Value>,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        admin_sys::db_put(state(ctx), &self.actor, &table, &key, value.0)
+            .await
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `DELETE /api/db/:table/:key`
+    async fn db_delete(
+        &self,
+        ctx: &Context<'_>,
+        table: String,
+        key: String,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        admin_sys::db_delete(state(ctx), &self.actor, &table, &key)
+            .await
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `POST /api/backup/export`
+    async fn backup_export(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        let st = state(ctx);
+        admin_sys::backup_export(st, &st.page_cache, &self.actor)
+            .await
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `POST /api/backup/import`
+    async fn backup_import(
+        &self,
+        ctx: &Context<'_>,
+        path: String,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        admin_sys::backup_import(state(ctx), &self.actor, &path)
+            .await
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `POST /api/backup/restore-latest`
+    async fn backup_restore_latest(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        admin_sys::backup_restore_latest(state(ctx), &self.actor)
+            .await
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `POST /api/migrate/export-sql`(`dialect`は postgres / mysql / generic)
+    async fn migrate_export_sql(
+        &self,
+        ctx: &Context<'_>,
+        dialect: String,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        let dialect = admin_sys::parse_dialect(&dialect).map_err(to_gql_error)?;
+        admin_sys::migrate_export_sql(state(ctx), &self.actor, dialect)
+            .await
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `POST /api/migrate/export-csv`
+    async fn migrate_export_csv(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        admin_sys::migrate_export_csv(state(ctx), &self.actor)
+            .await
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `POST /api/integrity/check`
+    async fn integrity_check(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        admin_sys::integrity_check(state(ctx), &self.actor)
+            .await
+            .map(|r| js(&r))
             .map_err(to_gql_error)
     }
 

@@ -72,7 +72,33 @@
 > (Subscriptions)の認証は未実装。④REST側の `ai-stats`・`backup`・`db`・`scim`・`session`・`keys` 等は未移行
 > (第2段階)。**次は第2段階**(認証/セッション/キー発行、DB操作、バックアップ/移行/整合性、分析)。
 > なお初回の `cargo test --workspace` では `open-runo-appserver` のプロセス起動系8件が失敗したが、再実行で全通過
-> (今回の変更と無関係な不安定テスト)。
+> (今回の変更と無関係な不安定テスト)。**原因と対処は第2段階の項を参照。**
+>
+> **第2段階の到達点(2026-11-01、REST は未削除)**: 第1段階と同じ方式で、共通関数を
+> `crates/open-runo-router/src/admin_sys.rs` に切り出し(REST の `handlers_hyper.rs` も同じ関数を呼ぶ)、
+> GraphQL の `Query.admin` / `Mutation.admin` と、認証不要のルート `Mutation` から提供した。
+> - 認証/セッション/キー発行: `Mutation.selfIssueKey`、`sessionLogin`、`sessionLogout`(`/api/keys/self-issue`、
+>   `/api/session/login`・`logout`)。GraphQL は応答ヘッダを書けないため、`HttpCtx`(`X-Api-Key`・セッションCookie・
+>   `set_cookie`)をコンテキストに渡し、`graphql_hyper` が `Set-Cookie` を付ける。
+> - DB: Query `dbStatus`/`dbRouting`/`dbList`/`dbGet`/`dbGetAtCommit`、Mutation `dbPut`/`dbDelete`。
+> - バックアップ/移行/整合性: Mutation `backupExport`/`backupImport`/`backupRestoreLatest`/`migrateExportSql`/
+>   `migrateExportCsv`/`integrityCheck`。
+> - 分析・AI: Query `analyticsRequestsPerMonth`/`analyticsOperations`/`cacheAiStats`/`aiRoute`。
+> - 戻り値は REST と同じ JSON(GraphQL の `JSON` スカラー)。エラーは `extensions.status` に REST と同じHTTPステータス。
+> - テスト: `admin_tests.rs` に4件追加(db/分析+AI経路/バックアップ・移行・整合性/自己発行+セッション流れ。計10件)。
+>   REST と GraphQL に同じ操作を流し、結果・404/422/501/401 を比較した。`cargo test --workspace` 全通過。
+> - **不安定テストの原因と修正**: `open-runo-appserver` の `process_lifecycle`/`tenant_bridge` のテスト
+>   (ダミーHTTPサーバー exe を実際に子プロセス起動し、5秒以内に Healthy になるのを待つ)が、
+>   `cargo test --workspace` の初回(大量のビルド・リンクと新規 exe の初回起動で CPU/IO が逼迫)にだけ
+>   一斉に5秒を超えて失敗していた。単独実行は3回とも通り、再現はその状況に限られる。`wait_for` は成功時に
+>   即戻る待機のみに使われているため、期限の下限を30秒に引き上げて修正した(テストの意味は不変)。
+>   ※ 根本原因(ウイルススキャン等)の厳密な切り分けまではしていない。
+> **第2段階で未了/注意**: ①`/internal/db/mutate`(`open-web-server-ledger` からの内部経路。`/api/` 外で認証無し)
+> は REST のまま。第5段階の前に呼び出し側と合わせて GraphQL 化を検討。②`/api/users` 等 `/api/db/users` の個別
+> ルートは存在しない(汎用の `/api/db/:table`)。③SCIM(`/scim/v2/*`)、SSE/WS(`/api/events`・`/api/ws-events`)、
+> `/api/docs`(OpenAPI)、MCP、gRPC は第2段階の対象外で未移行(第3〜4段階)。④`backupImport` は REST 同様に任意パスを
+> 読むため、認証済みなら誰でも実行可(ロール別の絞り込みは REST 同様に未実装)。⑤`sessionLogin` は `X-Api-Key` ヘッダが
+> 必要(REST と同じ)。**次は第3段階**(管理画面 WASM と CLI を GraphQL へ切替、`open-runo-api-types` の作り直し)。
 
 > **📌 2026-08-25追記: ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証完了・
 > 段階的導入計画をRPoem/aruaru-llm/open-english「トライブリッド」で確定

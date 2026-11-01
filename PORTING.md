@@ -24,6 +24,15 @@ REST は未削除。REST/GraphQL 同値性テストは `crates/open-runo-gateway
 **注意**: poem 版 `graphql_route` は認証層を持たないため `admin` は常に401(本番は hyper 版 `graphql_hyper` を使う)。
 `/graphql/ws`(Subscriptions)は未対応のまま。
 
+**第2段階完了(2026-11-01)**: 認証/セッション/キー発行(`selfIssueKey`・`sessionLogin`・`sessionLogout`)、
+DB操作(`dbStatus`/`dbRouting`/`dbList`/`dbGet`/`dbGetAtCommit`/`dbPut`/`dbDelete`)、バックアップ/移行/整合性
+(`backupExport`/`backupImport`/`backupRestoreLatest`/`migrateExportSql`/`migrateExportCsv`/`integrityCheck`)、
+分析・AI(`analyticsRequestsPerMonth`/`analyticsOperations`/`cacheAiStats`/`aiRoute`)を GraphQL から使える。
+共通関数は `open-runo-router/src/admin_sys.rs`、REST 版も同じ関数を呼ぶ。セッションの `Set-Cookie` は
+`graphql_hyper` が付ける。同値性テストは `admin_tests.rs`(計10件)。REST は未削除。
+未了: `/internal/db/mutate`、SCIM、SSE/WS、`/api/docs`、MCP、gRPC(第3〜4段階)。詳細は `CLAUDE.md` の
+「第2段階の到達点」。`open-runo-appserver` の不安定テストは待機期限の下限を30秒にして対処(原因と注意は同箇所)。
+
 ## ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証済み・段階的導入計画(2026-08-25追記)
 
 `experiments/wgpu-browser-spike/`に、`wgpu`(features=`webgpu`+`wgsl`)を

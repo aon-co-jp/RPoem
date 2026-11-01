@@ -356,7 +356,11 @@ mod tests {
         }
     }
 
+    /// 成功までの待機のみに使う(成功すれば即戻る)。cargo test --workspace の初回実行のように
+    /// ビルド・ウイルススキャン等でCPU/IOが逼迫すると、子プロセスの起動+初回ヘルスチェックが
+    /// 5秒を超えて偽陰性になるため、渡された期限は下限30秒に引き上げる。
     fn wait_for<F: Fn() -> bool>(deadline: Duration, f: F) -> bool {
+        let deadline = deadline.max(Duration::from_secs(30));
         let start = std::time::Instant::now();
         while start.elapsed() < deadline {
             if f() {

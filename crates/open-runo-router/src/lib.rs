@@ -27,6 +27,7 @@
 
 pub mod acme;
 pub mod admin_ops;
+pub mod admin_sys;
 pub mod audit;
 pub mod auth_hyper;
 pub mod body_limit;

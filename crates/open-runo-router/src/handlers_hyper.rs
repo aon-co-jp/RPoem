@@ -9,44 +9,21 @@ use crate::hyper_compat::{
     empty_status, json_response, query_params, read_json_body, sse_response, Handler, Response,
     SseEvent,
 };
-use crate::keyring::{KeyDecision, KeyGuardian};
+use crate::keyring::KeyGuardian;
 use crate::session::SessionBackend;
 use crate::state::AppState;
 use crate::validation::{DB_UPSERT_REQUEST, FEATURE_FLAG_REQUEST, REGISTER_SCHEMA_REQUEST};
 use http_body_util::BodyExt;
 use hyper::StatusCode;
 use open_runo_api_types::{
-    DbDeleteResponse, DbRecordAtCommitResponse, DbRecordItem, DbRecordListResponse,
-    DbRecordResponse, DbRoutingEntry, DbRoutingInfo, DbStatusResponse, DbUpsertRequest,
-    FeatureFlagEvaluationResponse, FeatureFlagListResponse, FeatureFlagRequest,
-    FeatureFlagResponse, FederationStatusResponse, RegisterSchemaRequest, SchemaHistoryResponse,
-    SchemaVersion,
+    DbUpsertRequest, FeatureFlagListResponse, FeatureFlagRequest, FederationStatusResponse,
+    RegisterSchemaRequest, SchemaHistoryResponse,
 };
-use open_runo_feature_flags::FeatureFlag;
-use open_runo_schema_registry::{Stage, DEFAULT_NAMESPACE};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 fn admin_err(e: crate::admin_ops::AdminError) -> Response {
     json_response(e.status, &serde_json::json!({ "error": e.message }))
-}
-
-fn parse_stage(s: &str) -> Stage {
-    match s.to_lowercase().as_str() {
-        "development" | "dev" => Stage::Development,
-        "staging" | "stg" => Stage::Staging,
-        "production" | "prod" => Stage::Production,
-        _ => Stage::Local,
-    }
-}
-
-fn stage_name(stage: Stage) -> &'static str {
-    match stage {
-        Stage::Local => "local",
-        Stage::Development => "development",
-        Stage::Staging => "staging",
-        Stage::Production => "production",
-    }
 }
 
 /// GET /api/federation/status — poem-free port of
@@ -158,13 +135,7 @@ pub fn db_status_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Ha
             {
                 return empty_status(status);
             }
-            json_response(
-                StatusCode::OK,
-                &DbStatusResponse {
-                    backend: state.db.backend_name().to_string(),
-                    status: "ok".to_string(),
-                },
-            )
+            json_response(StatusCode::OK, &crate::admin_sys::db_status(&state))
         })
     })
 }
@@ -184,57 +155,9 @@ pub fn db_routing_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> H
             {
                 return empty_status(status);
             }
-            let entries = vec![
-                DbRoutingEntry {
-                    table: "sessions".into(),
-                    target: "postgresql".into(),
-                },
-                DbRoutingEntry {
-                    table: "api_keys".into(),
-                    target: "postgresql".into(),
-                },
-                DbRoutingEntry {
-                    table: "rate_limits".into(),
-                    target: "postgresql".into(),
-                },
-                DbRoutingEntry {
-                    table: "schemas".into(),
-                    target: "both".into(),
-                },
-                DbRoutingEntry {
-                    table: "backup_jobs".into(),
-                    target: "both".into(),
-                },
-                DbRoutingEntry {
-                    table: "persisted_queries".into(),
-                    target: "both".into(),
-                },
-                DbRoutingEntry {
-                    table: "schema_history".into(),
-                    target: "aruaru-db".into(),
-                },
-                DbRoutingEntry {
-                    table: "change_records".into(),
-                    target: "aruaru-db".into(),
-                },
-                DbRoutingEntry {
-                    table: "audit_log".into(),
-                    target: "aruaru-db".into(),
-                },
-            ];
-            json_response(
-                StatusCode::OK,
-                &DbRoutingInfo {
-                    default_target: "postgresql".into(),
-                    entries,
-                },
-            )
+            json_response(StatusCode::OK, &crate::admin_sys::db_routing())
         })
     })
-}
-
-fn parse_value(raw: &str) -> serde_json::Value {
-    serde_json::from_str(raw).unwrap_or(serde_json::Value::String(raw.to_string()))
 }
 
 /// GET /api/db/:table — poem-free port of `handlers::db::db_list`.
@@ -250,30 +173,10 @@ pub fn db_list_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Hand
                 return empty_status(status);
             }
             let table = params.get("table").unwrap_or("").to_string();
-            let records = match state.db.list(&table).await {
-                Ok(r) => r,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &serde_json::json!({ "error": e.to_string() }),
-                    )
-                },
-            };
-            let items: Vec<DbRecordItem> = records
-                .into_iter()
-                .map(|r| DbRecordItem {
-                    key: r.key,
-                    value: parse_value(&r.value),
-                })
-                .collect();
-            json_response(
-                StatusCode::OK,
-                &DbRecordListResponse {
-                    count: items.len(),
-                    table,
-                    records: items,
-                },
-            )
+            match crate::admin_sys::db_list(&state, &table).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
+            }
         })
     })
 }
@@ -292,23 +195,9 @@ pub fn db_get_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
             }
             let table = params.get("table").unwrap_or("").to_string();
             let key = params.get("key").unwrap_or("").to_string();
-            match state.db.get(&table, &key).await {
-                Ok(Some(raw)) => json_response(
-                    StatusCode::OK,
-                    &DbRecordResponse {
-                        table,
-                        key,
-                        value: parse_value(&raw),
-                    },
-                ),
-                Ok(None) => json_response(
-                    StatusCode::NOT_FOUND,
-                    &serde_json::json!({ "error": format!("record not found: {table}/{key}") }),
-                ),
-                Err(e) => json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    &serde_json::json!({ "error": e.to_string() }),
-                ),
+            match crate::admin_sys::db_get(&state, &table, &key).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
             }
         })
     })
@@ -333,33 +222,9 @@ pub fn db_get_at_commit_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
             let table = params.get("table").unwrap_or("").to_string();
             let key = params.get("key").unwrap_or("").to_string();
             let commit_id = params.get("commit_id").unwrap_or("").to_string();
-            match state.db.get_at_commit(&table, &key, &commit_id).await {
-                Ok(Some(raw)) => json_response(
-                    StatusCode::OK,
-                    &DbRecordAtCommitResponse {
-                        table,
-                        key,
-                        commit_id,
-                        value: parse_value(&raw),
-                    },
-                ),
-                Ok(None) => json_response(
-                    StatusCode::NOT_FOUND,
-                    &serde_json::json!({
-                        "error": format!(
-                            "no value for {table}/{key} as of commit {commit_id} \
-                             (commit unknown, or the key did not exist yet at that point)"
-                        )
-                    }),
-                ),
-                Err(open_runo_core::AppError::Validation(msg)) => json_response(
-                    StatusCode::NOT_IMPLEMENTED,
-                    &serde_json::json!({ "error": msg }),
-                ),
-                Err(e) => json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    &serde_json::json!({ "error": e.to_string() }),
-                ),
+            match crate::admin_sys::db_get_at_commit(&state, &table, &key, &commit_id).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
             }
         })
     })
@@ -414,33 +279,10 @@ pub fn db_put_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
                 },
             };
 
-            let serialized = match serde_json::to_string(&body.value) {
-                Ok(s) => s,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &serde_json::json!({ "error": format!("serialize value: {e}") }),
-                    )
-                },
-            };
-
-            if let Err(e) = state.db.put(&table, &key, &serialized).await {
-                return json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    &serde_json::json!({ "error": e.to_string() }),
-                );
+            match crate::admin_sys::db_put(&state, &actor, &table, &key, body.value).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
             }
-
-            crate::audit::record(&state, &actor, "db.put", format!("{table}/{key}")).await;
-
-            json_response(
-                StatusCode::OK,
-                &DbRecordResponse {
-                    table,
-                    key,
-                    value: body.value,
-                },
-            )
         })
     })
 }
@@ -617,24 +459,10 @@ pub fn db_delete_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Ha
                 };
             let table = params.get("table").unwrap_or("").to_string();
             let key = params.get("key").unwrap_or("").to_string();
-
-            if let Err(e) = state.db.delete(&table, &key).await {
-                return json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    &serde_json::json!({ "error": e.to_string() }),
-                );
+            match crate::admin_sys::db_delete(&state, &actor, &table, &key).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
             }
-
-            crate::audit::record(&state, &actor, "db.delete", format!("{table}/{key}")).await;
-
-            json_response(
-                StatusCode::OK,
-                &DbDeleteResponse {
-                    table,
-                    key,
-                    deleted: true,
-                },
-            )
         })
     })
 }
@@ -913,40 +741,6 @@ pub fn register_schema_upload_raw_handler(
     })
 }
 
-fn parse_provider(s: &str) -> open_runo_ai_routing::Provider {
-    use open_runo_ai_routing::Provider;
-    match s.to_lowercase().replace('-', "_").as_str() {
-        "openai" => Provider::OpenAi,
-        "anthropic" | "anthropic_claude" => Provider::AnthropicClaude,
-        "google" | "google_gemini" | "gemini" => Provider::GoogleGemini,
-        "deepseek" => Provider::DeepSeek,
-        "local" | "local_llm" => Provider::LocalLlm,
-        _ => Provider::CustomOpenAiCompatible,
-    }
-}
-
-fn parse_policy(s: &str) -> open_runo_ai_routing::RoutingPolicy {
-    use open_runo_ai_routing::RoutingPolicy;
-    match s.to_lowercase().as_str() {
-        "latency" | "latency_optimized" => RoutingPolicy::LatencyOptimized,
-        "local" | "local_first" => RoutingPolicy::LocalFirst,
-        "privacy" | "privacy_first" => RoutingPolicy::PrivacyFirst,
-        _ => RoutingPolicy::CostOptimized,
-    }
-}
-
-fn provider_name(p: &open_runo_ai_routing::Provider) -> &'static str {
-    use open_runo_ai_routing::Provider;
-    match p {
-        Provider::OpenAi => "openai",
-        Provider::AnthropicClaude => "anthropic_claude",
-        Provider::GoogleGemini => "google_gemini",
-        Provider::DeepSeek => "deepseek",
-        Provider::LocalLlm => "local_llm",
-        Provider::CustomOpenAiCompatible => "custom_openai_compatible",
-    }
-}
-
 #[derive(Debug, Deserialize)]
 struct CandidateInput {
     provider: String,
@@ -961,14 +755,6 @@ struct RouteRequest {
     policy: String,
     min_context_length: Option<u32>,
     candidates: Vec<CandidateInput>,
-}
-
-#[derive(Serialize)]
-struct RouteResponse {
-    selected_provider: String,
-    is_local: bool,
-    estimated_cost_usd_per_1k_tokens: f64,
-    estimated_latency_ms: u32,
 }
 
 /// POST /api/ai/route — poem-free port of `handlers::ai_routing::route_request`.
@@ -988,35 +774,20 @@ pub fn route_request_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -
                 Err(resp) => return resp,
             };
 
-            let candidates: Vec<open_runo_ai_routing::Candidate> = body
+            let candidates: Vec<crate::admin_sys::RouteCandidate> = body
                 .candidates
-                .iter()
-                .map(|c| open_runo_ai_routing::Candidate {
-                    provider: parse_provider(&c.provider),
+                .into_iter()
+                .map(|c| crate::admin_sys::RouteCandidate {
+                    provider: c.provider,
                     estimated_cost_usd_per_1k_tokens: c.estimated_cost_usd_per_1k_tokens,
                     estimated_latency_ms: c.estimated_latency_ms,
                     is_local: c.is_local,
                     context_length: c.context_length,
                 })
                 .collect();
-
-            let policy = parse_policy(&body.policy);
-            let min_ctx = body.min_context_length.unwrap_or(0);
-
-            match open_runo_ai_routing::route(&candidates, policy, min_ctx) {
-                Ok(chosen) => json_response(
-                    StatusCode::OK,
-                    &RouteResponse {
-                        selected_provider: provider_name(&chosen.provider).to_string(),
-                        is_local: chosen.is_local,
-                        estimated_cost_usd_per_1k_tokens: chosen.estimated_cost_usd_per_1k_tokens,
-                        estimated_latency_ms: chosen.estimated_latency_ms,
-                    },
-                ),
-                Err(e) => json_response(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    &serde_json::json!({ "error": e.to_string() }),
-                ),
+            match crate::admin_sys::ai_route(&body.policy, body.min_context_length, &candidates) {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
             }
         })
     })
@@ -1183,28 +954,6 @@ pub fn purge_all_pages_handler(
     })
 }
 
-#[derive(Serialize)]
-struct PatternStat {
-    pattern: String,
-    requests: u64,
-    arrival_interval_secs: Option<f64>,
-    update_interval_secs: Option<f64>,
-    render_cost_secs: Option<f64>,
-}
-
-#[derive(Serialize)]
-struct AiStatsResponse {
-    ai_enabled: bool,
-    cache_hits: u64,
-    cache_misses: u64,
-    admitted: u64,
-    rejected: u64,
-    hit_ratio: f64,
-    tracked_keys: usize,
-    tracked_patterns: usize,
-    top_patterns: Vec<PatternStat>,
-}
-
 /// GET /api/cache/ai-stats — poem-free port of `handlers::cache::ai_stats`.
 pub fn ai_stats_handler(
     state: Arc<AppState>,
@@ -1222,61 +971,9 @@ pub fn ai_stats_handler(
             {
                 return empty_status(status);
             }
-            let resp = match cache.predictor() {
-                None => AiStatsResponse {
-                    ai_enabled: false,
-                    cache_hits: 0,
-                    cache_misses: 0,
-                    admitted: 0,
-                    rejected: 0,
-                    hit_ratio: 0.0,
-                    tracked_keys: 0,
-                    tracked_patterns: 0,
-                    top_patterns: Vec::new(),
-                },
-                Some(p) => {
-                    let snap = p.snapshot();
-                    let total = snap.outcomes.cache_hits + snap.outcomes.cache_misses;
-                    let mut patterns: Vec<PatternStat> = snap
-                        .patterns
-                        .iter()
-                        .map(|(k, s)| PatternStat {
-                            pattern: k.clone(),
-                            requests: s.requests,
-                            arrival_interval_secs: s.arrival_interval_secs,
-                            update_interval_secs: s.update_interval_secs,
-                            render_cost_secs: s.render_cost_secs,
-                        })
-                        .collect();
-                    patterns.sort_by_key(|p| std::cmp::Reverse(p.requests));
-                    patterns.truncate(20);
-
-                    AiStatsResponse {
-                        ai_enabled: true,
-                        cache_hits: snap.outcomes.cache_hits,
-                        cache_misses: snap.outcomes.cache_misses,
-                        admitted: snap.outcomes.admitted,
-                        rejected: snap.outcomes.rejected,
-                        hit_ratio: if total == 0 {
-                            0.0
-                        } else {
-                            snap.outcomes.cache_hits as f64 / total as f64
-                        },
-                        tracked_keys: snap.keys.len(),
-                        tracked_patterns: snap.patterns.len(),
-                        top_patterns: patterns,
-                    }
-                },
-            };
-            json_response(StatusCode::OK, &resp)
+            json_response(StatusCode::OK, &crate::admin_sys::ai_stats(&cache))
         })
     })
-}
-
-#[derive(Serialize)]
-struct ExportResponse {
-    written: Vec<String>,
-    records: usize,
 }
 
 /// POST /api/backup/export — poem-free port of `handlers::maintenance::backup_export`.
@@ -1302,25 +999,10 @@ pub fn backup_export_handler(
                     ),
                     Err(status) => return empty_status(status),
                 };
-            let config = crate::maintenance::BackupConfig::from_env();
-            let (written, records) =
-                match crate::maintenance::export_backup(&state, &cache, &config).await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        return json_response(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            &serde_json::json!({ "error": e }),
-                        )
-                    },
-                };
-            crate::audit::record(
-                &state,
-                &actor,
-                "backup.export",
-                format!("{records} records → {}", written.join(", ")),
-            )
-            .await;
-            json_response(StatusCode::OK, &ExportResponse { written, records })
+            match crate::admin_sys::backup_export(&state, &cache, &actor).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
+            }
         })
     })
 }
@@ -1328,11 +1010,6 @@ pub fn backup_export_handler(
 #[derive(Deserialize)]
 struct ImportRequest {
     path: String,
-}
-
-#[derive(Serialize)]
-struct ImportResponse {
-    restored: usize,
 }
 
 /// POST /api/backup/import — poem-free port of `handlers::maintenance::backup_import`.
@@ -1357,32 +1034,12 @@ pub fn backup_import_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -
                 Ok(v) => v,
                 Err(resp) => return resp,
             };
-            let restored = match crate::maintenance::import_backup(&state, &body.path).await {
-                Ok(v) => v,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::BAD_REQUEST,
-                        &serde_json::json!({ "error": e }),
-                    )
-                },
-            };
-            crate::audit::record(
-                &state,
-                &actor,
-                "backup.import",
-                format!("{restored} records ← {}", body.path),
-            )
-            .await;
-            json_response(StatusCode::OK, &ImportResponse { restored })
+            match crate::admin_sys::backup_import(&state, &actor, &body.path).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
+            }
         })
     })
-}
-
-#[derive(Serialize)]
-struct IntegrityResponse {
-    backend: &'static str,
-    healed: usize,
-    discrepancies: Vec<open_runo_db::dual::Discrepancy>,
 }
 
 /// POST /api/integrity/check — poem-free port of `handlers::maintenance::integrity_check`.
@@ -1403,40 +1060,12 @@ pub fn integrity_check_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
                     ),
                     Err(status) => return empty_status(status),
                 };
-            let discrepancies = match state.db.consistency_check_and_heal().await {
-                Ok(v) => v,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &serde_json::json!({ "error": e.to_string() }),
-                    )
-                },
-            };
-            for d in &discrepancies {
-                crate::audit::record(
-                    &state,
-                    &actor,
-                    "integrity.heal",
-                    format!("{}/{} {} (from {})", d.table, d.key, d.kind, d.healed_from),
-                )
-                .await;
+            match crate::admin_sys::integrity_check(&state, &actor).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
             }
-            json_response(
-                StatusCode::OK,
-                &IntegrityResponse {
-                    backend: state.db.backend_name(),
-                    healed: discrepancies.len(),
-                    discrepancies,
-                },
-            )
         })
     })
-}
-
-#[derive(Serialize)]
-struct RestoreLatestResponse {
-    restored_from: String,
-    restored: usize,
 }
 
 /// POST /api/backup/restore-latest — poem-free port of
@@ -1458,40 +1087,10 @@ pub fn backup_restore_latest_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
                     ),
                     Err(status) => return empty_status(status),
                 };
-            let config = crate::maintenance::BackupConfig::from_env();
-            let path = match crate::maintenance::find_latest_backup_async(config).await {
-                Some(p) => p,
-                None => {
-                    return json_response(
-                        StatusCode::NOT_FOUND,
-                        &serde_json::json!({ "error": "no backup file found" }),
-                    )
-                },
-            };
-            let path_str = path.display().to_string();
-            let restored = match crate::maintenance::import_backup(&state, &path_str).await {
-                Ok(v) => v,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &serde_json::json!({ "error": e }),
-                    )
-                },
-            };
-            crate::audit::record(
-                &state,
-                &actor,
-                "backup.restore_latest",
-                format!("{restored} records ← {path_str}"),
-            )
-            .await;
-            json_response(
-                StatusCode::OK,
-                &RestoreLatestResponse {
-                    restored_from: path_str,
-                    restored,
-                },
-            )
+            match crate::admin_sys::backup_restore_latest(&state, &actor).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
+            }
         })
     })
 }
@@ -1499,11 +1098,6 @@ pub fn backup_restore_latest_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
 #[derive(Deserialize)]
 struct ExportSqlRequest {
     dialect: crate::maintenance::SqlDialect,
-}
-
-#[derive(Serialize)]
-struct ConversionResponse {
-    written: Vec<String>,
 }
 
 /// POST /api/migrate/export-sql — poem-free port of
@@ -1529,38 +1123,10 @@ pub fn migrate_export_sql_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
                 Ok(v) => v,
                 Err(resp) => return resp,
             };
-            let sql = match crate::maintenance::export_sql(&state, body.dialect).await {
-                Ok(v) => v,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &serde_json::json!({ "error": e }),
-                    )
-                },
-            };
-            let name = format!(
-                "open-runo-dump-{:?}-{}.sql",
-                body.dialect,
-                chrono::Utc::now().format("%Y%m%d-%H%M%S")
-            )
-            .to_lowercase();
-            let written = match crate::maintenance::write_to_backup_dirs_async(
-                crate::maintenance::BackupConfig::from_env(),
-                name,
-                sql,
-            )
-            .await
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &serde_json::json!({ "error": e }),
-                    )
-                },
-            };
-            crate::audit::record(&state, &actor, "migrate.export_sql", written.join(", ")).await;
-            json_response(StatusCode::OK, &ConversionResponse { written })
+            match crate::admin_sys::migrate_export_sql(&state, &actor, body.dialect).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
+            }
         })
     })
 }
@@ -1584,36 +1150,10 @@ pub fn migrate_export_csv_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
                     ),
                     Err(status) => return empty_status(status),
                 };
-            let csv = match crate::maintenance::export_csv(&state).await {
-                Ok(v) => v,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &serde_json::json!({ "error": e }),
-                    )
-                },
-            };
-            let name = format!(
-                "open-runo-dump-{}.csv",
-                chrono::Utc::now().format("%Y%m%d-%H%M%S")
-            );
-            let written = match crate::maintenance::write_to_backup_dirs_async(
-                crate::maintenance::BackupConfig::from_env(),
-                name,
-                csv,
-            )
-            .await
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &serde_json::json!({ "error": e }),
-                    )
-                },
-            };
-            crate::audit::record(&state, &actor, "migrate.export_csv", written.join(", ")).await;
-            json_response(StatusCode::OK, &ConversionResponse { written })
+            match crate::admin_sys::migrate_export_csv(&state, &actor).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
+            }
         })
     })
 }
@@ -2171,12 +1711,6 @@ pub fn ws_events_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Ha
     })
 }
 
-#[derive(Serialize)]
-struct SelfIssueResponse {
-    api_key: String,
-    expires_at: String,
-}
-
 /// POST /api/keys/self-issue — lets a caller (typically the WASM frontend
 /// on first load) obtain a working API key **without a human ever typing
 /// or configuring one**. No auth required to reach this endpoint (like
@@ -2192,38 +1726,12 @@ pub fn self_issue_key_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) 
         let state = Arc::clone(&state);
         let guardian = Arc::clone(&guardian);
         Box::pin(async move {
-            let owner = format!("wasm-frontend-{}", uuid::Uuid::new_v4());
-            let expires_at = chrono::Utc::now() + chrono::Duration::hours(SELF_ISSUE_KEY_TTL_HOURS);
-            match guardian
-                .issue(&owner, vec!["developer".to_string()], Some(expires_at))
-                .await
-            {
-                Ok(api_key) => {
-                    crate::audit::record(&state, "key-guardian", "key.self_issue", owner).await;
-                    json_response(
-                        StatusCode::OK,
-                        &SelfIssueResponse {
-                            api_key,
-                            expires_at: expires_at.to_rfc3339(),
-                        },
-                    )
-                },
-                Err(e) => json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    &serde_json::json!({ "error": e.to_string() }),
-                ),
+            match crate::admin_sys::self_issue_key(&state, &guardian).await {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
             }
         })
     })
-}
-
-const SELF_ISSUE_KEY_TTL_HOURS: i64 = 24;
-
-#[derive(Serialize)]
-struct SessionLoginResponse {
-    owner: String,
-    csrf_token: String,
-    expires_in_secs: i64,
 }
 
 /// POST /api/session/login — Poem-parity: Cookie/session management
@@ -2248,33 +1756,18 @@ pub fn session_login_handler(
                 .get("x-api-key")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("")
-                .trim()
                 .to_string();
-            if api_key.is_empty() {
-                return empty_status(StatusCode::UNAUTHORIZED);
-            }
-
-            let (owner, roles) = match guardian.verify(&api_key, chrono::Utc::now()).await {
-                KeyDecision::RegistryEmpty => ("dev".to_string(), Vec::new()),
-                KeyDecision::Ok { owner, roles } => (owner, roles),
-                KeyDecision::Rejected | KeyDecision::Suspended => {
-                    return empty_status(StatusCode::UNAUTHORIZED)
+            match crate::admin_sys::session_login(&guardian, &sessions, &api_key).await {
+                Ok((login, cookie)) => {
+                    let mut resp = json_response(StatusCode::OK, &login);
+                    if let Ok(value) = cookie.parse() {
+                        resp.headers_mut().insert(hyper::header::SET_COOKIE, value);
+                    }
+                    resp
                 },
-            };
-
-            let (session_id, csrf_token) = sessions.create(owner.clone(), roles).await;
-            let mut resp = json_response(
-                StatusCode::OK,
-                &SessionLoginResponse {
-                    owner,
-                    csrf_token,
-                    expires_in_secs: crate::session::SESSION_TTL_HOURS * 3600,
-                },
-            );
-            if let Ok(value) = crate::session::set_cookie_header(&session_id).parse() {
-                resp.headers_mut().insert(hyper::header::SET_COOKIE, value);
+                Err(e) if e.status == StatusCode::UNAUTHORIZED => empty_status(e.status),
+                Err(e) => admin_err(e),
             }
-            resp
         })
     })
 }
@@ -2286,12 +1779,11 @@ pub fn session_logout_handler(sessions: Arc<dyn SessionBackend>) -> Handler {
     Arc::new(move |req, _params| {
         let sessions = Arc::clone(&sessions);
         Box::pin(async move {
-            if let Some(session_id) = crate::session::session_id_from_cookie_header(req.headers()) {
-                sessions.destroy(&session_id).await;
-            }
+            let session_id = crate::session::session_id_from_cookie_header(req.headers());
+            let cookie = crate::admin_sys::session_logout(&sessions, session_id.as_deref()).await;
             let mut resp =
                 json_response(StatusCode::OK, &serde_json::json!({ "logged_out": true }));
-            if let Ok(value) = crate::session::clear_cookie_header().parse() {
+            if let Ok(value) = cookie.parse() {
                 resp.headers_mut().insert(hyper::header::SET_COOKIE, value);
             }
             resp
@@ -2474,7 +1966,7 @@ pub fn requests_per_month_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
             }
             json_response(
                 StatusCode::OK,
-                &serde_json::json!({ "months": state.request_metrics.requests_per_month() }),
+                &crate::admin_sys::requests_per_month(&state),
             )
         })
     })
@@ -2495,25 +1987,9 @@ pub fn operations_summary_handler(state: Arc<AppState>, guardian: Arc<KeyGuardia
             {
                 return empty_status(status);
             }
-            let operations: Vec<serde_json::Value> = state
-                .request_metrics
-                .operations_summary()
-                .into_iter()
-                .map(|op| {
-                    serde_json::json!({
-                        "method": op.method,
-                        "path": op.path,
-                        "count": op.count,
-                        "error_count": op.error_count,
-                        "total_duration_ms": op.total_duration_ms,
-                        "avg_duration_ms": op.avg_duration_ms(),
-                        "error_rate": op.error_rate(),
-                    })
-                })
-                .collect();
             json_response(
                 StatusCode::OK,
-                &serde_json::json!({ "operations": operations }),
+                &crate::admin_sys::operations_summary(&state),
             )
         })
     })
