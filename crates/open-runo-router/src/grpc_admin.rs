@@ -1322,4 +1322,449 @@ mod tests {
         let k: v1::SelfIssued = c.unary("SelfIssueKey", &v1::Empty {}).await.unwrap();
         assert!(k.api_key.starts_with("orn_"));
     }
+
+    // ── 管理操作の通し試験(旧GraphQL/RESTの管理試験の期待値を、gRPCの`call`へ移したもの) ──
+
+    use open_runo_proto::prost_types::Struct;
+
+    async fn unary<M: Message + Default>(
+        a: &AdminGrpc,
+        method: &str,
+        h: &HeaderMap,
+        req: &impl Message,
+    ) -> M {
+        match a.call(method, h, &req.encode_to_vec()).await {
+            Ok(Output {
+                reply: Reply::Unary(b),
+                ..
+            }) => M::decode(&b[..]).unwrap(),
+            Ok(_) => panic!("{method}: not unary"),
+            Err(e) => panic!("{method}: {e:?}"),
+        }
+    }
+
+    async fn status<R: Message>(a: &AdminGrpc, method: &str, h: &HeaderMap, req: &R) -> i32 {
+        a.call(method, h, &req.encode_to_vec())
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("{method} should fail"))
+            .code
+    }
+
+    fn js(s: &Struct) -> serde_json::Value {
+        open_runo_proto::struct_to_json(s)
+    }
+
+    #[tokio::test]
+    async fn federation_compose_and_status() {
+        let (a, _s) = admin();
+        let h = key_headers("dev");
+        let svc = |name: &str, types: &[(&str, &[&str])]| v1::ComposeService {
+            service_name: name.into(),
+            types: types
+                .iter()
+                .map(|(t, f)| {
+                    (
+                        (*t).to_string(),
+                        v1::FieldList {
+                            fields: f.iter().map(|x| x.to_string()).collect(),
+                        },
+                    )
+                })
+                .collect(),
+            sdl: None,
+        };
+        let c: v1::ComposeResponse = unary(
+            &a,
+            "ComposeFederation",
+            &h,
+            &v1::ComposeRequest {
+                services: vec![
+                    svc("a", &[("User", &["id", "name"])]),
+                    svc("b", &[("User", &["id", "email"]), ("Post", &["id"])]),
+                ],
+            },
+        )
+        .await;
+        assert_eq!(c.contributing_services, vec!["a", "b"]);
+        assert!(c.breaking_changes.is_empty());
+        assert_eq!(c.types["User"].fields, vec!["email", "id", "name"]);
+        let st: v1::FederationStatusResponse =
+            unary(&a, "FederationStatus", &h, &v1::Empty {}).await;
+        assert_eq!((st.type_count, st.field_count), (2, 4));
+        // 型が消えれば破壊的変更。不正SDLはINVALID_ARGUMENT。
+        let c2: v1::ComposeResponse = unary(
+            &a,
+            "ComposeFederation",
+            &h,
+            &v1::ComposeRequest {
+                services: vec![svc("a", &[("User", &["id"])])],
+            },
+        )
+        .await;
+        assert!(!c2.breaking_changes.is_empty());
+        let bad = v1::ComposeRequest {
+            services: vec![v1::ComposeService {
+                service_name: "x".into(),
+                types: Default::default(),
+                sdl: Some("type {{{".into()),
+            }],
+        };
+        assert_eq!(
+            status(&a, "ComposeFederation", &h, &bad).await,
+            code::INVALID_ARGUMENT
+        );
+    }
+
+    #[tokio::test]
+    async fn feature_flags_persisted_queries_and_cache() {
+        let (a, _s) = admin();
+        let h = key_headers("dev");
+        let up = |name: &str, rollout: u32| v1::UpsertFeatureFlagRequest {
+            name: name.into(),
+            enabled: None,
+            rollout_percent: Some(rollout),
+            description: Some("d".into()),
+        };
+        let f: v1::FeatureFlag = unary(&a, "UpsertFeatureFlag", &h, &up("canary", 100)).await;
+        assert_eq!(
+            (f.name.as_str(), f.rollout_percent, f.enabled),
+            ("canary", 100, true)
+        );
+        let _: v1::FeatureFlag = unary(&a, "UpsertFeatureFlag", &h, &up("off", 0)).await;
+        let l: v1::ListFeatureFlagsResponse =
+            unary(&a, "ListFeatureFlags", &h, &v1::Empty {}).await;
+        assert_eq!(l.flags.len(), 2);
+        let ev = |n: &str, k: &str| v1::EvaluateFlagRequest {
+            name: n.into(),
+            bucket_key: k.into(),
+        };
+        for k in ["u1", "u2", "u3"] {
+            let e: v1::FlagEvaluation =
+                unary(&a, "EvaluateFeatureFlag", &h, &ev("canary", k)).await;
+            assert!(e.enabled);
+        }
+        let e: v1::FlagEvaluation = unary(&a, "EvaluateFeatureFlag", &h, &ev("off", "u1")).await;
+        assert!(!e.enabled);
+        assert_eq!(
+            status(
+                &a,
+                "GetFeatureFlag",
+                &h,
+                &v1::FlagName {
+                    name: "none".into()
+                }
+            )
+            .await,
+            code::NOT_FOUND
+        );
+        assert_eq!(
+            status(&a, "UpsertFeatureFlag", &h, &up("bad", 101)).await,
+            code::INVALID_ARGUMENT
+        );
+        let _: v1::Empty = unary(
+            &a,
+            "DeleteFeatureFlag",
+            &h,
+            &v1::FlagName {
+                name: "canary".into(),
+            },
+        )
+        .await;
+        assert_eq!(
+            status(
+                &a,
+                "DeleteFeatureFlag",
+                &h,
+                &v1::FlagName {
+                    name: "canary".into()
+                }
+            )
+            .await,
+            code::NOT_FOUND
+        );
+
+        // 永続クエリ。
+        let p: v1::PersistedQuery = unary(
+            &a,
+            "RegisterPersistedQuery",
+            &h,
+            &v1::RegisterPersistedQueryRequest {
+                query: "{ health }".into(),
+            },
+        )
+        .await;
+        assert_eq!(p.hash.len(), 64);
+        let g: v1::PersistedQuery = unary(
+            &a,
+            "GetPersistedQuery",
+            &h,
+            &v1::PersistedQueryHash { hash: p.hash },
+        )
+        .await;
+        assert_eq!(g.query, "{ health }");
+        assert_eq!(
+            status(
+                &a,
+                "GetPersistedQuery",
+                &h,
+                &v1::PersistedQueryHash {
+                    hash: "deadbeef".into()
+                }
+            )
+            .await,
+            code::NOT_FOUND
+        );
+
+        // キャッシュ消去。
+        let r: v1::PurgeResponse = unary(
+            &a,
+            "PurgeCache",
+            &h,
+            &v1::PurgeRequest { path: "/a".into() },
+        )
+        .await;
+        assert_eq!(r.purged, "/a");
+        let r: v1::PurgeResponse = unary(&a, "PurgeAllCache", &h, &v1::Empty {}).await;
+        assert_eq!(r.purged, "*");
+    }
+
+    #[tokio::test]
+    async fn db_analytics_ai_route_and_backup() {
+        let (a, state) = admin();
+        let h = key_headers("dev");
+        let s: Struct = unary(&a, "DbStatus", &h, &v1::Empty {}).await;
+        assert_eq!(
+            js(&s),
+            serde_json::json!({ "backend": "in-memory", "status": "ok" })
+        );
+        let r: Struct = unary(&a, "DbRouting", &h, &v1::Empty {}).await;
+        assert_eq!(js(&r)["entries"].as_array().unwrap().len(), 9);
+        let put = v1::DbPutRequest {
+            table: "notes".into(),
+            key: "k1".into(),
+            value: Some(open_runo_proto::json_to_value(
+                &serde_json::json!({ "n": 1, "tags": ["a", "b"] }),
+            )),
+        };
+        let p: Struct = unary(&a, "DbPut", &h, &put).await;
+        assert_eq!(
+            js(&p)["value"],
+            serde_json::json!({ "n": 1, "tags": ["a", "b"] })
+        );
+        let key = v1::DbKey {
+            table: "notes".into(),
+            key: "k1".into(),
+        };
+        let g: Struct = unary(&a, "DbGet", &h, &key).await;
+        assert_eq!(js(&g)["key"], "k1");
+        let l: Struct = unary(
+            &a,
+            "DbList",
+            &h,
+            &v1::DbTable {
+                table: "notes".into(),
+            },
+        )
+        .await;
+        assert_eq!(js(&l)["count"], 1);
+        assert_eq!(
+            status(
+                &a,
+                "DbGetAtCommit",
+                &h,
+                &v1::DbAtCommit {
+                    table: "notes".into(),
+                    key: "k1".into(),
+                    commit_id: "abc".into()
+                }
+            )
+            .await,
+            code::UNIMPLEMENTED
+        );
+        let d: Struct = unary(&a, "DbDelete", &h, &key).await;
+        assert_eq!(js(&d)["deleted"], true);
+        assert_eq!(status(&a, "DbGet", &h, &key).await, code::NOT_FOUND);
+
+        // 分析とAI経路。
+        let m: Struct = unary(&a, "AnalyticsRequestsPerMonth", &h, &v1::Empty {}).await;
+        assert!(js(&m)["months"].is_array());
+        let cand = |p: &str, cost: f64, local: bool, ctx: u32| v1::RouteCandidate {
+            provider: p.into(),
+            estimated_cost_usd_per_1k_tokens: cost,
+            estimated_latency_ms: 300,
+            is_local: local,
+            context_length: ctx,
+        };
+        let route: Struct = unary(
+            &a,
+            "AiRoute",
+            &h,
+            &v1::AiRouteRequest {
+                policy: "cost".into(),
+                min_context_length: Some(8000),
+                candidates: vec![
+                    cand("openai", 0.5, false, 128000),
+                    cand("local", 0.0, true, 32000),
+                ],
+            },
+        )
+        .await;
+        assert_eq!(js(&route)["selected_provider"], "local_llm");
+        let none = v1::AiRouteRequest {
+            policy: "cost".into(),
+            min_context_length: Some(999_999),
+            candidates: vec![cand("openai", 0.5, false, 1000)],
+        };
+        assert_eq!(
+            status(&a, "AiRoute", &h, &none).await,
+            code::INVALID_ARGUMENT
+        );
+
+        // バックアップ・移行・整合性。
+        state.db.put("notes", "k", "{\"v\":1}").await.unwrap();
+        let i: Struct = unary(&a, "IntegrityCheck", &h, &v1::Empty {}).await;
+        assert_eq!(js(&i)["healed"], 0);
+        let b: Struct = unary(&a, "BackupExport", &h, &v1::Empty {}).await;
+        let path = js(&b)["written"][0].as_str().unwrap().to_string();
+        let imp: Struct = unary(&a, "BackupImport", &h, &v1::BackupImportRequest { path }).await;
+        assert!(js(&imp)["restored"].as_u64().unwrap() >= 1);
+        assert_eq!(
+            status(
+                &a,
+                "BackupImport",
+                &h,
+                &v1::BackupImportRequest {
+                    path: "/nonexistent/x.json".into()
+                }
+            )
+            .await,
+            code::INVALID_ARGUMENT
+        );
+        let sql: Struct = unary(
+            &a,
+            "MigrateExportSql",
+            &h,
+            &v1::MigrateExportSqlRequest {
+                dialect: "postgres".into(),
+            },
+        )
+        .await;
+        assert!(!js(&sql)["written"].as_array().unwrap().is_empty());
+        assert_eq!(
+            status(
+                &a,
+                "MigrateExportSql",
+                &h,
+                &v1::MigrateExportSqlRequest {
+                    dialect: "oracle".into()
+                }
+            )
+            .await,
+            code::INVALID_ARGUMENT
+        );
+        let csv: Struct = unary(&a, "MigrateExportCsv", &h, &v1::Empty {}).await;
+        assert!(!js(&csv)["written"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn scim_and_session_flow() {
+        let (a, _s) = admin();
+        let h = key_headers("dev");
+        let c: Struct = unary(
+            &a,
+            "ScimCreateUser",
+            &h,
+            &v1::ScimCreateUserRequest {
+                user_name: "alice@example.com".into(),
+                roles: vec!["developer".into()],
+            },
+        )
+        .await;
+        let c = js(&c);
+        let key = c["urn:open-runo:params:scim:api-key"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(key.starts_with("orn_"));
+        let id = c["id"].as_str().unwrap().to_string();
+        // 鍵レジストリが空でなくなったので、以後は発行された鍵で呼ぶ。
+        let h = key_headers(&key);
+        let l: Struct = unary(
+            &a,
+            "ScimListUsers",
+            &h,
+            &v1::ScimListRequest { filter: None },
+        )
+        .await;
+        assert_eq!(js(&l)["totalResults"], 1);
+        let dup = v1::ScimCreateUserRequest {
+            user_name: "alice@example.com".into(),
+            roles: vec![],
+        };
+        assert_eq!(
+            status(&a, "ScimCreateUser", &h, &dup).await,
+            code::ALREADY_EXISTS
+        );
+
+        // セッション: x-api-keyをCookie+CSRFへ交換し、set-cookieが返る。そのCookie+CSRFで呼べる。
+        let out = a.call("SessionLogin", &h, &[]).await.ok().unwrap();
+        let cookie = out
+            .headers
+            .iter()
+            .find(|(k, _)| *k == "set-cookie")
+            .unwrap()
+            .1
+            .clone();
+        let Reply::Unary(b) = out.reply else {
+            panic!("unary")
+        };
+        let login = v1::SessionLoginResponse::decode(&b[..]).unwrap();
+        let mut sh = HeaderMap::new();
+        sh.insert("cookie", cookie.split(';').next().unwrap().parse().unwrap());
+        // CSRFなしは拒否(POST相当)。あれば通る。
+        assert_eq!(
+            status(
+                &a,
+                "ScimListUsers",
+                &sh,
+                &v1::ScimListRequest { filter: None }
+            )
+            .await,
+            code::PERMISSION_DENIED
+        );
+        sh.insert("x-csrf-token", login.csrf_token.parse().unwrap());
+        let _: Struct = unary(
+            &a,
+            "ScimListUsers",
+            &sh,
+            &v1::ScimListRequest { filter: None },
+        )
+        .await;
+        let out = a.call("SessionLogout", &sh, &[]).await.ok().unwrap();
+        assert!(out.headers.iter().any(|(k, _)| *k == "set-cookie"));
+        assert_eq!(
+            status(
+                &a,
+                "ScimListUsers",
+                &sh,
+                &v1::ScimListRequest { filter: None }
+            )
+            .await,
+            code::UNAUTHENTICATED
+        );
+
+        // ユーザー削除で鍵が失効する。
+        let _: v1::Empty = unary(&a, "ScimDeleteUser", &h, &v1::ScimUserId { id }).await;
+        assert_eq!(
+            status(
+                &a,
+                "ScimListUsers",
+                &h,
+                &v1::ScimListRequest { filter: None }
+            )
+            .await,
+            code::UNAUTHENTICATED
+        );
+    }
 }

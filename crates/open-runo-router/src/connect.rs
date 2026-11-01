@@ -100,11 +100,19 @@ fn fixed(status: u16, content_type: &str, body: Vec<u8>) -> Response {
 
 fn error_response(e: &GrpcErr) -> Response {
     let (_, status) = connect_code(e.code);
-    fixed(
+    let mut resp = fixed(
         status,
         "application/json",
         serde_json::to_vec(&error_json(e)).unwrap_or_default(),
-    )
+    );
+    // Connect(HTTPステータス+JSON)とgRPC-webの「良いとこ取り」: gRPC由来のツール(grpc-webクライアント、
+    // 計測、プロキシのログ)が読めるよう、gRPCのステータスもヘッダに載せる。
+    resp.headers_mut()
+        .insert("grpc-status", e.code.to_string().parse().expect("digits"));
+    if let Ok(v) = open_runo_proto::percent_encode(&e.message).parse() {
+        resp.headers_mut().insert("grpc-message", v);
+    }
+    resp
 }
 
 /// 要求本文(proto/JSON)→ 内部の proto バイト列。
@@ -427,6 +435,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(r.status(), 404);
+        // ハイブリッド: HTTPステータス(404)に加え、gRPCのステータスもヘッダで読める。
+        assert_eq!(r.headers()["grpc-status"], "5");
+        assert!(r.headers()["grpc-message"]
+            .to_str()
+            .unwrap()
+            .contains("no schema found"));
         assert_eq!(
             r.json::<serde_json::Value>().await.unwrap()["code"],
             "not_found"

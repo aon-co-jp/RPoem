@@ -228,31 +228,37 @@ pub async fn build_hyper_app(
             )),
         )
         // ── WASM frontend bundle (apps/desktop-wasm/www) ─────────────────
+        // 管理画面のファイルは`Cache-Control: no-cache`(=毎回ETagで再検証、変わっていなければ304)。
+        // `with_static_cache_headers`の既定(30日・immutable)を当てると、更新後も古いWASMが残って
+        // 旧い通信方式のまま動く実害があった(2026-11-01)ため、更新時のキャッシュ無効化を自動にする。
         // Directory is configurable via OPEN_RUNO_STATIC_DIR so the
         // binary can be run from any working directory; defaults to the
         // conventional path relative to the repo root (dev convenience).
         .route(
             Method::GET,
             "/",
-            wrap(hyper_compat::static_file_handler(
+            wrap(hyper_compat::static_file_handler_with_cache_control(
                 static_dir().join("index.html"),
                 "text/html; charset=utf-8",
+                Some("no-cache"),
             )),
         )
         .route(
             Method::GET,
             "/pkg/open_runo_desktop_wasm.js",
-            wrap(hyper_compat::static_file_handler(
+            wrap(hyper_compat::static_file_handler_with_cache_control(
                 static_dir().join("pkg/open_runo_desktop_wasm.js"),
                 "text/javascript",
+                Some("no-cache"),
             )),
         )
         .route(
             Method::GET,
             "/pkg/open_runo_desktop_wasm_bg.wasm",
-            wrap(hyper_compat::static_file_handler(
+            wrap(hyper_compat::static_file_handler_with_cache_control(
                 static_dir().join("pkg/open_runo_desktop_wasm_bg.wasm"),
                 "application/wasm",
+                Some("no-cache"),
             )),
         )
         // PWA manifest + icon, so the app can be "installed" from the
@@ -261,17 +267,19 @@ pub async fn build_hyper_app(
         .route(
             Method::GET,
             "/manifest.json",
-            wrap(hyper_compat::static_file_handler(
+            wrap(hyper_compat::static_file_handler_with_cache_control(
                 static_dir().join("manifest.json"),
                 "application/manifest+json",
+                Some("no-cache"),
             )),
         )
         .route(
             Method::GET,
             "/icon.svg",
-            wrap(hyper_compat::static_file_handler(
+            wrap(hyper_compat::static_file_handler_with_cache_control(
                 static_dir().join("icon.svg"),
                 "image/svg+xml",
+                Some("no-cache"),
             )),
         )
         // Every route above registers only its actual method; without this,
@@ -303,6 +311,50 @@ fn static_dir() -> std::path::PathBuf {
 #[cfg(test)]
 mod hyper_app_tests {
     use super::*;
+
+    /// 管理画面の静的ファイルは更新したら**自動で**新しい内容が配られる(古いキャッシュが残らない)。
+    #[tokio::test]
+    async fn admin_ui_assets_revalidate_with_etag_so_updates_are_picked_up() {
+        let dir = std::env::temp_dir().join(format!("open-runo-static-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("pkg")).unwrap();
+        let wasm = dir.join("pkg/open_runo_desktop_wasm_bg.wasm");
+        std::fs::write(&wasm, b"old-wasm").unwrap();
+        std::env::set_var("OPEN_RUNO_STATIC_DIR", &dir);
+        let app = build_hyper_app(Arc::new(AppState::new()), 1_000, 60).await;
+        let (addr, _h) = hyper_compat::serve(app, "127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let url = format!("http://{addr}/pkg/open_runo_desktop_wasm_bg.wasm");
+        let c = reqwest::Client::builder().no_gzip().build().unwrap();
+
+        let r = c.get(&url).send().await.unwrap();
+        assert_eq!(r.status(), 200);
+        // 30日・immutableではなく、毎回再検証させる。
+        assert_eq!(r.headers()["cache-control"], "no-cache");
+        let etag = r.headers()["etag"].to_str().unwrap().to_string();
+        // 変わっていなければ304(転送は最小)。
+        let r = c
+            .get(&url)
+            .header("if-none-match", &etag)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 304);
+        // ファイルを更新すると、同じ条件付き要求でも新しい内容が返る(キャッシュの手動削除は不要)。
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        std::fs::write(&wasm, b"new-wasm-bytes-longer").unwrap();
+        let r = c
+            .get(&url)
+            .header("if-none-match", &etag)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200);
+        assert_ne!(r.headers()["etag"].to_str().unwrap(), etag);
+        assert_eq!(r.bytes().await.unwrap().as_ref(), b"new-wasm-bytes-longer");
+        std::env::remove_var("OPEN_RUNO_STATIC_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[tokio::test]
     async fn hyper_app_serves_health_and_protected_routes() {

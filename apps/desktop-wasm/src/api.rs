@@ -1,12 +1,18 @@
-//! gRPC-web client for open-runo (`open_runo.admin.v1.Admin`), callable from WASM.
+//! open-runo 管理サービス(`open_runo.admin.v1.Admin`)のブラウザ(WASM)クライアント。
 //!
-//! REST全廃・gRPC移行(CLAUDE.md「2026-11-01追記」): 管理画面はすべて同一オリジンの
-//! `POST /open_runo.admin.v1.Admin/<method>`(`application/grpc-web+proto`)を叩く。ブラウザは
-//! 素のgRPC(HTTP/2トレーラー)を話せないため、サーバーがgRPC-webを同じポートで受ける
-//! (Connect / gRPC-web-text も受けられる)。公開関数の名前・引数・戻り値は従来と同じに保ち、
-//! 応答は`open-runo-api-types`の型へデコードする(ページ側は無変更)。型は`open-runo-proto`
-//! (`admin.proto`から生成)で、サーバー・CLIと共有する。生存確認の `/health` だけは管理APIではない
-//! ため従来どおりGETで叩く。
+//! **ハイブリッド通信**(ConnectとgRPC-webの良いとこ取り):
+//! - 単項呼び出しは**Connect**(`application/proto`の素の本文)。枠もトレーラーも無いので軽く、
+//!   エラーは**HTTPステータス**(401/404/…)として開発者ツールのNetworkにそのまま見える。
+//!   `curl`で同じ要求を再現できる(JSON版もサーバーが受ける)。
+//! - ストリーミングは**Connectのエンベロープ**を`ReadableStream`で読む(サーバーストリーミング、
+//!   `AbortController`で中断、複数の呼び出しを同時に走らせても互いに待たない)。
+//! - Connectを知らないサーバー(gRPC-webだけ話す古い版)だと分かったら、**自動でgRPC-webへ切り替える**。
+//! - すべての呼び出しを[`log_entries`]に記録する(管理画面の「RPC Inspector」と、`open-runo-debug`が
+//!   `1`のときのブラウザコンソール出力に使う)。
+//!
+//! 型は`open-runo-proto`(`admin.proto`から生成)で、サーバー・CLIと共有する。公開関数の名前・引数・
+//! 戻り値は従来と同じに保ち、応答は`open-runo-api-types`の型へデコードする(ページ側は無変更)。
+//! 生存確認の `/health` だけは管理APIではないため従来どおりGETで叩く。
 
 use open_runo_api_types::{
     DbRecordListResponse, DbRecordResponse, FeatureFlagEvaluationResponse, FeatureFlagListResponse,
@@ -17,7 +23,7 @@ use open_runo_proto::{code, encode_frame, parse_web_trailers, split_frame, struc
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, RequestMode, Response};
@@ -51,6 +57,9 @@ struct RpcError {
     message: String,
 }
 
+/// 「このサーバーはConnectを話さない(gRPC-webだけ)」を表す内部用のコード(自動切替の合図)。
+const NOT_CONNECT: i32 = -1;
+
 impl RpcError {
     fn text(message: impl Into<String>) -> Self {
         Self {
@@ -67,14 +76,121 @@ impl RpcError {
     }
 }
 
-/// `fetch`を1回行い、`(HTTP状態, ok, リクエストID, 本文のバイト列)`を返す。
+/// 使う通信方式。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Wire {
+    Connect,
+    GrpcWeb,
+}
+
+impl Wire {
+    pub fn name(self) -> &'static str {
+        match self {
+            Wire::Connect => "Connect",
+            Wire::GrpcWeb => "gRPC-web",
+        }
+    }
+}
+
+/// RPC呼び出しの記録1件(RPC Inspector用)。
+#[derive(Clone, Debug)]
+pub struct LogEntry {
+    pub at_ms: f64,
+    pub method: String,
+    pub wire: &'static str,
+    pub http_status: u16,
+    pub grpc_code: i32,
+    pub ms: f64,
+    pub request: String,
+    pub response: String,
+}
+
+const LOG_CAPACITY: usize = 200;
+
+thread_local! {
+    static WIRE: Cell<Wire> = const { Cell::new(Wire::Connect) };
+    static LOG: RefCell<Vec<LogEntry>> = const { RefCell::new(Vec::new()) };
+}
+
+pub fn current_wire() -> Wire {
+    WIRE.with(Cell::get)
+}
+
+pub fn set_wire(w: Wire) {
+    WIRE.with(|c| c.set(w));
+}
+
+pub fn log_entries() -> Vec<LogEntry> {
+    LOG.with(|l| l.borrow().clone())
+}
+
+pub fn clear_log() {
+    LOG.with(|l| l.borrow_mut().clear());
+}
+
+fn debug_enabled() -> bool {
+    local_storage()
+        .and_then(|s| s.get_item("open-runo-debug").ok().flatten())
+        .is_some_and(|v| v == "1")
+}
+
+pub fn set_debug(on: bool) {
+    if let Some(s) = local_storage() {
+        let _ = if on { s.set_item("open-runo-debug", "1") } else { s.remove_item("open-runo-debug") };
+    }
+}
+
+pub fn is_debug() -> bool {
+    debug_enabled()
+}
+
+fn record(entry: LogEntry) {
+    if debug_enabled() {
+        // 開発者ツールのコンソールに、折りたたみグループで出す(Networkタブと突き合わせやすい)。
+        let title = format!(
+            "{} [{}] {} → HTTP {} / {} ({:.0} ms)",
+            String::from(js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(entry.at_ms)).to_locale_time_string("ja-JP")),
+            entry.wire,
+            entry.method,
+            entry.http_status,
+            code::name(entry.grpc_code),
+            entry.ms
+        );
+        web_sys::console::group_collapsed_1(&wasm_bindgen::JsValue::from_str(&title));
+        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!("request:  {}", entry.request)));
+        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!("response: {}", entry.response)));
+        web_sys::console::group_end();
+    }
+    LOG.with(|l| {
+        let mut l = l.borrow_mut();
+        l.push(entry);
+        if l.len() > LOG_CAPACITY {
+            let drop = l.len() - LOG_CAPACITY;
+            l.drain(..drop);
+        }
+    });
+}
+
+/// `fetch`の結果。
+struct Fetched {
+    status: u16,
+    ok: bool,
+    request_id: Option<String>,
+    content_type: String,
+    grpc_status: Option<i32>,
+    grpc_message: Option<String>,
+    bytes: Vec<u8>,
+}
+
+/// `fetch`を1回行う。`content_type`を渡すとPOSTの本文型として付ける。
 async fn fetch_bytes(
     method: &str,
     path: &str,
     body: Option<&[u8]>,
     api_key: Option<&str>,
-    grpc_web: bool,
-) -> Result<(u16, bool, Option<String>, Vec<u8>), RpcError> {
+    content_type: Option<&str>,
+    extra: &[(&str, &str)],
+) -> Result<Fetched, RpcError> {
     let js = |e: wasm_bindgen::JsValue| RpcError::text(format!("{e:?}"));
     let opts = RequestInit::new();
     opts.set_method(method);
@@ -87,10 +203,11 @@ async fn fetch_bytes(
     if let Some(key) = api_key {
         headers.set("x-api-key", key).map_err(js)?;
     }
-    if grpc_web {
-        headers.set("content-type", "application/grpc-web+proto").map_err(js)?;
-        headers.set("x-grpc-web", "1").map_err(js)?;
-        headers.set("accept", "application/grpc-web+proto").map_err(js)?;
+    if let Some(ct) = content_type {
+        headers.set("content-type", ct).map_err(js)?;
+    }
+    for (k, v) in extra {
+        headers.set(k, v).map_err(js)?;
     }
     let window = web_sys::window().ok_or_else(|| RpcError::text("no window"))?;
     let resp: Response = JsFuture::from(window.fetch_with_request(&request))
@@ -101,29 +218,84 @@ async fn fetch_bytes(
     let buf = JsFuture::from(resp.array_buffer().map_err(js)?)
         .await
         .map_err(|e| RpcError::text(format!("body read error: {e:?}")))?;
-    let bytes = js_sys::Uint8Array::new(&buf).to_vec();
-    let request_id = resp.headers().get("x-request-id").ok().flatten();
-    Ok((resp.status(), resp.ok(), request_id, bytes))
+    let h = resp.headers();
+    let get = |n: &str| h.get(n).ok().flatten();
+    Ok(Fetched {
+        status: resp.status(),
+        ok: resp.ok(),
+        request_id: get("x-request-id"),
+        content_type: get("content-type").unwrap_or_default(),
+        grpc_status: get("grpc-status").and_then(|v| v.parse().ok()),
+        grpc_message: get("grpc-message").map(|m| open_runo_proto::percent_decode(&m)),
+        bytes: js_sys::Uint8Array::new(&buf).to_vec(),
+    })
 }
 
-/// gRPC-webの単項呼び出し1回。成功なら応答メッセージのバイト列を返す。
-async fn call_once<Req: Message>(method: &str, req: &Req, api_key: Option<&str>) -> Result<Vec<u8>, RpcError> {
-    let body = encode_frame(&req.encode_to_vec());
-    let (status, ok, request_id, bytes) =
-        fetch_bytes("POST", &open_runo_proto::method_path(method), Some(&body), api_key, true).await?;
-    let suffix = request_id.map(|id| format!(" (request-id: {id})")).unwrap_or_default();
-    if !ok {
-        // 流量制限(429)などHTTPレベルの失敗。
-        return Err(RpcError::text(if status == 429 {
-            format!("HTTP 429 (rate limited){suffix}")
-        } else {
-            format!("HTTP {status}{suffix}")
-        }));
+/// HTTP自体の失敗(流量制限など)を文字列エラーにする。
+fn http_failure(f: &Fetched) -> RpcError {
+    let suffix = f.request_id.as_ref().map(|id| format!(" (request-id: {id})")).unwrap_or_default();
+    RpcError::text(if f.status == 429 {
+        format!("HTTP 429 (rate limited){suffix}")
+    } else {
+        format!("HTTP {}{suffix}", f.status)
+    })
+}
+
+/// **Connect**の単項呼び出し1回(`application/proto`の素の本文)。HTTPステータスがそのまま結果を表す。
+async fn call_connect(method: &str, req: &[u8], api_key: Option<&str>) -> Result<(Vec<u8>, u16), RpcError> {
+    let f = fetch_bytes(
+        "POST",
+        &open_runo_proto::method_path(method),
+        Some(req),
+        api_key,
+        Some("application/proto"),
+        &[("connect-protocol-version", "1"), ("accept", "application/proto")],
+    )
+    .await?;
+    // gRPC-webだけ話すサーバーは、gRPC-web形式でエラーを返す。→ 自動でそちらへ切り替える合図。
+    if f.content_type.starts_with("application/grpc-web") {
+        return Err(RpcError { code: NOT_CONNECT, message: String::new() });
     }
+    if f.status == 200 {
+        return Ok((f.bytes, f.status));
+    }
+    if f.status == 429 || f.content_type.is_empty() {
+        return Err(http_failure(&f));
+    }
+    // Connectのエラー: HTTPステータス + JSON `{code, message}`。gRPCのコードはヘッダにも載る。
+    let json: Value = serde_json::from_slice(&f.bytes).unwrap_or(Value::Null);
+    let message = f
+        .grpc_message
+        .clone()
+        .or_else(|| json["message"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    let suffix = f.request_id.as_ref().map(|id| format!(" (request-id: {id})")).unwrap_or_default();
+    Err(RpcError {
+        code: f.grpc_status.unwrap_or(code::UNKNOWN),
+        message: format!("{message}{suffix}"),
+    })
+}
+
+/// **gRPC-web**の単項呼び出し1回(Connectを話さないサーバー向けのフォールバック)。
+async fn call_grpc_web(method: &str, req: &[u8], api_key: Option<&str>) -> Result<(Vec<u8>, u16), RpcError> {
+    let body = encode_frame(req);
+    let f = fetch_bytes(
+        "POST",
+        &open_runo_proto::method_path(method),
+        Some(&body),
+        api_key,
+        Some("application/grpc-web+proto"),
+        &[("x-grpc-web", "1"), ("accept", "application/grpc-web+proto")],
+    )
+    .await?;
+    if !f.ok {
+        return Err(http_failure(&f));
+    }
+    let suffix = f.request_id.as_ref().map(|id| format!(" (request-id: {id})")).unwrap_or_default();
     // データフレーム(0個以上)の後ろに、フラグ0x80のトレーラーフレームが来る。
     let mut message = Vec::new();
     let mut status_pair = (code::UNKNOWN, "missing grpc-web trailers".to_string());
-    let mut rest: &[u8] = &bytes;
+    let mut rest: &[u8] = &f.bytes;
     while let Some((flag, body, tail)) = split_frame(rest) {
         if flag & 0x80 != 0 {
             status_pair = parse_web_trailers(body);
@@ -133,12 +305,41 @@ async fn call_once<Req: Message>(method: &str, req: &Req, api_key: Option<&str>)
         rest = tail;
     }
     if status_pair.0 != code::OK {
-        return Err(RpcError {
-            code: status_pair.0,
-            message: format!("{}{suffix}", status_pair.1),
-        });
+        return Err(RpcError { code: status_pair.0, message: format!("{}{suffix}", status_pair.1) });
     }
-    Ok(message)
+    Ok((message, f.status))
+}
+
+/// 単項呼び出し1回。既定はConnect、Connectを話さないと分かれば以後はgRPC-webに切り替える。
+async fn call_once<Req: Message>(method: &str, req: &Req, api_key: Option<&str>) -> Result<Vec<u8>, RpcError> {
+    let bytes = req.encode_to_vec();
+    let started = js_sys::Date::now();
+    let wire_before = current_wire();
+    let mut wire = wire_before;
+    let mut result = match wire {
+        Wire::Connect => call_connect(method, &bytes, api_key).await,
+        Wire::GrpcWeb => call_grpc_web(method, &bytes, api_key).await,
+    };
+    if matches!(&result, Err(e) if e.code == NOT_CONNECT) {
+        set_wire(Wire::GrpcWeb);
+        wire = Wire::GrpcWeb;
+        result = call_grpc_web(method, &bytes, api_key).await;
+    }
+    let (http_status, grpc_code, response) = match &result {
+        Ok((b, st)) => (*st, code::OK, format!("{} bytes", b.len())),
+        Err(e) => (0, e.code, e.message.clone()),
+    };
+    record(LogEntry {
+        at_ms: started,
+        method: method.to_string(),
+        wire: wire.name(),
+        http_status,
+        grpc_code,
+        ms: js_sys::Date::now() - started,
+        request: format!("{} bytes", bytes.len()),
+        response,
+    });
+    result.map(|(b, _)| b)
 }
 
 /// Get a working API key, obtaining one automatically if needed — the user
@@ -170,7 +371,11 @@ async fn get_or_issue_api_key() -> Result<String, RpcError> {
 }
 
 /// 認証付き単項呼び出し。キーが失効していた(UNAUTHENTICATED)ら自己発行し直して1回だけ再試行する。
-async fn rpc<Req: Message, Resp: Message + Default>(method: &str, req: &Req) -> Result<Resp, String> {
+/// 要求・応答は型付きの`Debug`表示でも記録する(RPC Inspector用)。
+async fn rpc<Req: Message + std::fmt::Debug, Resp: Message + Default + std::fmt::Debug>(
+    method: &str,
+    req: &Req,
+) -> Result<Resp, String> {
     let key = get_or_issue_api_key().await.map_err(RpcError::into_string)?;
     let bytes = match call_once(method, req, Some(&key)).await {
         Ok(b) => b,
@@ -181,11 +386,19 @@ async fn rpc<Req: Message, Resp: Message + Default>(method: &str, req: &Req) -> 
         },
         Err(e) => return Err(e.into_string()),
     };
-    Resp::decode(&bytes[..]).map_err(|e| format!("decode error: {e}"))
+    let resp = Resp::decode(&bytes[..]).map_err(|e| format!("decode error: {e}"))?;
+    // 直近の記録に、型付きの中身を足す。
+    LOG.with(|l| {
+        if let Some(last) = l.borrow_mut().iter_mut().rev().find(|e| e.method == method) {
+            last.request = format!("{req:?}");
+            last.response = format!("{resp:?}");
+        }
+    });
+    Ok(resp)
 }
 
 /// `google.protobuf.Struct`で返るRPCを、REST時代と同じJSON形の型へデコードする。
-async fn rpc_json<Req: Message, T: DeserializeOwned>(method: &str, req: &Req) -> Result<T, String> {
+async fn rpc_json<Req: Message + std::fmt::Debug, T: DeserializeOwned>(method: &str, req: &Req) -> Result<T, String> {
     let s: open_runo_proto::prost_types::Struct = rpc(method, req).await?;
     serde_json::from_value(struct_to_json(&s)).map_err(|e| format!("decode error: {e}"))
 }
@@ -198,13 +411,13 @@ pub struct Health {
 }
 
 pub async fn health_check() -> Result<Health, String> {
-    let (status, ok, _, bytes) = fetch_bytes("GET", "/health", None, None, false)
+    let f = fetch_bytes("GET", "/health", None, None, None, &[])
         .await
         .map_err(RpcError::into_string)?;
-    if !ok {
-        return Err(format!("HTTP {status}"));
+    if !f.ok {
+        return Err(format!("HTTP {}", f.status));
     }
-    serde_json::from_slice(&bytes).map_err(|e| format!("decode error: {e}"))
+    serde_json::from_slice(&f.bytes).map_err(|e| format!("decode error: {e}"))
 }
 
 fn schema_version(v: v1::SchemaVersion) -> SchemaVersion {
@@ -546,4 +759,99 @@ pub async fn requests_per_month() -> Result<RequestsPerMonthResponse, String> {
 
 pub async fn operations_summary() -> Result<OperationsResponse, String> {
     rpc_json("AnalyticsOperations", &v1::Empty {}).await
+}
+
+// ── サーバーストリーミング(Connectのエンベロープを ReadableStream で読む) ──────────
+
+/// 購読の停止用ハンドル。
+pub struct WatchHandle {
+    abort: web_sys::AbortController,
+}
+
+impl WatchHandle {
+    /// 購読を止める(`fetch`を中断する)。
+    pub fn stop(&self) {
+        self.abort.abort();
+    }
+}
+
+/// `WatchEvents`(スキーマ登録・履歴の増加)を購読する。イベントごとに`on_event`、終了・失敗時に
+/// `on_end`(正常終了なら空文字)が呼ばれる。複数の購読・単項呼び出しは同時に走らせられる。
+pub fn watch_events(
+    on_event: impl Fn(v1::AdminEvent) + 'static,
+    on_end: impl Fn(String) + 'static,
+) -> Result<WatchHandle, String> {
+    let abort = web_sys::AbortController::new().map_err(|e| format!("{e:?}"))?;
+    let signal = abort.signal();
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = run_watch(&signal, &on_event).await;
+        on_end(result.err().unwrap_or_default());
+    });
+    Ok(WatchHandle { abort })
+}
+
+async fn run_watch(signal: &web_sys::AbortSignal, on_event: &dyn Fn(v1::AdminEvent)) -> Result<(), String> {
+    let key = get_or_issue_api_key().await.map_err(RpcError::into_string)?;
+    let js = |e: wasm_bindgen::JsValue| format!("{e:?}");
+    let opts = RequestInit::new();
+    opts.set_method("POST");
+    opts.set_mode(RequestMode::SameOrigin);
+    opts.set_signal(Some(signal));
+    opts.set_body(&js_sys::Uint8Array::from(encode_frame(&v1::Empty {}.encode_to_vec()).as_slice()));
+    let request = Request::new_with_str_and_init(&open_runo_proto::method_path("WatchEvents"), &opts).map_err(js)?;
+    let h = request.headers();
+    h.set("content-type", "application/connect+proto").map_err(js)?;
+    h.set("connect-protocol-version", "1").map_err(js)?;
+    h.set("x-api-key", &key).map_err(js)?;
+    let window = web_sys::window().ok_or("no window")?;
+    let resp: Response = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(js)?
+        .dyn_into()
+        .map_err(js)?;
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let body = resp.body().ok_or("response has no body stream")?;
+    let reader: web_sys::ReadableStreamDefaultReader = body
+        .get_reader()
+        .dyn_into()
+        .map_err(|e: js_sys::Object| format!("{e:?}"))?;
+    let mut buf: Vec<u8> = Vec::new();
+    loop {
+        let chunk = match JsFuture::from(reader.read()).await {
+            Ok(c) => c,
+            // 中断(AbortController)は正常な停止として扱う。
+            Err(_) if signal.aborted() => return Ok(()),
+            Err(e) => return Err(js(e)),
+        };
+        let done = js_sys::Reflect::get(&chunk, &"done".into()).ok().and_then(|d| d.as_bool()).unwrap_or(true);
+        if done {
+            return Ok(());
+        }
+        let value = js_sys::Reflect::get(&chunk, &"value".into()).map_err(js)?;
+        buf.extend_from_slice(&js_sys::Uint8Array::new(&value).to_vec());
+        while let Some((flag, msg, tail)) = split_frame(&buf.clone()) {
+            let consumed = buf.len() - tail.len();
+            if flag == 0 {
+                on_event(v1::AdminEvent::decode(msg).map_err(|e| format!("decode error: {e}"))?);
+            } else if flag & 0x02 != 0 {
+                // 終端エンベロープ: `{}`なら正常、`{"error":{...}}`なら失敗。
+                let end: Value = serde_json::from_slice(msg).unwrap_or(Value::Null);
+                return match end["error"]["message"].as_str() {
+                    Some(m) => Err(m.to_string()),
+                    None => Ok(()),
+                };
+            }
+            buf.drain(..consumed);
+        }
+    }
+}
+
+/// 同時実行の確認用: 単項呼び出しを`n`個**並列**に走らせ、`(成功数, 全体の所要ms)`を返す。
+pub async fn concurrency_probe(n: usize) -> (usize, f64) {
+    let started = js_sys::Date::now();
+    let calls = (0..n).map(|_| federation_status());
+    let results = futures::future::join_all(calls).await;
+    (results.iter().filter(|r| r.is_ok()).count(), js_sys::Date::now() - started)
 }
