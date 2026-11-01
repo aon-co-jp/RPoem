@@ -28,6 +28,27 @@
 >   要約されている(RPoem側の実装作業自体は今回未着手のため、RPoem
 >   固有の再開メモはまだ無い)。
 
+> **📌 2026-11-01追記: 「REST 全廃」の決定と段階移行計画(ユーザー指示)**
+>
+> **決定**: ユーザーが「RPoem 自体の REST を全廃する」と決定した(サイト aruaru.tokyo /
+> audiocafe.tokyo の説明・README も「REST API は不使用」の表現に揃えた)。
+> **現状(正直な開示、コードは未変更)**: `crates/open-runo-router/src/lib.rs` に `/api/` 配下の
+> 管理用 REST エンドポイントが約50個あり(スキーマ登録・DB・キャッシュ・バックアップ・
+> フラグ・永続クエリ・認証/セッション・分析・イベント/WS など)、実装は
+> `handlers_hyper.rs`(約5,000行)。GraphQL 側(`open-runo-gateway`)は `EmptyMutation`
+> のため、**書き込み系の管理操作を GraphQL で行う手段がまだ無い**。管理画面
+> (`apps/desktop-wasm`)・CLI・テスト・他リポジトリ(open-english 等)が REST を使っている。
+> したがって一括削除はできず、次の段階で移行する(各段階でテストを通し、段階ごとに push):
+> 1. GraphQL の Mutation 基盤(認証は既存の KeyGuardian/セッションを GraphQL コンテキストへ)と、
+>    スキーマ登録・履歴・フラグ・永続クエリ・キャッシュ消去・compose の Query/Mutation。
+> 2. 認証/セッション/キー発行、DB 操作、バックアップ/移行/整合性、分析を GraphQL へ。
+> 3. 管理画面(WASM)と CLI を GraphQL へ切り替え、`open-runo-api-types` を GraphQL 用に作り直す。
+> 4. イベント/WebSocket を GraphQL Subscriptions へ統合、OpenAPI 配信(`/api/docs` 等)を廃止。
+> 5. `/api/` のルートと `handlers_hyper.rs` を削除、テストを更新、他リポジトリ・VPS の呼び出しを
+>    GraphQL へ切り替えてから反映(先に呼び出し側を直さないと本番が壊れる)。
+> 置き換えの設計は `aruaru-db/docs/CONTROL_PLANE_REDESIGN.md`(宣言的 `aruaru.yaml`+
+> reconciliation)と整合させること。**現在は第0段階(文書・README の表記修正)まで完了。**
+
 > **📌 2026-08-25追記: ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証完了・
 > 段階的導入計画をRPoem/aruaru-llm/open-english「トライブリッド」で確定
 > (ユーザー指示への対応、正本はこのエントリ・詳細はaruaru-llm/open-english

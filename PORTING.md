@@ -7,6 +7,13 @@
 > 対象バージョン: workspace 0.1.0（18 クレート / 335 テスト、--all-features で353）
 > 最終更新: 2026-08-20(自動アップデート機構`self_update.rs`追加を反映)
 
+## REST 全廃の方針と移行計画(2026-11-01、ユーザー決定)
+
+アプリの API は GraphQL に一本化し、REST は使わない方針。ただし現在のコードには `/api/` 配下の
+管理用 REST が約50個残っており(`crates/open-runo-router`)、GraphQL 側は `EmptyMutation` のため
+書き込み系の管理操作がまだ GraphQL で行えない。**このファイルの手順で導入する場合、管理用 REST は
+まだ存在する(移行中)。** 段階的な移行計画と現状は `CLAUDE.md` の「2026-11-01追記」を参照。
+
 ## ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証済み・段階的導入計画(2026-08-25追記)
 
 `experiments/wgpu-browser-spike/`に、`wgpu`(features=`webgpu`+`wgsl`)を
