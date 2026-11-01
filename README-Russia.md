@@ -44,7 +44,7 @@ open-runo решает эту проблему в корне с помощью *
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
 cargo test --workspace          # 342 тестов (361 с --all-features)
-cargo run -p open-runo-gateway  # сервер REST + GraphQL
+cargo run -p open-runo-gateway  # сервер GraphQL (REST API не нужен)
 ```
 
 ## Структура workspace (15 крейтов)
