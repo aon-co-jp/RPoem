@@ -32,12 +32,13 @@
 >
 > **決定**: ユーザーが「RPoem 自体の REST を全廃する」と決定した(サイト aruaru.tokyo /
 > audiocafe.tokyo の説明・README も「REST API は不使用」の表現に揃えた)。
-> **現状(正直な開示、コードは未変更)**: `crates/open-runo-router/src/lib.rs` に `/api/` 配下の
+> **最新の状態(2026-11-01 時点、これを正とする)**: `/api/` の REST はコード上すべて削除済み(`main` の `5bb08ff`、VPS 未反映)。管理画面(WASM)・CLI・呼び出し側(`open-web-server` は専用ブランチ `rest-to-graphql`、未 push)は GraphQL で動く。その後、ユーザーは通信を gRPC へ作り直す方針を決めたが、続けて「一旦STOP」を指示したため停止中(未コミットの `crates/open-runo-proto/` 3ファイルのみ、ワークスペース未登録・未ビルド)。再開・破棄はユーザーの判断待ち。
+> **以下の「現状(当初の記録)」は移行前の記録**: `crates/open-runo-router/src/lib.rs` に `/api/` 配下の
 > 管理用 REST エンドポイントが約50個あり(スキーマ登録・DB・キャッシュ・バックアップ・
 > フラグ・永続クエリ・認証/セッション・分析・イベント/WS など)、実装は
 > `handlers_hyper.rs`(約5,000行)。GraphQL 側(`open-runo-gateway`)は `EmptyMutation`
-> のため、**書き込み系の管理操作を GraphQL で行う手段がまだ無い**。管理画面
-> (`apps/desktop-wasm`)・CLI・テスト・他リポジトリ(open-english 等)が REST を使っている。
+> のため、書き込み系の管理操作を GraphQL で行う手段がまだ無かった。管理画面
+> (`apps/desktop-wasm`)・CLI・テスト・他リポジトリ(open-english 等)が REST を使っていた。
 > したがって一括削除はできず、次の段階で移行する(各段階でテストを通し、段階ごとに push):
 > 1. GraphQL の Mutation 基盤(認証は既存の KeyGuardian/セッションを GraphQL コンテキストへ)と、
 >    スキーマ登録・履歴・フラグ・永続クエリ・キャッシュ消去・compose の Query/Mutation。

@@ -46,7 +46,7 @@ Tauri・Poem・WunderGraph Cosmo はいずれもパッケージとして直接�
 それぞれの機能・API 形状には互換性を保ちながら Rust 標準ライブラリ +
 tokio/hyper で自前実装しています。
 
-**RPoem は、REST API を不要にするための WunderGraph Cosmo 互換です**(アプリの API は GraphQL に一本化します。管理用の HTTP エンドポイントはスキーマ登録などの運用のために残っています)。
+**RPoem は、REST API を不要にするための WunderGraph Cosmo 互換です。** 管理用を含む `/api/` の REST は**2026-11-01 に削除済み**で、アプリの API・管理操作はすべて GraphQL(`POST /graphql`)です。残る HTTP は `/health`・ACME・`/mcp`・SCIM(`/scim/v2/*`)・`/internal/db/mutate`・静的配信のみです。購読は `GET /graphql/ws`、スキーマ(SDL)は `GET /graphql/schema.graphql` です。管理画面と CLI の通信方式を gRPC へ移す計画は、いったん停止中です(`CLAUDE.md` の 2026-11-01 追記を参照)。
 
 ```
    open-e-gov     OpenRedmine     OpenWordPress     aruaru-llm
@@ -94,14 +94,14 @@ tokio/hyper で自前実装しています。
 - 🚩 **Feature Flags** — upsert/list/get/delete/evaluate、決定的
   バケッティングによる canary ロールアウト、WASM 管理画面付き
 - 🗜️ **gzip レスポンス圧縮** — `Accept-Encoding` を見て自動圧縮
-- 🔌 **汎用 WebSocket** — 手書き RFC 6455 実装（`/api/ws-echo` /
-  `/api/ws-events`、Subscriptions 以外の用途にも対応）
+- 🔌 **WebSocket** — 手書き RFC 6455 実装。購読は `GET /graphql/ws`(GraphQL Subscriptions)に統合済み
+  (旧 `/api/ws-echo` / `/api/ws-events` は削除)
 - 🧩 **Federation v1/v2 SDL パーサー** — 生の GraphQL SDL を渡すだけで
   v1（暗黙ディレクティブ）/ v2（`@link`）を自動判別・合成
 - 📎 **Multipart ファイルアップロード** — 手書き RFC 7578 パーサー、
-  `POST /api/schemas/upload` でSDLファイルを直接アップロード
+  GraphQL の `uploadSchema`(SDL 本文を文字列で渡す)でSDLを登録
 - 🍪 **Cookie/セッション + CSRF** — `X-Api-Key` に追加する認証経路、
-  `POST /api/session/login`/`logout`、CSRF二重送信トークン検証
+  GraphQL の `sessionLogin`/`sessionLogout`、CSRF二重送信トークン検証
 - 🔒 **TLS終端**（`tls` feature、rustls） — リバースプロキシ不要で
   直接HTTPS配信可能。`open-english`のworld-lab Phase B(受信側承認ゲート
   +TLS)がこのTLS実装をそのまま再利用して実用化済み(2026-08-25、自己
@@ -133,37 +133,25 @@ curl -X POST http://localhost:8080/graphql \
      -H 'content-type: application/json' \
      -d '{"query":"{ health }"}'
 
-# スキーマ登録(管理用エンドポイント。アプリの API ではありません)
-curl -X POST http://localhost:8080/api/schemas \
-     -H 'x-api-key: dev-key' \
-     -d '{"service_name":"users","sdl":"type User { id: ID! }"}'
+# スキーマ登録(管理操作も GraphQL。REST の /api/schemas は削除済み)
+curl -X POST http://localhost:8080/graphql \
+     -H 'content-type: application/json' -H 'x-api-key: dev-key' \
+     -d '{"query":"mutation { admin { registerSchema(serviceName: \"users\", sdl: \"type User { id: ID! }\") { id serviceName stage } } }"}'
+
+# スキーマ(SDL)の取得
+curl http://localhost:8080/graphql/schema.graphql
 ```
 
 ### RPoem 独自機能を試す(Poem/Tauri 再現の実例)
 
-`open-cosmo` には無い、このリポジトリ固有の「Poem を一から再現する」目標
-(§0.5 参照)の成果を実際に動かして確認できます。
+`open-cosmo` には無い、このリポジトリ固有の「Poem を一から再現する」目標(§0.5 参照)の成果を確認できます。
 
 ```bash
-# gzip 圧縮の確認 (Accept-Encoding を見て自動圧縮される)
-curl -s -H 'Accept-Encoding: gzip' -o /dev/null -D - \
-     http://localhost:8080/api/openapi.json | grep -i content-encoding
-# => content-encoding: gzip が返れば動作確認OK
-
-# 汎用WebSocketエコー (wscat が無い場合は `npm i -g wscat`)
-wscat -c ws://localhost:8080/api/ws-echo
-# 何か入力して送信すると、そのまま同じ内容がエコーで返ってくる
-
-# Multipartでのスキーマファイル直接アップロード (JSON埋め込みではなくファイルとして送信)
-echo 'type User { id: ID! }' > users.graphql
-curl -X POST http://localhost:8080/api/schemas/upload \
-     -H 'x-api-key: dev-key' \
-     -F 'service_name=users' \
-     -F 'sdl_file=@users.graphql'
+# 購読(GraphQL Subscriptions、wscat が無い場合は `npm i -g wscat`)
+wscat -c ws://localhost:8080/graphql/ws -s graphql-ws
 ```
 
-これらは `docs/poem-parity.md` に記載のギャップ一覧(gzip・汎用WebSocket・
-Multipart等)が実際にどう動くかを最短で体験できる例です。gRPCヘルス
+`docs/poem-parity.md` に記載のギャップ一覧(gzip・WebSocket・Multipart等)は、その文書を参照してください(旧 REST 経由の例は削除済み)。gRPCヘルス
 チェック・MCP Server・ACME(HTTP-01/TLS-ALPN-01)など他の再現機能の
 使い方は同ドキュメントを参照してください。
 

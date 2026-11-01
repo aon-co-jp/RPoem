@@ -7,12 +7,13 @@
 > 対象バージョン: workspace 0.1.0（18 クレート / 335 テスト、--all-features で353）
 > 最終更新: 2026-08-20(自動アップデート機構`self_update.rs`追加を反映)
 
-## REST 全廃の方針と移行計画(2026-11-01、ユーザー決定)
+## REST 全廃の状況(2026-11-01 時点、最新)
 
-アプリの API は GraphQL に一本化し、REST は使わない方針。ただし現在のコードには `/api/` 配下の
-管理用 REST が約50個残っており(`crates/open-runo-router`)、GraphQL 側は `EmptyMutation` のため
-書き込み系の管理操作がまだ GraphQL で行えない。**このファイルの手順で導入する場合、管理用 REST は
-まだ存在する(移行中)。** 段階的な移行計画と現状は `CLAUDE.md` の「2026-11-01追記」を参照。
+**`/api/` 配下の REST はコード上すべて削除済み**(`main` の `5bb08ff`、VPS 未反映)。管理操作は GraphQL (`query { admin { … } }` / `mutation { admin { … } }`、`POST /graphql`)に一本化されている。このファイルの旧記述にある `/api/…` を叩く例や、§7「REST サーフェス早見表」は、**GraphQL の同名操作に読み替えること**(対応する操作名は `crates/open-runo-gateway/src/admin.rs`、スキーマは `GET /graphql/schema.graphql`)。
+**停止中の計画**: 管理画面・CLI・呼び出し側の通信を gRPC へ作り直す計画は、ユーザーの「一旦STOP」で止まっている(`crates/open-runo-proto/` が未コミットで残っているだけで、ワークスペースには未登録)。再開・破棄はユーザーの判断待ち。
+**GraphQL の硬化**: 登録済みクエリのみ受付・深さ/複雑さの上限・本番でのイントロスペクション停止・エイリアス/バッチ対策のレートリミットのうち、`5bb08ff` で入った範囲と未了の範囲は `CLAUDE.md` の「第3〜5段階の到達点」を確認すること。
+
+以下は経緯の記録(各段階の到達点)。
 
 **第1段階完了(2026-11-01)**: `open-runo-gateway` の `EmptyMutation` を `admin::AdminMutation` に置換し、
 `query { admin { … } }` / `mutation { admin { … } }` で スキーマ登録・アップロード・取得・履歴、federation
@@ -287,7 +288,7 @@ curl -X POST -H "x-api-key: $KEY" http://new:8080/api/backup/restore-latest
 | `OPEN_RUNO_BACKUP_MIRROR_DIR` | 無効 | 二次（Google Drive 同期フォルダ推奨） |
 | `OPEN_RUNO_BACKUP_SECS` | 0 | 定期バックアップ間隔（0=手動） |
 
-## 7. REST サーフェス早見表
+## 7. REST サーフェス早見表(**旧記述: 2026-11-01 に REST は削除済み。GraphQL に読み替えること**)
 
 | Path | 用途 |
 |------|------|
