@@ -106,7 +106,7 @@ fn prompts_list_result() -> Value {
         "prompts": [
             {
                 "name": "summarize_api",
-                "description": "Ask the model to summarize this server's REST API surface, sourced from its live OpenAPI 3.0 document.",
+                "description": "Ask the model to summarize this server's remaining non-GraphQL HTTP surface, sourced from its live OpenAPI 3.0 document.",
                 "arguments": [],
             },
         ]
@@ -150,7 +150,7 @@ fn resources_list_result() -> Value {
             {
                 "uri": "openapi://spec",
                 "name": "OpenAPI specification",
-                "description": "This server's REST API described as OpenAPI 3.0 -- the same document GET /api/openapi.json serves.",
+                "description": "The non-GraphQL surface left on this server (health/ACME/MCP/SCIM/internal) as OpenAPI 3.0. Admin operations are GraphQL: POST /graphql, schema at GET /graphql/schema.graphql.",
                 "mimeType": "application/json",
             },
             {

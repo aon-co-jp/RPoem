@@ -33,6 +33,14 @@ DB操作(`dbStatus`/`dbRouting`/`dbList`/`dbGet`/`dbGetAtCommit`/`dbPut`/`dbDele
 未了: `/internal/db/mutate`、SCIM、SSE/WS、`/api/docs`、MCP、gRPC(第3〜4段階)。詳細は `CLAUDE.md` の
 「第2段階の到達点」。`open-runo-appserver` の不安定テストは待機期限の下限を30秒にして対処(原因と注意は同箇所)。
 
+**第3〜5段階完了(2026-11-01、コード側。VPS 未反映)**: 管理画面 WASM・CLI は `POST /graphql` へ切替済み
+(実ブラウザで全10ページ・実サーバーで CLI を確認)。`/api/*` の REST ルートは**削除済み**で、残る HTTP は
+`/health`・ACME・`/mcp`・SCIM(`/scim/v2/*`)・`/internal/db/mutate`・静的配信のみ。購読は `GET /graphql/ws`、
+スキーマ(SDL)は `GET /graphql/schema.graphql`。**このファイルの旧記述(`/api/…` を叩く例)は GraphQL に読み替えること。**
+管理画面を動かすには `open-runo-gateway` を起動する(`open-runo-router` 単体は GraphQL を持たない)。WASM は
+`www/pkg/` を毎回ビルドする(手順は `CLAUDE.md` の「VPS 反映の手順と注意」)。呼び出し側の `open-web-server` は
+ブランチ `rest-to-graphql` で GraphQL 化済み(未 push)。詳細・未了・切り戻しは `CLAUDE.md` の「第3〜5段階の到達点」。
+
 ## ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証済み・段階的導入計画(2026-08-25追記)
 
 `experiments/wgpu-browser-spike/`に、`wgpu`(features=`webgpu`+`wgsl`)を

@@ -744,7 +744,10 @@ mod tests {
             .expect("timed out")
             .expect("stream ended");
         assert!(
-            response.errors.iter().any(|e| e.message.contains("authentication required")),
+            response
+                .errors
+                .iter()
+                .any(|e| e.message.contains("authentication required")),
             "{:?}",
             response.errors
         );

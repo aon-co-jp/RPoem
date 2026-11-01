@@ -53,7 +53,7 @@
 > `aruaru-search`・`open-audio-sr`・`realdata.pro` の `.deps/RPoem` は RPoem の複製(次回の取得で追従)。
 > 兄弟リポジトリ `open-cosmo`・`open-runo` はほぼ同一のコードで、README は同日に同じ表記へ修正済み(コードの削除は別途そろえる)。
 > 置き換えの設計は `aruaru-db/docs/CONTROL_PLANE_REDESIGN.md`(宣言的 `aruaru.yaml`+
-> reconciliation)と整合させること。**現在は第1段階まで完了(下記)。**
+> reconciliation)と整合させること。**現在は第5段階(コード側)まで完了(下記)。VPSへの反映は未実施(手順は「第3〜5段階の到達点」)。**
 >
 > **第1段階の到達点(2026-11-01、REST は未削除)**: `open-runo-gateway` の `EmptyMutation` を
 > `admin::AdminMutation` に置換し、`Query.admin` / `Mutation.admin` の配下に管理操作を追加
@@ -99,6 +99,56 @@
 > `/api/docs`(OpenAPI)、MCP、gRPC は第2段階の対象外で未移行(第3〜4段階)。④`backupImport` は REST 同様に任意パスを
 > 読むため、認証済みなら誰でも実行可(ロール別の絞り込みは REST 同様に未実装)。⑤`sessionLogin` は `X-Api-Key` ヘッダが
 > 必要(REST と同じ)。**次は第3段階**(管理画面 WASM と CLI を GraphQL へ切替、`open-runo-api-types` の作り直し)。
+>
+> **第3〜5段階の到達点(2026-11-01、REST 削除済み・VPS 未反映)**
+> - **第3段階(管理画面・CLI)**: `apps/desktop-wasm/src/api.rs` と `open-runo-cli` を `POST /graphql` へ全面切替
+>   (公開関数のシグネチャと `open-runo-api-types` の型はそのまま。クエリ側で `service_name: serviceName` のように
+>   別名を付けて REST 時代の JSON 形へ揃えた)。SCIM ユーザー操作も GraphQL(`scimUsers`/`scimCreateUser`/
+>   `scimDeleteUser`)化。`open-runo-api-types` は REST 専用型の作り直しまではせず(GraphQL でも結果型として再利用)、
+>   `sonic-rs` を dev 依存へ移して wasm32 でビルドできるようにした。CLI の `openapi` コマンドは `sdl`
+>   (`GET /graphql/schema.graphql`)へ置き換え。**実ブラウザ確認**: ゲートウェイを実起動し、管理画面の全10ページ
+>   (Dashboard/Schema Registry/Federation/AI Routing/DUAL DATABASE/SCIM/Persisted Queries/Feature Flags/
+>   Cache & Backup/Analytics)の全ボタンを操作して結果と白画面・コンソールエラー無しを確認(CLI も実サーバーに対し
+>   login/schema register・get・history/federation status/db put・get・list・delete/sdl を確認)。
+>   確認中に直した不具合: ①`/graphql` がメトリクス対象外で Analytics に出なかった(`with_metrics` で包んだ)。
+>   ②REST 時代にあった流量制限・トレース・圧縮が `/graphql` に無かった(`graphql_limiter` 等で包んだ)。
+> - **第4段階**: `/api/events`・`/api/ws-events`・`/api/ws-echo` を `GET /graphql/ws`(graphql-transport-ws、
+>   サブプロトコルを echo、`connection_init` の `x-api-key` かアップグレード時のヘッダ/Cookie で認証、未認証は拒否)の
+>   Subscriptions(`schemaEvents`・新設 `historyEvents`)へ統合。`/api/openapi*`・`/api/docs`・`/api/redoc`・
+>   `/api/client*.ts` は廃止し、`GET /graphql/schema.graphql`(SDL)に置き換え。実ブラウザの WebSocket で購読と
+>   イベント受信・未認証拒否を確認。`ws-echo` は検証用だったため代替なし。`open-runo-openapi` クレートと
+>   `openapi::mount_docs` は他サービス(aruaru-llm・open-english・backup-to-discord-by-github・poem-compat)が自分の
+>   API 文書に使うため**残した**(ルーターの文書は残る非 GraphQL 面だけに縮小。MCP の `openapi://spec` も同様)。
+> - **第5段階前半(呼び出し側)**: 洗い出した結果、RPoem の `/api/*` を叩く外部の呼び出し側は `open-web-server` のみ
+>   (`DbStateReader`=`/api/db/…/at/…`+`/api/keys/self-issue`、`HttpAruaruDbBackend`=`PUT /api/db/…`)。
+>   他の `/api/` は各リポジトリ自身の API(aruaru-llm・open-english・bdg-server 等)で RPoem の REST ではない。
+>   `.deps/RPoem` の複製(aruaru-search・open-audio-sr・realdata.pro)は次回の取得で追従。open-web-server は
+>   `admin-2fa-hardening` に触れず、worktree `F:\open-web-server-gql`(ブランチ `rest-to-graphql`、コミット 6a1b3b1)で
+>   GraphQL 呼び出しへ切替(モックを GraphQL 化・401 再発行テスト追加、`cargo test` ledger/gateway 通過、
+>   実ゲートウェイで `dbGetAtCommit` が `extensions.status`=501 を返すことも確認)。**未 push・未マージ。**
+> - **第5段階後半(削除)**: `build_hyper_app` から `/api/*` の全ルートを削除し、`handlers_hyper.rs`(約5,000行)は
+>   REST 以外に手段が無い外部プロトコル(SCIM `/scim/v2/*`、内部経路 `/internal/db/mutate`)だけに縮小(約880行)。
+>   `/health`・`/healthz`・ACME・`/mcp`・静的配信は残る。REST 時代のテストは削除し、`admin_tests.rs` を GraphQL のみの
+>   通し試験(11件)に書き換えた(同値性テストの期待値はリテラルとして残した)。`cargo test --workspace` 全通過。
+> - **VPS 反映の手順と注意(未実施。ユーザーの確認が必要)**:
+>   1. **同時切替が必須**: 反映後の RPoem は `/api/*` を返さない(404)。`open-web-server` を `rest-to-graphql` へ
+>      切り替えてから(または同時に)反映する。順序を誤ると `DbStateReader` が 404 で全失敗する。
+>      `OPEN_RUNO_ENDPOINT` は **GraphQL 対応の `open-runo-gateway`** を指すこと(旧 `open-runo-router` 単体バイナリは
+>      REST 削除後 `/graphql` を持たず管理 UI も出ない。兄弟の `open-cosmo`・`open-runo` は REST のまま=
+>      `rest-to-graphql` ではつながらない)。
+>   2. 管理画面の WASM は `www/pkg/` が git 管理外のため**ビルドし直す**: `apps/desktop-wasm` で
+>      `cargo build --release --target wasm32-unknown-unknown` → `wasm-bindgen target/wasm32-unknown-unknown/release/
+>      open_runo_desktop_wasm.wasm --target web --out-dir www/pkg --no-typescript`(CLI のバージョンは crate と一致)。
+>      静的配信は作業ディレクトリ基準(`apps/desktop-wasm/www`)か `OPEN_RUNO_STATIC_DIR`。
+>   3. 起動は `cargo run -p open-runo-gateway`(`OPEN_RUNO_BIND_ADDR`)。ブラウザの購読は `ws(s)://…/graphql/ws`。
+>      リバースプロキシ(前面は open-web-server)が WebSocket のアップグレードを通すか要確認。
+>   4. 切り戻し: 反映前の RPoem コミット(b342f77 以前)と open-web-server の `main` に戻せば REST が復活する。
+> - **未了/既知の限界**: ①`/internal/db/mutate` と SCIM は REST のまま(外部プロトコル・内部経路。SCIM は IdP が REST で
+>   叩く RFC 7644 のため残した判断。全廃するならユーザー判断が要る)。②`HttpAruaruDbBackend::record_change` は `commit_id` を
+>   期待するが RPoem の `dbPut` は返さない(REST 時代からの既存の食い違い。GraphQL 化でも解消していない)。
+>   ③open-web-server の `rest-to-graphql` は実 VPS・実 PostgreSQL では未検証。④`open-cosmo`・`open-runo`(兄弟)の
+>   コードは未変更(README の表記のみ)。⑤管理画面のブラウザ確認は Chromium 系の組み込みブラウザのみ(Firefox/Safari 未確認)。
+>   ⑥GraphQL のロール別アクセス制御は REST 同様に未実装(認証済みなら全操作可)。
 
 > **📌 2026-08-25追記: ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証完了・
 > 段階的導入計画をRPoem/aruaru-llm/open-english「トライブリッド」で確定

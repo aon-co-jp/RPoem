@@ -2,25 +2,20 @@
 //!
 //! ## Endpoints
 //!
+//! REST全廃(CLAUDE.md「2026-11-01追記」)により、管理操作の`/api/*`はすべて
+//! GraphQL(`open-runo-gateway`の`POST /graphql`、`admin_ops`/`admin_sys`の共通関数)へ
+//! 移した。ここに残るのは次のものだけ:
+//!
 //! | Method | Path                              | Description                        |
 //! |--------|-----------------------------------|------------------------------------|
-//! | GET    | `/health`                         | Service health check               |
-//! | GET    | `/healthz`                        | Kubernetes-style health alias      |
-//! | POST   | `/api/schemas`                    | Register a schema version          |
-//! | GET    | `/api/schemas/:service`           | Latest schema for a service        |
-//! | GET    | `/api/schemas/:service/history`   | Full schema history                |
-//! | POST   | `/api/federation/compose`         | Compose service schemas            |
-//! | GET    | `/api/federation/status`          | Current composed schema summary    |
-//! | POST   | `/api/ai/route`                   | Select best AI provider            |
-//! | GET    | `/api/db/status`                  | DB backend name & health           |
-//! | GET    | `/api/db/routing`                 | Per-table routing decisions        |
-//! | GET    | `/api/db/:table`                  | List all records in a table        |
-//! | GET    | `/api/db/:table/:key`             | Get one record                     |
-//! | PUT    | `/api/db/:table/:key`             | Upsert a record                    |
-//! | DELETE | `/api/db/:table/:key`             | Delete a record                    |
+//! | GET    | `/health`, `/healthz`             | Service health check               |
+//! | GET    | `/.well-known/acme-challenge/:t`  | ACME HTTP-01 challenge response    |
+//! | POST   | `/mcp`                            | Model Context Protocol (JSON-RPC)  |
+//! | *      | `/scim/v2/Users`, `/Groups`       | SCIM 2.0 (RFC 7644, IdP向け標準)   |
+//! | POST   | `/internal/db/mutate`             | open-web-server-ledger からの内部経路 |
+//! | GET    | `/`, `/pkg/*`, `/manifest.json`   | 管理画面(WASM)の静的配信          |
 //!
-//! All `/api/*` routes require an `X-Api-Key` header (enforced by
-//! [`auth_hyper::check_api_key`]). Health routes are exempt.
+//! `/scim/v2/*`は`X-Api-Key`(またはセッション)が必要。
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![recursion_limit = "256"]
@@ -142,248 +137,13 @@ pub async fn build_hyper_app(
         )
         .route(
             Method::POST,
-            "/api/keys/self-issue",
-            wrap(handlers_hyper::self_issue_key_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
             "/mcp",
             wrap(mcp::mcp_handler(Arc::clone(&state), Arc::clone(&guardian))),
         )
         .route(
             Method::POST,
-            "/api/session/login",
-            wrap(handlers_hyper::session_login_handler(
-                Arc::clone(&guardian),
-                Arc::clone(&state.sessions),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/session/logout",
-            wrap(handlers_hyper::session_logout_handler(Arc::clone(
-                &state.sessions,
-            ))),
-        )
-        .route(
-            Method::POST,
-            "/api/schemas",
-            wrap(handlers_hyper::register_schema_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/schemas/upload",
-            wrap(handlers_hyper::register_schema_upload_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/schemas/upload-raw",
-            wrap(handlers_hyper::register_schema_upload_raw_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/schemas/:service",
-            wrap(handlers_hyper::get_schema_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/schemas/:service/history",
-            wrap(handlers_hyper::get_schema_history_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/federation/compose",
-            wrap(handlers_hyper::compose_schemas_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/federation/status",
-            wrap(handlers_hyper::federation_status_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/ai/route",
-            wrap(handlers_hyper::route_request_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/db/status",
-            wrap(handlers_hyper::db_status_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/db/routing",
-            wrap(handlers_hyper::db_routing_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/db/:table",
-            wrap(handlers_hyper::db_list_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/db/:table/:key",
-            wrap(handlers_hyper::db_get_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/db/:table/:key/at/:commit_id",
-            wrap(handlers_hyper::db_get_at_commit_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::PUT,
-            "/api/db/:table/:key",
-            wrap(handlers_hyper::db_put_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::DELETE,
-            "/api/db/:table/:key",
-            wrap(handlers_hyper::db_delete_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
             "/internal/db/mutate",
             wrap(handlers_hyper::db_mutate_handler(Arc::clone(&state))),
-        )
-        .route(
-            Method::POST,
-            "/api/cache/purge",
-            wrap(handlers_hyper::purge_page_handler(
-                Arc::clone(&state),
-                Arc::clone(&page_cache),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/cache/purge-all",
-            wrap(handlers_hyper::purge_all_pages_handler(
-                Arc::clone(&state),
-                Arc::clone(&page_cache),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/cache/ai-stats",
-            wrap(handlers_hyper::ai_stats_handler(
-                Arc::clone(&state),
-                Arc::clone(&page_cache),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/backup/export",
-            wrap(handlers_hyper::backup_export_handler(
-                Arc::clone(&state),
-                Arc::clone(&page_cache),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/backup/import",
-            wrap(handlers_hyper::backup_import_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/backup/restore-latest",
-            wrap(handlers_hyper::backup_restore_latest_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/migrate/export-sql",
-            wrap(handlers_hyper::migrate_export_sql_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/migrate/export-csv",
-            wrap(handlers_hyper::migrate_export_csv_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/integrity/check",
-            wrap(handlers_hyper::integrity_check_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/persisted-queries",
-            wrap(handlers_hyper::register_persisted_query_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/persisted-queries/:hash",
-            wrap(handlers_hyper::get_persisted_query_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
         )
         .route(
             Method::GET,
@@ -461,64 +221,6 @@ pub async fn build_hyper_app(
             Method::DELETE,
             "/scim/v2/Groups/:id",
             wrap(handlers_hyper::scim_delete_group_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::POST,
-            "/api/feature-flags",
-            wrap(handlers_hyper::feature_flag_upsert_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/feature-flags",
-            wrap(handlers_hyper::feature_flag_list_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/feature-flags/:name",
-            wrap(handlers_hyper::feature_flag_get_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::DELETE,
-            "/api/feature-flags/:name",
-            wrap(handlers_hyper::feature_flag_delete_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/feature-flags/:name/evaluate",
-            wrap(handlers_hyper::feature_flag_evaluate_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        // ── Analytics (docs/cosmo-parity.md 4a: monthly request-count
-        // metering + Cosmo Studio-style operation latency/error-rate) ────
-        .route(
-            Method::GET,
-            "/api/analytics/requests-per-month",
-            wrap(handlers_hyper::requests_per_month_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/analytics/operations",
-            wrap(handlers_hyper::operations_summary_handler(
                 Arc::clone(&state),
                 Arc::clone(&guardian),
             )),
@@ -617,14 +319,14 @@ mod hyper_app_tests {
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
 
         let resp = client
-            .get(format!("http://{addr}/api/federation/status"))
+            .get(format!("http://{addr}/scim/v2/Users"))
             .send()
             .await
             .expect("request should succeed");
         assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
 
         let resp = client
-            .get(format!("http://{addr}/api/federation/status"))
+            .get(format!("http://{addr}/scim/v2/Users"))
             .header("x-api-key", "test-key")
             .send()
             .await
@@ -655,7 +357,7 @@ mod hyper_app_tests {
         let resp = reqwest::Client::new()
             .request(
                 reqwest::Method::OPTIONS,
-                format!("http://{addr}/api/federation/status"),
+                format!("http://{addr}/scim/v2/Users"),
             )
             .header("origin", "https://example.com")
             .header("access-control-request-method", "GET")

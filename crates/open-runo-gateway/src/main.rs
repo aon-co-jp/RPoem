@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(
         bind_addr = %config.bind_addr,
         env = %config.environment,
-        "starting open-runo-gateway (REST + GraphQL)"
+        "starting open-runo-gateway (GraphQL + SCIM/MCP + admin UI)"
     );
 
     let state = Arc::new(AppState::new());
@@ -59,6 +59,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     let appserver_registry = Arc::new(SupervisedTenantRegistry::new());
 
+    let graphql_limiter = open_runo_router::middleware_hyper::build_shared_rate_limiter(
+        config.rate_limit_max_requests,
+        config.rate_limit_window_secs as i64,
+    )
+    .await;
+
     let mut app = build_hyper_app(
         state,
         config.rate_limit_max_requests,
@@ -71,9 +77,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .route(
         hyper::Method::POST,
         "/graphql",
-        open_runo_router::middleware_hyper::with_metrics(
-            open_runo_router::middleware_hyper::with_cors(graphql_post),
-            request_metrics,
+        // REST全廃後は管理操作もここを通るため、旧`/api/*`と同じく
+        // 流量制限→メトリクス→トレース→CORS→圧縮の順で包む(流量制限の枠は
+        // `build_hyper_app`側とは別に、同じ設定値で持つ)。
+        open_runo_router::middleware_hyper::with_compression(
+            open_runo_router::middleware_hyper::with_cors(
+                open_runo_router::middleware_hyper::with_tracing(
+                    open_runo_router::middleware_hyper::with_metrics(
+                        open_runo_router::middleware_hyper::with_shared_rate_limit(
+                            graphql_post,
+                            graphql_limiter,
+                        ),
+                        request_metrics,
+                    ),
+                ),
+            ),
         ),
     )
     // Fixed, self-contained GraphQL Federation demo (§ see

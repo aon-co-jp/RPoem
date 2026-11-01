@@ -36,65 +36,22 @@ const NOT_FOUND: &str = "Not found";
 /// 全エンドポイントの型付き定義。`pub(crate)` なのは `mcp.rs` が同じ仕様を
 /// MCPリソースとして出すため(仕様本体の唯一の正本)。
 pub(crate) fn document() -> Spec {
-    Spec::new("open-runo REST API", env!("CARGO_PKG_VERSION"))
-        .description("REST admin surface for open-runo-router. GraphQL Federation is served separately at POST /graphql (GraphiQL at GET /graphql).")
+    Spec::new("open-runo router (non-GraphQL surface)", env!("CARGO_PKG_VERSION"))
+        .description("REST全廃(2026-11-01)後にopen-runo-routerへ残る、GraphQL以外の外部プロトコルだけの文書(health/ACME/MCP/SCIM/内部経路)。管理操作はPOST /graphql(スキーマはGET /graphql/schema.graphql)。")
         .api_key_header("X-Api-Key")
         .shared_error_typed::<t::RateLimitedResponse>(429, "RateLimited", "Rate limit exceeded; see Retry-After header and retry_after_secs in the body")
         // --- health / docs ---
         .op(Op::get("/health").id("health").summary("Service health check").tag("system").public().response_empty(200, "OK"))
         .op(Op::get("/healthz").id("healthz").summary("Kubernetes-style health alias").tag("system").public().response_empty(200, "OK"))
-        .op(Op::get("/api/openapi.json").id("openapiJson").summary("This OpenAPI 3.0 document").tag("system").public().response_empty(200, "OpenAPI document"))
-        .op(Op::get("/api/docs").id("docsSwagger").summary("Swagger UI").tag("system").public().response_empty(200, "text/html"))
-        .op(Op::get("/api/redoc").id("docsRedoc").summary("ReDoc").tag("system").public().response_empty(200, "text/html"))
-        .op(Op::get("/api/openapi.graphql").id("openapiGraphql").summary("GraphQL SDL generated from this API (Cosmo / WunderGraph compatible)").tag("system").public().response_empty(200, "text/plain"))
-        .op(Op::get("/api/openapi.tauri.json").id("openapiTauri").summary("Tauri invoke manifest generated from this API").tag("system").public().response_empty(200, "OK"))
-        .op(Op::get("/api/client.ts").id("clientTs").summary("TypeScript fetch client generated from this API").tag("system").public().response_empty(200, "text/plain"))
-        .op(Op::get("/api/client.tauri.ts").id("clientTauriTs").summary("TypeScript Tauri-invoke client generated from this API").tag("system").public().response_empty(200, "text/plain"))
         .op(Op::get("/.well-known/acme-challenge/:token").id("acmeChallenge").summary("ACME HTTP-01 challenge response").tag("system").public().response_empty(200, "Key authorization").response_empty(404, NOT_FOUND))
-        .op(Op::post("/api/keys/self-issue").id("selfIssueKey").summary("Self-issue an API key").tag("auth").public().response_empty(200, "Issued"))
-        .op(Op::post("/api/session/login").id("sessionLogin").summary("Exchange an API key for an HttpOnly session cookie + CSRF token").tag("auth").public().response_empty(200, "Session started").response_empty(401, "Invalid API key"))
-        .op(Op::post("/api/session/logout").id("sessionLogout").summary("End the current session").tag("auth").public().response_empty(200, "Session ended"))
         .op(Op::post("/mcp").id("mcp").summary("MCP server (JSON-RPC 2.0, Streamable HTTP)").tag("system").response_empty(200, "JSON-RPC response"))
         // --- schemas ---
-        .op(Op::post("/api/schemas").summary("Register a schema version").tag("schemas").body::<t::RegisterSchemaRequest>().ok::<t::SchemaVersion>("Registered").response_empty(422, "Validation failed"))
-        .op(Op::post("/api/schemas/upload").id("uploadSchemaMultipart").summary("Register a schema version from a multipart SDL upload").tag("schemas").body_raw("multipart/form-data").ok::<t::SchemaVersion>("Registered"))
-        .op(Op::post("/api/schemas/upload-raw").id("uploadSchemaRaw").summary("Register a schema version from raw bytes (service_name, stage, namespace as query)").tag("schemas").query_param("service_name", true, "Service name").query_param("stage", false, "Stage").query_param("namespace", false, "Namespace").body_raw("application/octet-stream").ok::<t::SchemaVersion>("Registered"))
-        .op(Op::get("/api/schemas/:service").summary("Latest schema for a service").tag("schemas").ok::<t::SchemaVersion>("OK").response_empty(404, NOT_FOUND))
-        .op(Op::get("/api/schemas/:service/history").summary("Full schema version history").tag("schemas").ok::<t::SchemaHistoryResponse>("OK"))
         // --- federation / ai ---
-        .op(Op::post("/api/federation/compose").summary("Compose service schemas into a federated graph").tag("federation").response_empty(200, "Composed"))
-        .op(Op::get("/api/federation/status").summary("Current composed schema summary").tag("federation").ok::<t::FederationStatusResponse>("OK"))
-        .op(Op::post("/api/ai/route").summary("Select the best AI provider for a request").tag("ai").response_empty(200, "OK"))
         // --- db ---
-        .op(Op::get("/api/db/status").summary("DUAL DATABASE backend name & health").tag("db").ok::<t::DbStatusResponse>("OK"))
-        .op(Op::get("/api/db/routing").summary("Per-table routing decisions").tag("db").ok::<t::DbRoutingInfo>("OK"))
-        .op(Op::get("/api/db/:table").summary("List all records in a table").tag("db").ok::<t::DbRecordListResponse>("OK"))
-        .op(Op::get("/api/db/:table/:key").summary("Get one record").tag("db").ok::<t::DbRecordResponse>("OK").response_empty(404, NOT_FOUND))
-        .op(Op::get("/api/db/:table/:key/at/:commit_id").summary("Get one record as of a past commit").tag("db").ok::<t::DbRecordAtCommitResponse>("OK").response_empty(404, NOT_FOUND))
-        .op(Op::put("/api/db/:table/:key").summary("Upsert a record").tag("db").body::<t::DbUpsertRequest>().ok::<t::DbRecordResponse>("Saved"))
-        .op(Op::delete("/api/db/:table/:key").summary("Delete a record").tag("db").ok::<t::DbDeleteResponse>("Deleted"))
         .op(Op::post("/internal/db/mutate").id("internalDbMutate").summary("Internal replication endpoint (node-to-node)").tag("internal").response_empty(200, "Applied"))
         // --- cache / backup / migrate / integrity ---
-        .op(Op::post("/api/cache/purge").summary("Purge one HTML page from the cache").tag("cache").response_empty(200, "Purged"))
-        .op(Op::post("/api/cache/purge-all").summary("Purge the entire HTML page cache").tag("cache").response_empty(200, "Purged"))
-        .op(Op::get("/api/cache/ai-stats").summary("Self-learning cache predictor stats").tag("cache").response_empty(200, "OK"))
-        .op(Op::post("/api/backup/export").summary("Export a portable backup").tag("backup").response_empty(200, "Exported"))
-        .op(Op::post("/api/backup/import").summary("Import a portable backup").tag("backup").response_empty(200, "Imported"))
-        .op(Op::post("/api/backup/restore-latest").summary("Restore from the newest available backup").tag("backup").response_empty(200, "Restored").response_empty(404, "No backup found"))
-        .op(Op::post("/api/migrate/export-sql").summary("SQL dump for engine migration (postgres/mysql/generic)").tag("migrate").response_empty(200, "OK"))
-        .op(Op::post("/api/migrate/export-csv").summary("CSV export for BI/Snowflake ingestion").tag("migrate").response_empty(200, "OK"))
-        .op(Op::post("/api/integrity/check").summary("Two-database reconciliation, self-healing").tag("db").response_empty(200, "OK"))
-        .op(Op::get("/api/analytics/operations").id("analyticsOperations").summary("Per-operation request analytics").tag("analytics").response_empty(200, "OK"))
-        .op(Op::get("/api/analytics/requests-per-month").id("analyticsRequestsPerMonth").summary("Monthly request counts").tag("analytics").response_empty(200, "OK"))
         // --- persisted queries ---
-        .op(Op::post("/api/persisted-queries").summary("Register a GraphQL document (Trusted Documents)").tag("persisted-queries").response_empty(200, "Registered"))
-        .op(Op::get("/api/persisted-queries/:hash").summary("Fetch a registered document by hash").tag("persisted-queries").response_empty(200, "OK").response_empty(404, NOT_FOUND))
         // --- feature flags ---
-        .op(Op::post("/api/feature-flags").summary("Create or update a feature flag (upsert, keyed by name)").tag("feature-flags").body::<t::FeatureFlagRequest>().ok::<t::FeatureFlagResponse>("Upserted"))
-        .op(Op::get("/api/feature-flags").summary("List all feature flags").tag("feature-flags").ok::<t::FeatureFlagListResponse>("OK"))
-        .op(Op::get("/api/feature-flags/:name").summary("Fetch a feature flag").tag("feature-flags").ok::<t::FeatureFlagResponse>("OK").response_empty(404, NOT_FOUND))
-        .op(Op::delete("/api/feature-flags/:name").summary("Delete a feature flag").tag("feature-flags").response_empty(200, "Deleted").response_empty(404, NOT_FOUND))
-        .op(Op::get("/api/feature-flags/:name/evaluate").summary("Evaluate a feature flag for a given bucket key (deterministic 0-100 rollout bucketing)").tag("feature-flags").query_param("bucket_key", true, "Bucketing key").ok::<t::FeatureFlagEvaluationResponse>("OK").response_empty(404, NOT_FOUND))
         // --- SCIM ---
         .op(Op::get("/scim/v2/Users").id("scimListUsers").summary("List SCIM users (RFC 7644)").tag("scim").response_empty(200, "OK"))
         .op(Op::post("/scim/v2/Users").id("scimCreateUser").summary("Create a SCIM user (auto-issues an API key)").tag("scim").response_empty(201, "Created").response_empty(409, "userName already exists"))
@@ -106,10 +63,7 @@ pub(crate) fn document() -> Spec {
         .op(Op::get("/scim/v2/Groups/:id").id("scimGetGroup").summary("Fetch a SCIM group").tag("scim").response_empty(200, "OK"))
         .op(Op::put("/scim/v2/Groups/:id").id("scimReplaceGroup").summary("Replace a SCIM group's membership").tag("scim").response_empty(200, "OK"))
         .op(Op::delete("/scim/v2/Groups/:id").id("scimDeleteGroup").summary("Delete a SCIM group").tag("scim").response_empty(204, "Deleted"))
-        // --- streams ---
-        .op(Op::get("/api/events").id("events").summary("Server-Sent Events stream of schema/federation changes").tag("streams").response_empty(200, "text/event-stream"))
-        .op(Op::get("/api/ws-echo").id("wsEcho").summary("WebSocket echo (RFC 6455)").tag("streams").public().response_empty(101, "Switching Protocols"))
-        .op(Op::get("/api/ws-events").id("wsEvents").summary("WebSocket stream of schema/federation changes").tag("streams").response_empty(101, "Switching Protocols"))
+    // --- streams ---
 }
 
 /// 後方互換: 既存の呼び出し元(MCPリソース等)が使うJSON文書。
@@ -270,159 +224,6 @@ pub fn mount_docs(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::hyper_compat::{serve, Router};
-    use hyper::Method;
-
-    #[tokio::test]
-    async fn openapi_spec_is_valid_json_and_lists_known_paths() {
-        let router = Router::new().route(Method::GET, "/api/openapi.json", openapi_handler());
-        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
-            .await
-            .expect("bind ephemeral port");
-
-        let resp = reqwest::Client::new()
-            .get(format!("http://{addr}/api/openapi.json"))
-            .send()
-            .await
-            .expect("request should succeed");
-        assert_eq!(resp.status(), reqwest::StatusCode::OK);
-        let body: Value = resp.json().await.expect("valid json body");
-        assert_eq!(body["openapi"], "3.0.3");
-        assert!(body["paths"]["/health"].is_object());
-        assert!(body["paths"]["/api/schemas"]["post"].is_object());
-        assert!(body["paths"]["/scim/v2/Users/{id}"]["delete"].is_object());
-        assert_eq!(
-            body["components"]["securitySchemes"]["ApiKeyAuth"]["name"],
-            "X-Api-Key"
-        );
-
-        // components.schemas is generated from open-runo-api-types, not
-        // hand-written -- assert the shapes came through correctly,
-        // including the nested-type $ref rewrite ($defs -> components/schemas).
-        let schemas = &body["components"]["schemas"];
-        assert_eq!(
-            schemas["SchemaVersion"]["properties"]["sdl"]["type"], "string",
-            "SchemaVersion should have every field of the real Rust struct, sdl included \
-             (this is exactly the field that was missing from the register response before \
-             open-runo-api-types existed)"
-        );
-        assert_eq!(
-            schemas["SchemaHistoryResponse"]["properties"]["versions"]["items"]["$ref"],
-            "#/components/schemas/SchemaVersion",
-            "nested-type refs must point at components/schemas, not schemars' own $defs"
-        );
-        assert!(schemas["RegisterSchemaRequest"]["properties"]["service_name"].is_object());
-        assert!(schemas["FederationStatusResponse"]["properties"]["type_count"].is_object());
-        assert!(schemas["RateLimitedResponse"]["properties"]["retry_after_secs"].is_object());
-        assert!(
-            schemas["SchemaVersion"].get("$schema").is_none(),
-            "the JSON-Schema-document-level $schema field shouldn't leak into an OpenAPI Schema Object"
-        );
-
-        // The 4 endpoints wired to typed schemas reference them by $ref,
-        // and all four (plus every other protected endpoint) share the
-        // same named 401/429 response components.
-        assert_eq!(
-            body["paths"]["/api/schemas"]["post"]["requestBody"]["content"]["application/json"]
-                ["schema"]["$ref"],
-            "#/components/schemas/RegisterSchemaRequest"
-        );
-        assert_eq!(
-            body["paths"]["/api/schemas"]["post"]["responses"]["200"]["content"]
-                ["application/json"]["schema"]["$ref"],
-            "#/components/schemas/SchemaVersion"
-        );
-        assert_eq!(
-            body["paths"]["/api/schemas"]["post"]["responses"]["429"]["$ref"],
-            "#/components/responses/RateLimited"
-        );
-        assert_eq!(
-            body["components"]["responses"]["RateLimited"]["content"]["application/json"]["schema"]
-                ["$ref"],
-            "#/components/schemas/RateLimitedResponse"
-        );
-    }
-
-    /// `docs/api-examples.md`'s "Coverage note" flagged DB CRUD and
-    /// feature flags as still `description`-only (2026-07-11); this test
-    /// pins the fix so it can't silently regress back to untyped.
-    #[tokio::test]
-    async fn db_and_feature_flag_endpoints_are_typed_and_feature_flags_are_documented() {
-        let router = Router::new().route(Method::GET, "/api/openapi.json", openapi_handler());
-        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
-            .await
-            .expect("bind ephemeral port");
-        let body: Value = reqwest::Client::new()
-            .get(format!("http://{addr}/api/openapi.json"))
-            .send()
-            .await
-            .expect("request should succeed")
-            .json()
-            .await
-            .expect("valid json body");
-
-        let schemas = &body["components"]["schemas"];
-        for name in [
-            "DbRecordItem",
-            "DbRecordListResponse",
-            "DbRecordResponse",
-            "DbUpsertRequest",
-            "DbDeleteResponse",
-            "DbStatusResponse",
-            "DbRoutingEntry",
-            "DbRoutingInfo",
-            "FeatureFlagRequest",
-            "FeatureFlagResponse",
-            "FeatureFlagListResponse",
-            "FeatureFlagEvaluationResponse",
-        ] {
-            assert!(
-                schemas[name].is_object(),
-                "components.schemas.{name} should exist"
-            );
-        }
-
-        assert_eq!(
-            body["paths"]["/api/db/{table}"]["get"]["responses"]["200"]["content"]
-                ["application/json"]["schema"]["$ref"],
-            "#/components/schemas/DbRecordListResponse"
-        );
-        assert_eq!(
-            body["paths"]["/api/db/{table}/{key}"]["put"]["requestBody"]["content"]
-                ["application/json"]["schema"]["$ref"],
-            "#/components/schemas/DbUpsertRequest"
-        );
-        assert_eq!(
-            body["paths"]["/api/db/{table}/{key}"]["delete"]["responses"]["200"]["content"]
-                ["application/json"]["schema"]["$ref"],
-            "#/components/schemas/DbDeleteResponse"
-        );
-
-        // Feature flags were entirely absent from the OpenAPI paths before
-        // this fix, despite being a real, wired REST feature
-        // (`crates/open-runo-router/src/lib.rs` routes) with types already
-        // sitting unused in `open-runo-api-types`.
-        assert!(body["paths"]["/api/feature-flags"]["post"].is_object());
-        assert!(body["paths"]["/api/feature-flags"]["get"].is_object());
-        assert!(body["paths"]["/api/feature-flags/{name}"]["get"].is_object());
-        assert!(body["paths"]["/api/feature-flags/{name}"]["delete"].is_object());
-        assert!(body["paths"]["/api/feature-flags/{name}/evaluate"]["get"].is_object());
-        assert_eq!(
-            body["paths"]["/api/feature-flags"]["post"]["requestBody"]["content"]
-                ["application/json"]["schema"]["$ref"],
-            "#/components/schemas/FeatureFlagRequest"
-        );
-        assert_eq!(
-            body["paths"]["/api/feature-flags/{name}/evaluate"]["get"]["responses"]["200"]
-                ["content"]["application/json"]["schema"]["$ref"],
-            "#/components/schemas/FeatureFlagEvaluationResponse"
-        );
-    }
-}
-
-#[cfg(test)]
 mod generated_tests {
     use super::*;
 
@@ -450,7 +251,7 @@ mod generated_tests {
                 }
             }
         }
-        assert!(routes.len() > 40, "route scan broke: {}", routes.len());
+        assert!(routes.len() > 10, "route scan broke: {}", routes.len());
         // 静的アセット(WASM管理UI)はAPIではないので対象外。
         let routes: Vec<(String, String)> = routes
             .into_iter()
@@ -470,32 +271,6 @@ mod generated_tests {
     fn document_has_no_lint_problems() {
         let problems = document().lint();
         assert!(problems.is_empty(), "{problems:#?}");
-    }
-
-    #[test]
-    fn graphql_sdl_and_ts_clients_are_generated_from_the_same_definitions() {
-        let sdl = document().to_graphql_sdl();
-        assert!(sdl.contains("type SchemaVersion {"), "{sdl}");
-        assert!(sdl.contains("input RegisterSchemaRequestInput {"), "{sdl}");
-        let ts = document().to_typescript(TsClient::TauriInvoke);
-        assert!(ts.contains("export type SchemaVersion"));
-        assert!(ts.contains("invoke<"));
-        let m = document().to_tauri_manifest();
-        assert!(m["commands"].as_array().unwrap().len() > 40);
-    }
-
-    /// 生成したSDLを、このリポジトリ自身のフェデレーション用SDLパーサーで
-    /// 読み、QueryとMutationに操作が入っていることを確認する(Cosmoの
-    /// サブグラフとして登録できる形になっている証拠)。
-    #[test]
-    fn generated_sdl_is_accepted_by_the_federation_sdl_parser() {
-        let sdl = document().to_graphql_sdl();
-        let svc = open_runo_federation::parse_service_sdl("rest-api", &sdl).expect("SDL parses");
-        let q = svc.types.get("Query").expect("Query type");
-        assert!(q.contains("getApiFederationStatus"), "{q:?}");
-        let m = svc.types.get("Mutation").expect("Mutation type");
-        assert!(m.contains("postApiSchemas"), "{m:?}");
-        assert!(svc.types.contains_key("SchemaVersion"));
     }
 
     #[tokio::test]
