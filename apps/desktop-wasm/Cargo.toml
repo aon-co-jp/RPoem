@@ -53,5 +53,8 @@ open-runo-api-types = { path = "../../crates/open-runo-api-types" }
 open-runo-proto = { path = "../../crates/open-runo-proto" }
 
 [profile.release]
-opt-level = "s"
+opt-level = "z"
 lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
