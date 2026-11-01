@@ -28,7 +28,70 @@
 >   要約されている(RPoem側の実装作業自体は今回未着手のため、RPoem
 >   固有の再開メモはまだ無い)。
 
-> **📌 2026-11-01追記: 「REST 全廃」の決定と段階移行計画(ユーザー指示)**
+> **📌 2026-11-01(最新・方針転換): 管理操作は gRPC(同じ定義を gRPC-web・Connect でも受ける)。REST は削除済み。GraphQL は Federation の問い合わせだけ**
+>
+> **経緯**: 「REST 全廃」の移行の途中で、ユーザーが通信方式を **GraphQL → gRPC** へ変更した(管理画面・CLI・呼び出し側すべて)。
+> 下の「REST 全廃の決定と段階移行計画」にある第1〜5段階の GraphQL 管理層(`admin` Query/Mutation、`graphql_hyper` の管理認証)の記述は
+> **この節で置き換え済み**(GraphQL の管理層は削除、共通関数 `admin_ops.rs`/`admin_sys.rs` は gRPC 側が再利用)。
+>
+> **現在の構成**(`main` の最新を参照)
+> - **定義の唯一の正**: `crates/open-runo-proto/proto/open_runo/admin/v1/admin.proto`(`open_runo.admin.v1.Admin`、38 RPC + `WatchEvents`
+>   サーバーストリーミング)。メッセージは `prost`(**`protox`=純Rustのprotobufコンパイラで生成するので `protoc` 不要**)、記述子セットは
+>   リフレクションと Connect の JSON 変換に使う。CLI は `open-runo-cli proto` で定義を表示できる(OpenAPI 配信は廃止、proto とリフレクションが正)。
+> - **処理本体**: `open-runo-router` の `admin_ops.rs`/`admin_sys.rs`(通信方式に依存しない)。REST・GraphQL・gRPC で二重実装しない。
+>   認証は gRPC メタデータ(=HTTPヘッダ)の `x-api-key`/セッション(Cookie+CSRF)を `authenticate_with_session` で検査し、権限は REST 時代と同じ
+>   (認証済みなら実行可)。更新系は監査ログに記録。`SelfIssueKey`/`SessionLogin`/`SessionLogout` だけ鍵なしの入口。
+> - **通信の入口(1つのポートで全部)**: `gateway` の `POST /open_runo.admin.v1.Admin/<Method>` が Content-Type で振り分ける —
+>   `application/grpc`(素のgRPC、HTTP/2 h2c。`hyper_util::server::conn::auto` でHTTP/1.1と同じポートで判別)/
+>   `application/grpc-web[-text]`(ブラウザ、後者は base64)/ **Connect**(`application/proto|json`、ストリームは `application/connect+*`)。
+>   別ポートの素のgRPC(`OPEN_RUNO_GRPC_BIND_ADDR`、TLS用)も残してある。
+> - **ハイブリッド(Connect と gRPC-web の良いとこ取り)**: 管理画面は単項を **Connect**(素の本文。エラーが HTTP ステータスとして開発者ツールに見える・
+>   `curl` で再現できる)、ストリームは Connect のエンベロープを `ReadableStream` で読み、Connect を話さないサーバーなら **自動で gRPC-web へフォールバック**。
+>   Connect のエラー応答には gRPC の `grpc-status`/`grpc-message` ヘッダも付ける。管理画面に「RPC Inspector」ページ(通信の記録・Connect⇄gRPC-web 切替・
+>   並列20本テスト・イベント購読・コンソール出力)とダッシュボードのライブイベントを追加。この部分は新リポジトリ
+>   [`gRPC-web-Connect`](https://github.com/aon-co-jp/gRPC-web-Connect)(core/server/client)へ汎用化済み(RPoem 側の置き換えは次の一手)。
+> - **ブラウザの静的ファイル**: `Cache-Control: no-cache`+ETag 再検証(更新したら自動で新しい WASM が配られる。30日 immutable のせいで古い WASM が残った実害の解消)。
+>
+> **実装方式の判断と理由(tonic を使わず手書き+prost にした)**
+> 1. 既存の `grpc.rs`(Health/Reflection)が `hyper`+手書きで一貫しており、そこに管理サービス・gRPC-web・Connect を**同じ土台**で足す方が、
+>    tonic/axum の二重スタックより依存・保守が小さい。
+> 2. tonic は WASM で使えない。メッセージを `prost` に統一すれば、サーバー・CLI・WASM が**同じ生成型**を共有できる。
+> 3. gRPC-web・Connect・gRPC-web-text・JSON は tonic だけでは足りず(特に Connect と JSON)、どのみち自前の変換層が要る。
+> 4. **代償**: HTTP/2・TLS まわりのセキュリティ更新を自分で追う必要がある(下の「セキュリティ」参照)。
+>
+> **本番のセキュリティ設定**(`OPEN_RUNO_ENV=production`)
+> - **gRPC は TLS 1.3 のみ**(1.2 以下は拒否、テスト済み)。`OPEN_RUNO_GRPC_TLS_CERT`/`_KEY`(PEM)。平文は `OPEN_RUNO_GRPC_ALLOW_PLAINTEXT=1` を明示したときだけ
+>   (本番で未設定なら**起動を拒否**)。`OPEN_RUNO_GRPC_CLIENT_CA` を指定すると **mTLS**(そのCAで署名されたクライアント証明書が無い接続はハンドシェイクで拒否)。
+>   mTLS は「誰がつないでよいか」、`x-api-key`/セッション(KeyGuardian)は「何をしてよいか」で二重に守る。リフレクションは本番では既定オフ(`OPEN_RUNO_GRPC_REFLECTION=1` で有効化)。
+> - HTTP/2 濫用(Rapid Reset, CVE-2023-44487)への備えとして、1接続あたりの同時ストリーム数(128)・保留リセット数(20)・ローカルエラー起因リセット数(1024)を明示。
+> - **GraphQL(Federation の問い合わせ)の4項目**(`crates/open-runo-gateway/src/security.rs`、本番で既定オン、各項目に通し試験):
+>   ① 登録済みクエリ(永続クエリ)しか受け付けない(`OPEN_RUNO_PQ_MODE`、本番は Enforce)② 深さ(8)・複雑さ(100)の上限(`OPEN_RUNO_GQL_MAX_DEPTH`/`MAX_COMPLEXITY`)
+>   ③ イントロスペクション停止+GraphiQL(`GET /graphql`)・SDL(`/graphql/schema.graphql`)を公開しない ④ JSON配列バッチを拒否、ルートフィールド(エイリアス含む)を8個まで、
+>   超過分は**流量制限の枠から余計に消費**(エイリアスで1通信に詰め込む攻撃への対策)。
+>
+> **前面プロキシ(open-web-server)との関係(実機で確認)**: `open-web-server` は **HTTP/1.1 のみ**(`http2`/ALPN `h2` の実装なし)なので、**素の gRPC(HTTP/2)は前面を通らない**。
+> 一方、管理画面・`curl`・Connect・gRPC-web・open-web-server 自身からの呼び出し(Connect JSON)は **HTTP/1.1 のまま**通る。素の gRPC が要る呼び出し側は、前面を経由せず gRPC ポート
+> (TLS+mTLS)へ直接つなぐ。呼び出し側の `open-web-server`(`DbStateReader`/`HttpAruaruDbBackend`)は、専用ブランチ `rest-to-graphql`(名前は経緯のまま)で
+> **Connect(素のHTTP POST+JSON)**に切り替え済み(`reqwest` だけで動く、HTTP/2不要)。**未 push・未マージ**(`admin-2fa-hardening` には触れていない)。
+>
+> **VPS の状況と反映(2026-11-01、ユーザー指示で実施)**: VPS(conoha)に RPoem の**ゲートウェイは稼働していない**(`rpoem-web` は静的紹介ページ、8080 は `open-easy-web`)ため、REST 削除で
+> 壊れる呼び出し側は無い(`open-web-server` の本番は `OPEN_RUNO_ENDPOINT` 未設定)。反映は `/root/RPoem` の `git pull` と `/root/gRPC-web-Connect` の clone まで。
+> **ゲートウェイの起動・ポート開放・再起動はしていない**(gRPC ポートの公開は別途 TLS 証明書・mTLS のCA・ファイアウォールの判断が要る)。起動するときは:
+> `OPEN_RUNO_ENV=production OPEN_RUNO_GRPC_BIND_ADDR=0.0.0.0:50051 OPEN_RUNO_GRPC_TLS_CERT=… OPEN_RUNO_GRPC_TLS_KEY=… OPEN_RUNO_GRPC_CLIENT_CA=… cargo run --release -p open-runo-gateway`
+> (VPS は 4コア・RAM 3.6GB なので、ビルドは手元でして成果物を置くか、`CARGO_BUILD_JOBS=1` で。管理画面の WASM は `www/pkg/` が git 管理外なので別途ビルド。手順は上の「第3〜5段階」)。
+>
+> **セキュリティ更新の追従(手書き実装の負担への対策)**: `version-control`(`easy-web.tokyo/version-control`)に、RustSec の脆弱性情報(advisory-db)と
+> Cargo.lock を突き合わせる走査を足し、毎朝毎晩の実行で検出 → 自動保守(`aruaru-llm`/`open-cuda` 等)で足りなければ **Claude 向けメール**にする(下の「到達点・未了」を参照)。
+>
+> **到達点・未了(正直に)**
+> - 実機確認済み: 管理画面10ページ+RPC Inspector+ライブイベント+並列20本(Connect/gRPC-web 両方)、CLI 全サブコマンド(素のgRPC h2c)、connect-rust の WASM クライアント(Connect proto/JSON、別オリジンCORS)、
+>   open-web-server の呼び出し(モック+実ゲートウェイへの同形リクエスト)。`cargo test --workspace` 全通過。
+> - 未了: ①素の gRPC を open-web-server 前面で通す(HTTP/2 対応が要る=open-web-server 側の改修)②ブラウザのクライアント/双方向ストリーミング(fetch の制約で不可。必要なら WebSocket を別途)
+>   ③connect-rust 同梱の転送はブラウザで単項のみ(ストリーム用の転送は未実装。`apps/connect-wasm-probe` に再現手順)④圧縮(gzip)未対応 ⑤WASM のサイズ(約0.75MB)の削減
+>   ⑥RPoem → `gRPC-web-Connect` クレートへの置き換え(重複の解消)⑦GraphQL のロール別アクセス制御(REST 同様に未実装、認証済みなら全操作可)
+>   ⑧`/internal/db/mutate` と SCIM(`/scim/v2/*`、IdP 向けの標準プロトコル)は REST のまま。
+>
+> **📌 2026-11-01追記: 「REST 全廃」の決定と段階移行計画(ユーザー指示)** — ※第3〜5段階の GraphQL 管理層の記述は、上の「方針転換(gRPC)」で置き換え済み
 >
 > **決定**: ユーザーが「RPoem 自体の REST を全廃する」と決定した(サイト aruaru.tokyo /
 > audiocafe.tokyo の説明・README も「REST API は不使用」の表現に揃えた)。

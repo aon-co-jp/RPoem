@@ -991,8 +991,8 @@ pub async fn serve_with_shutdown(
     tokio::task::JoinHandle<()>,
     Arc<tokio::sync::Notify>,
 )> {
-    use hyper::server::conn::http1;
-    use hyper_util::rt::TokioIo;
+    use hyper_util::rt::{TokioExecutor, TokioIo};
+    use hyper_util::server::conn::auto;
     use tokio::net::TcpListener;
     use tokio::sync::watch;
     use tokio::task::JoinSet;
@@ -1037,9 +1037,12 @@ pub async fn serve_with_shutdown(
                 // after the response instead of handing it off, and any
                 // `websocket_handler` route would hang forever waiting for
                 // an upgrade that never comes.
-                let conn = http1::Builder::new()
-                    .serve_connection(io, service)
-                    .with_upgrades();
+                //
+                // 2026-11-01: `auto::Builder`にして、**同じポートでHTTP/1.1とHTTP/2(h2c、事前合意)を
+                // 自動判別**する。HTTP/1.1(管理画面・gRPC-web・Connect・curl)はこれまでどおり、
+                // gRPC(HTTP/2)も別ポートを立てずに同じポートで受けられる(ポートが増える問題の解消)。
+                let builder = auto::Builder::new(TokioExecutor::new());
+                let conn = builder.serve_connection_with_upgrades(io, service);
                 let mut conn = std::pin::pin!(conn);
                 loop {
                     tokio::select! {

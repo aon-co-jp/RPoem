@@ -46,7 +46,7 @@ Tauri・Poem・WunderGraph Cosmo はいずれもパッケージとして直接�
 それぞれの機能・API 形状には互換性を保ちながら Rust 標準ライブラリ +
 tokio/hyper で自前実装しています。
 
-**RPoem は、REST API を不要にするための WunderGraph Cosmo 互換です。** 管理用を含む `/api/` の REST は**2026-11-01 に削除済み**で、アプリの API・管理操作はすべて GraphQL(`POST /graphql`)です。残る HTTP は `/health`・ACME・`/mcp`・SCIM(`/scim/v2/*`)・`/internal/db/mutate`・静的配信のみです。購読は `GET /graphql/ws`、スキーマ(SDL)は `GET /graphql/schema.graphql` です。管理画面と CLI の通信方式を gRPC へ移す計画は、いったん停止中です(`CLAUDE.md` の 2026-11-01 追記を参照)。
+**RPoem は、REST API を不要にするための WunderGraph Cosmo 互換です。** 管理用を含む `/api/` の REST は**2026-11-01 に削除済み**です。アプリの問い合わせは GraphQL(`POST /graphql`、Federation)、**管理操作は gRPC**(`open_runo.admin.v1.Admin`。同じ定義を gRPC-web・Connect でも受けるので、ブラウザ・`curl`・CLI から同じポートで使えます)。管理画面は Connect と gRPC-web のハイブリッド通信で、通信の記録・切替は「RPC Inspector」ページ。ハイブリッドの汎用ライブラリは [`gRPC-web-Connect`](https://github.com/aon-co-jp/gRPC-web-Connect)。残る HTTP は `/health`・ACME・`/mcp`・SCIM(`/scim/v2/*`)・`/internal/db/mutate`・静的配信のみです。
 
 ```
    open-e-gov     OpenRedmine     OpenWordPress     aruaru-llm
@@ -133,12 +133,14 @@ curl -X POST http://localhost:8080/graphql \
      -H 'content-type: application/json' \
      -d '{"query":"{ health }"}'
 
-# スキーマ登録(管理操作も GraphQL。REST の /api/schemas は削除済み)
-curl -X POST http://localhost:8080/graphql \
+# 管理操作は gRPC(同じ定義を Connect でも受けるので curl で叩ける。REST の /api/schemas は削除済み)
+curl -X POST http://localhost:8080/open_runo.admin.v1.Admin/RegisterSchema \
      -H 'content-type: application/json' -H 'x-api-key: dev-key' \
-     -d '{"query":"mutation { admin { registerSchema(serviceName: \"users\", sdl: \"type User { id: ID! }\") { id serviceName stage } } }"}'
+     -d '{"serviceName":"users","sdl":"type User { id: ID! }"}'
 
-# スキーマ(SDL)の取得
+# CLI(素のgRPC): cargo run -p open-runo-cli -- --endpoint http://127.0.0.1:8080 schema history --service users
+
+# GraphQLスキーマ(SDL)の取得(開発環境のみ。本番は非公開)
 curl http://localhost:8080/graphql/schema.graphql
 ```
 

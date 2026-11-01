@@ -25,12 +25,12 @@ use std::path::PathBuf;
     about = "open-runo command-line client (wgc-equivalent developer tooling, gRPC)"
 )]
 struct Cli {
-    /// gRPCエンドポイント(`http://host:port` 平文h2c / `https://host:port` TLS1.3)。
+    /// gRPCエンドポイント(`http://host:port` 平文h2c / `https://host:port` TLS1.3)。管理画面と同じポート(8080)で受ける。
     #[arg(
         long,
         global = true,
         alias = "base-url",
-        default_value = "http://127.0.0.1:50051",
+        default_value = "http://127.0.0.1:8080",
         env = "OPEN_RUNO_CLI_ENDPOINT"
     )]
     endpoint: String,

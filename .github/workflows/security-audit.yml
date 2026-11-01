@@ -1,0 +1,22 @@
+# 毎朝・毎晩(JST 06:30 / 18:30)に RustSec の脆弱性情報(advisory-db)と Cargo.lock を突き合わせる。
+# 見つかるとジョブが失敗し、GitHub からオーナーへメールが飛ぶ(手書き HTTP/2・TLS・gRPC の
+# セキュリティ更新を自分で追うための自動クロール。詳細は CLAUDE.md の「セキュリティ更新の追従」)。
+# 自動修正が効く場合(パッチ/マイナー内)は、`cargo update -p <crate>` → `cargo test --workspace` を
+# 手元か version-control の自動保守で行う。メジャー更新や互換性が崩れる場合は Claude 向けメッセージにする。
+name: security-audit
+on:
+  schedule:
+    - cron: "30 21 * * *"   # JST 06:30
+    - cron: "30 9 * * *"    # JST 18:30
+  workflow_dispatch:
+  push:
+    paths: ["Cargo.lock", "**/Cargo.toml", ".github/workflows/security-audit.yml"]
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked
+      - name: cargo audit (RustSec)
+        run: cargo audit --deny warnings --ignore RUSTSEC-0000-0000 || cargo audit

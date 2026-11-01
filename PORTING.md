@@ -7,40 +7,21 @@
 > 対象バージョン: workspace 0.1.0（18 クレート / 335 テスト、--all-features で353）
 > 最終更新: 2026-08-20(自動アップデート機構`self_update.rs`追加を反映)
 
-## REST 全廃の状況(2026-11-01 時点、最新)
+## REST 全廃の状況(2026-11-01 時点、最新) — 管理操作は gRPC
 
-**`/api/` 配下の REST はコード上すべて削除済み**(`main` の `5bb08ff`、VPS 未反映)。管理操作は GraphQL (`query { admin { … } }` / `mutation { admin { … } }`、`POST /graphql`)に一本化されている。このファイルの旧記述にある `/api/…` を叩く例や、§7「REST サーフェス早見表」は、**GraphQL の同名操作に読み替えること**(対応する操作名は `crates/open-runo-gateway/src/admin.rs`、スキーマは `GET /graphql/schema.graphql`)。
-**停止中の計画**: 管理画面・CLI・呼び出し側の通信を gRPC へ作り直す計画は、ユーザーの「一旦STOP」で止まっている(`crates/open-runo-proto/` が未コミットで残っているだけで、ワークスペースには未登録)。再開・破棄はユーザーの判断待ち。
-**GraphQL の硬化**: 登録済みクエリのみ受付・深さ/複雑さの上限・本番でのイントロスペクション停止・エイリアス/バッチ対策のレートリミットのうち、`5bb08ff` で入った範囲と未了の範囲は `CLAUDE.md` の「第3〜5段階の到達点」を確認すること。
+**`/api/` 配下の REST はコード上すべて削除済み**。管理操作は **gRPC サービス `open_runo.admin.v1.Admin`**(定義は
+`crates/open-runo-proto/proto/open_runo/admin/v1/admin.proto`)で、**同じ定義を gRPC-web・Connect でも受ける**。GraphQL は Federation の問い合わせだけ。
+残る HTTP は `/health`・ACME・`/mcp`・SCIM(`/scim/v2/*`)・`/internal/db/mutate`・静的配信のみ。**このファイルの旧記述(`/api/…` や GraphQL `admin` を叩く例)は gRPC に読み替えること。**
 
-以下は経緯の記録(各段階の到達点)。
-
-**第1段階完了(2026-11-01)**: `open-runo-gateway` の `EmptyMutation` を `admin::AdminMutation` に置換し、
-`query { admin { … } }` / `mutation { admin { … } }` で スキーマ登録・アップロード・取得・履歴、federation
-compose/status、フィーチャーフラグ(一覧/取得/作成更新/削除/評価)、永続クエリ(登録/取得)、キャッシュ消去
-(`purgeCache`/`purgeAllCache`)を操作できる。ロジックは `open-runo-router/src/admin_ops.rs` に集約し、REST 版
-ハンドラも同じ関数を呼ぶ(二重実装なし)。認証は `/graphql` の HTTP 層が `X-Api-Key`/セッションCookie(+CSRF)を
-検査して `Actor` を渡し、無ければ `admin` が `extensions.status=401` で失敗する(公開の `health` 等は従来どおり)。
-REST は未削除。REST/GraphQL 同値性テストは `crates/open-runo-gateway/src/admin_tests.rs`。
-**注意**: poem 版 `graphql_route` は認証層を持たないため `admin` は常に401(本番は hyper 版 `graphql_hyper` を使う)。
-`/graphql/ws`(Subscriptions)は未対応のまま。
-
-**第2段階完了(2026-11-01)**: 認証/セッション/キー発行(`selfIssueKey`・`sessionLogin`・`sessionLogout`)、
-DB操作(`dbStatus`/`dbRouting`/`dbList`/`dbGet`/`dbGetAtCommit`/`dbPut`/`dbDelete`)、バックアップ/移行/整合性
-(`backupExport`/`backupImport`/`backupRestoreLatest`/`migrateExportSql`/`migrateExportCsv`/`integrityCheck`)、
-分析・AI(`analyticsRequestsPerMonth`/`analyticsOperations`/`cacheAiStats`/`aiRoute`)を GraphQL から使える。
-共通関数は `open-runo-router/src/admin_sys.rs`、REST 版も同じ関数を呼ぶ。セッションの `Set-Cookie` は
-`graphql_hyper` が付ける。同値性テストは `admin_tests.rs`(計10件)。REST は未削除。
-未了: `/internal/db/mutate`、SCIM、SSE/WS、`/api/docs`、MCP、gRPC(第3〜4段階)。詳細は `CLAUDE.md` の
-「第2段階の到達点」。`open-runo-appserver` の不安定テストは待機期限の下限を30秒にして対処(原因と注意は同箇所)。
-
-**第3〜5段階完了(2026-11-01、コード側。VPS 未反映)**: 管理画面 WASM・CLI は `POST /graphql` へ切替済み
-(実ブラウザで全10ページ・実サーバーで CLI を確認)。`/api/*` の REST ルートは**削除済み**で、残る HTTP は
-`/health`・ACME・`/mcp`・SCIM(`/scim/v2/*`)・`/internal/db/mutate`・静的配信のみ。購読は `GET /graphql/ws`、
-スキーマ(SDL)は `GET /graphql/schema.graphql`。**このファイルの旧記述(`/api/…` を叩く例)は GraphQL に読み替えること。**
-管理画面を動かすには `open-runo-gateway` を起動する(`open-runo-router` 単体は GraphQL を持たない)。WASM は
-`www/pkg/` を毎回ビルドする(手順は `CLAUDE.md` の「VPS 反映の手順と注意」)。呼び出し側の `open-web-server` は
-ブランチ `rest-to-graphql` で GraphQL 化済み(未 push)。詳細・未了・切り戻しは `CLAUDE.md` の「第3〜5段階の到達点」。
+- 起動: `cargo run -p open-runo-gateway`(管理画面・gRPC・GraphQL を同じポート 8080 で。`open-runo-router` 単体は管理サービスを持たない)。素のgRPCの別ポートは `OPEN_RUNO_GRPC_BIND_ADDR`(TLS1.3/mTLS 用)。
+- 呼び方: `open-runo-cli`(素のgRPC、`--endpoint http://127.0.0.1:8080`)、管理画面(gRPC-web/Connect のハイブリッド、`RPC Inspector` で通信を確認)、
+  `curl`(Connect JSON): `curl -X POST http://localhost:8080/open_runo.admin.v1.Admin/SelfIssueKey -H 'content-type: application/json' -d '{}'`。
+- 管理画面の WASM は `www/pkg/` が git 管理外: `apps/desktop-wasm` で `cargo build --release --target wasm32-unknown-unknown` →
+  `wasm-bindgen target/wasm32-unknown-unknown/release/open_runo_desktop_wasm.wasm --target web --out-dir www/pkg --no-typescript`(CLI のバージョンは Cargo.lock の wasm-bindgen と一致)。
+  静的ファイルは ETag 再検証なので、作り直せば自動で配られる。
+- 本番(`OPEN_RUNO_ENV=production`)は gRPC に TLS1.3 必須(+任意で mTLS)、GraphQL は登録済みクエリのみ・深さ/複雑さ上限・イントロスペクション停止・エイリアス/バッチ対策。設定の一覧と理由は `CLAUDE.md` の最新の節。
+- 呼び出し側 `open-web-server` は、専用ブランチ `rest-to-graphql` で Connect(HTTP POST+JSON)に切替済み(未 push・未マージ)。**前面の open-web-server は HTTP/1.1 のみ**なので素のgRPC(HTTP/2)は通らない(Connect/gRPC-web は通る)。
+- VPS: ゲートウェイは未稼働(`rpoem-web` は紹介ページ)。反映は `git pull` まで。起動手順と注意は `CLAUDE.md`。
 
 ## ブラウザ内AI実行(WASM+WebGPU)構想 — 技術検証済み・段階的導入計画(2026-08-25追記)
 

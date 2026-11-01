@@ -715,7 +715,7 @@ pub fn grpc_web_handler(admin: AdminGrpc) -> crate::hyper_compat::Handler {
 
 /// ブラウザ向けの入口。同じパスに載せ、Content-Typeで振り分ける:
 /// `application/grpc-web[-text]*` → gRPC-web、`application/proto|json`・`application/connect+*` →
-/// [Connect](crate::connect)。どちらもプロキシ無しで普通のHTTPとして動く。
+/// [Connect](crate::connect)、`application/grpc` → 素のgRPC(HTTP/2のとき)。1つのポートで全部受ける。
 pub fn browser_handler(admin: AdminGrpc) -> crate::hyper_compat::Handler {
     Arc::new(move |req, _params| {
         let admin = admin.clone();
@@ -728,6 +728,10 @@ pub fn browser_handler(admin: AdminGrpc) -> crate::hyper_compat::Handler {
                 .to_string();
             if crate::connect::is_connect_content_type(&ct) {
                 crate::connect::handle(&admin, req).await
+            } else if ct.starts_with("application/grpc") && !ct.starts_with("application/grpc-web")
+            {
+                // 素のgRPCが同じポートに来た(HTTP/2のh2c。トレーラーはHTTP/2でのみ運べる)。
+                handle(&admin, req, Wire::Grpc).await
             } else {
                 handle(&admin, req, Wire::Web).await
             }
@@ -1766,5 +1770,48 @@ mod tests {
             .await,
             code::UNAUTHENTICATED
         );
+    }
+
+    /// 同じポートで、HTTP/1.1(curl・Connect JSON)と素のgRPC(HTTP/2 h2c)の両方が動く。
+    #[tokio::test]
+    async fn one_port_serves_http1_curl_and_plain_grpc() {
+        use crate::hyper_compat::{serve, Router};
+        let (a, _state) = admin();
+        let app = Router::new().route(
+            Method::POST,
+            "/open_runo.admin.v1.Admin/:method",
+            browser_handler(a),
+        );
+        let (addr, _h) = serve(app, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+        // HTTP/1.1: curl相当のConnect JSON。
+        let r = reqwest::Client::new()
+            .post(format!(
+                "http://{addr}/open_runo.admin.v1.Admin/SelfIssueKey"
+            ))
+            .header("content-type", "application/json")
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.version(), reqwest::Version::HTTP_11);
+        let key = r.json::<serde_json::Value>().await.unwrap()["apiKey"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        // HTTP/2(h2c): 素のgRPCクライアント(CLIと同じ)が**同じポート**で通る。
+        let c = GrpcClient::new(ClientConfig {
+            endpoint: format!("http://{addr}"),
+            api_key: Some(key),
+            ..Default::default()
+        });
+        let s: open_runo_proto::prost_types::Struct =
+            c.unary("DbStatus", &v1::Empty {}).await.unwrap();
+        assert_eq!(open_runo_proto::struct_to_json(&s)["status"], "ok");
+        let e = c
+            .with_api_key(Some("bogus".into()))
+            .unary::<_, open_runo_proto::prost_types::Struct>("DbStatus", &v1::Empty {})
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, code::UNAUTHENTICATED);
     }
 }
