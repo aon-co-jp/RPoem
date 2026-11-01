@@ -18,6 +18,8 @@ path = "src/main.rs"
 [dependencies]
 sonic-rs = "0.5"
 open-runo-core             = { workspace = true }
+open-runo-connect-core     = { path = "../open-runo-connect-core" }
+open-runo-connect-server   = { path = "../open-runo-connect-server" }
 open-runo-observability    = { workspace = true }
 open-runo-security         = { workspace = true }
 open-runo-federation       = { workspace = true }
