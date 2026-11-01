@@ -564,3 +564,6 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 - 注意: appserver/gateway のテストは先に`cargo build -p open-runo-appserver --bin open-runo-dummy-http-server`が必要。
 - 未対応: なし(`serde`/`tokio`等の同一メジャー内の更新は`cargo update`で追従済み)。
 **English**: Applied all pending major bumps (list above); workspace build/test/clippy pass with all features and the three consumers still `cargo check`. Notable breaking changes: sqlx 0.9 (`runtime-tokio`+`tls-rustls-ring-webpki`, `AssertSqlSafe` for dynamic `raw_sql`), clickhouse 0.15 (async typed `insert::<Row>`), jsonwebtoken 11 (must pick `rust_crypto`/`aws_lc_rs`), reqwest 0.13 (`rustls` feature, `query` feature, and it pulls in aws-lc-rs so rustls has two providers — implicit `ServerConfig::builder()` now panics; pass ring explicitly), jsonschema/hmac/rcgen/tungstenite API tweaks. Pins on poem/indexmap removed and `rust-version` raised to 1.88.
+
+
+多言語要約(10言語)は `docs/i18n/<言語コード>/PORTING.md`。

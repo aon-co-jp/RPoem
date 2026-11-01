@@ -340,3 +340,7 @@ Contribution は [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください�
 ---
 
 作者 / Author: 石 塚 正 浩（MASAHIRO ISHIZUKA） (https://github.com/aon-co-jp)
+
+
+## 多言語 / Multilingual
+日本語・中国語・韓国語・ロシア語・ウクライナ語・ドイツ語・イタリア語・フランス語・アラビア語・ペルシャ語の要約は [`docs/i18n/`](docs/i18n/README.md)(README/CLAUDE/PORTING)。
