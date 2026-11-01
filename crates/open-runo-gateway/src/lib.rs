@@ -14,14 +14,12 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-pub mod admin;
-#[cfg(test)]
-mod admin_tests;
 pub mod appserver_processes;
 pub mod appserver_tenants;
 pub mod demo;
 pub mod graphql_hyper;
 pub mod remote_subgraphs;
+pub mod security;
 pub mod ssr;
 
 use async_graphql::{Context, Object, Schema, SimpleObject, Subscription};
@@ -34,7 +32,7 @@ use open_runo_schema_registry::Stage;
 use poem::{get, handler, web::Data, Endpoint, EndpointExt, IntoResponse, Route};
 use std::sync::Arc;
 
-pub type OpenRunoSchema = Schema<QueryRoot, admin::AdminMutation, SubscriptionRoot>;
+pub type OpenRunoSchema = Schema<QueryRoot, async_graphql::EmptyMutation, SubscriptionRoot>;
 
 /// GraphQL projection of [`open_runo_schema_registry::SchemaVersion`].
 #[derive(SimpleObject)]
@@ -91,16 +89,12 @@ fn parse_stage(s: &str) -> Stage {
     }
 }
 
-/// 既存の公開Query(認証なし)。
+/// 公開Query(認証なし)。管理操作はgRPC(`open_runo.admin.v1.Admin`)へ移したのでここには無い。
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CoreQuery;
-
-/// Query全体 = 公開の`CoreQuery` + 認証必須の`admin`。
-#[derive(async_graphql::MergedObject, Default)]
-pub struct QueryRoot(CoreQuery, admin::AdminQuery);
+pub struct QueryRoot;
 
 #[Object]
-impl CoreQuery {
+impl QueryRoot {
     /// Simple liveness field so clients can smoke-test the `/graphql`
     /// endpoint without touching domain data.
     async fn health(&self) -> &'static str {
@@ -224,8 +218,8 @@ impl SubscriptionRoot {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<impl futures::Stream<Item = SchemaEventGql>> {
-        // RESTの`/api/ws-events`と同じく認証必須(`X-Api-Key`かconnection_initのペイロード)。
-        admin::require_actor(ctx)?;
+        // 認証必須(`X-Api-Key`かconnection_initのペイロード)。
+        require_actor(ctx)?;
         let state = ctx.data_unchecked::<Arc<AppState>>();
         let rx = state.events.subscribe();
 
@@ -249,48 +243,34 @@ impl SubscriptionRoot {
             }
         }))
     }
-
-    /// 変更履歴(`History`)の件数が増えるたびに通知する(RESTの`/api/events`のSSE
-    /// `history`イベントの置き換え。接続維持のハートビートはgraphql-wsのping/pongが担う)。
-    async fn history_events(
-        &self,
-        ctx: &Context<'_>,
-    ) -> async_graphql::Result<impl futures::Stream<Item = HistoryEventGql>> {
-        admin::require_actor(ctx)?;
-        let state = Arc::clone(ctx.data_unchecked::<Arc<AppState>>());
-        let initial = state.history.lock().map(|h| h.log().len()).unwrap_or(0);
-        Ok(futures::stream::unfold(
-            (state, initial),
-            |(state, mut last)| async move {
-                loop {
-                    tokio::time::sleep(HISTORY_POLL_INTERVAL).await;
-                    let current = state.history.lock().map(|h| h.log().len()).unwrap_or(last);
-                    if current > last {
-                        last = current;
-                        let event = HistoryEventGql {
-                            history_len: i32::try_from(current).unwrap_or(i32::MAX),
-                        };
-                        return Some((event, (state, last)));
-                    }
-                }
-            },
-        ))
-    }
 }
 
-const HISTORY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// `historyEvents`の1件。
-#[derive(SimpleObject)]
-struct HistoryEventGql {
-    history_len: i32,
+/// 購読は認証済みの呼び出し元だけ(`connection_init`の`x-api-key`等で`Actor`が渡される)。
+fn require_actor(ctx: &Context<'_>) -> async_graphql::Result<()> {
+    match ctx.data_opt::<open_runo_router::auth_hyper::Actor>() {
+        Some(_) => Ok(()),
+        None => Err(async_graphql::Error::new(
+            "authentication required (x-api-key)",
+        )),
+    }
 }
 
 /// Build the [`OpenRunoSchema`], injecting `state` as query context data.
 pub fn build_schema(state: Arc<AppState>) -> OpenRunoSchema {
-    Schema::build(QueryRoot::default(), admin::AdminMutation, SubscriptionRoot)
+    build_schema_with(state, &security::GraphqlSecurity::from_env())
+}
+
+/// [`build_schema`]に防御設定(深さ・複雑さの上限、イントロスペクション)を明示して渡す版。
+/// 上限は検証段階(実行前)で効くので、超える問い合わせは一部も実行されない。
+pub fn build_schema_with(state: Arc<AppState>, sec: &security::GraphqlSecurity) -> OpenRunoSchema {
+    let mut builder = Schema::build(QueryRoot, async_graphql::EmptyMutation, SubscriptionRoot)
         .data(state)
-        .finish()
+        .limit_depth(sec.max_depth)
+        .limit_complexity(sec.max_complexity);
+    if !sec.introspection {
+        builder = builder.disable_introspection();
+    }
+    builder.finish()
 }
 
 /// Response-cache configuration for the `/graphql` endpoint
@@ -361,15 +341,7 @@ fn is_cacheable_query(document: &str) -> bool {
 /// `OPEN_RUNO_PQ_MODE` → [`EnforcementMode`]:
 /// `disabled` / `allow` (default) / `enforce` (Trusted Documents).
 pub fn pq_mode_from_env() -> EnforcementMode {
-    match std::env::var("OPEN_RUNO_PQ_MODE")
-        .unwrap_or_default()
-        .to_lowercase()
-        .as_str()
-    {
-        "disabled" => EnforcementMode::Disabled,
-        "enforce" => EnforcementMode::Enforce,
-        _ => EnforcementMode::Allow,
-    }
+    security::GraphqlSecurity::from_env().pq_mode
 }
 
 /// Pull `extensions.persistedQuery.sha256Hash` out of a GraphQL request

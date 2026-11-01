@@ -833,9 +833,35 @@ async fn reflection_handler(req: Request, admin: bool) -> Response {
     grpc_response(GrpcStatus::Unimplemented, None)
 }
 
+/// gRPCサーバーの動作オプション。
+#[derive(Debug, Clone, Copy)]
+pub struct GrpcOptions {
+    /// サーバーリフレクション(`grpcurl list`/`describe`)を提供するか。リフレクションはAPIの
+    /// 構造をそのまま外へ見せるので、本番では既定で切る(`proto`は別途配布する)。
+    pub reflection: bool,
+}
+
+impl Default for GrpcOptions {
+    fn default() -> Self {
+        Self { reflection: true }
+    }
+}
+
+/// HTTP/2 Rapid Reset(CVE-2023-44487)などストリーム濫用への備え: 1接続あたりの同時ストリーム数・
+/// リセット済みストリームの滞留数・ローカルエラー由来のリセット数に上限を置く(超えるとGOAWAYで切る)。
+/// 既定値に頼らず明示する。
+fn h2_builder() -> hyper::server::conn::http2::Builder<hyper_util::rt::TokioExecutor> {
+    let mut b = hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new());
+    b.max_concurrent_streams(128)
+        .max_pending_accept_reset_streams(Some(20))
+        .max_local_error_reset_streams(Some(1024));
+    b
+}
+
 /// 1接続分のサービス(パスでHealth/Reflection/管理サービスへ振り分ける)。
 fn grpc_service(
     admin: Option<crate::grpc_admin::AdminGrpc>,
+    opts: GrpcOptions,
 ) -> impl hyper::service::Service<
     Request,
     Response = Response,
@@ -851,7 +877,12 @@ fn grpc_service(
             } else if path == "/grpc.health.v1.Health/Watch" {
                 watch_handler(req).await
             } else if path == "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo" {
-                reflection_handler(req, admin.is_some()).await
+                if !opts.reflection {
+                    // 本番ではリフレクションを出さない(存在しないものとして扱う)。
+                    grpc_response(GrpcStatus::Unimplemented, None)
+                } else {
+                    reflection_handler(req, admin.is_some()).await
+                }
             } else if let (Some(admin), true) = (
                 admin.as_ref(),
                 crate::grpc_admin::method_of(&path).is_some(),
@@ -882,7 +913,16 @@ pub async fn serve_grpc_with(
     addr: std::net::SocketAddr,
     admin: Option<crate::grpc_admin::AdminGrpc>,
 ) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
-    use hyper_util::rt::{TokioExecutor, TokioIo};
+    serve_grpc_opts(addr, admin, GrpcOptions::default()).await
+}
+
+/// [`serve_grpc_with`]にオプション(リフレクションの有無など)を渡せる版。平文(h2c)。
+pub async fn serve_grpc_opts(
+    addr: std::net::SocketAddr,
+    admin: Option<crate::grpc_admin::AdminGrpc>,
+    opts: GrpcOptions,
+) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    use hyper_util::rt::TokioIo;
     use tokio::net::TcpListener;
 
     let listener = TcpListener::bind(addr).await?;
@@ -897,20 +937,102 @@ pub async fn serve_grpc_with(
             let io = TokioIo::new(stream);
             let admin = admin.clone();
             tokio::spawn(async move {
-                let service = grpc_service(admin);
-                // HTTP/2 Rapid Reset(CVE-2023-44487)などストリーム濫用への備え: 1接続あたりの
-                // 同時ストリーム数・リセット済みストリームの滞留数・ローカルエラー由来のリセット数に
-                // 上限を置く(超えるとGOAWAYで切る)。既定値に頼らず明示する。
-                let _ = hyper::server::conn::http2::Builder::new(TokioExecutor::new())
-                    .max_concurrent_streams(128)
-                    .max_pending_accept_reset_streams(Some(20))
-                    .max_local_error_reset_streams(Some(1024))
-                    .serve_connection(io, service)
-                    .await;
+                let service = grpc_service(admin, opts);
+                let _ = h2_builder().serve_connection(io, service).await;
             });
         }
     });
 
+    Ok((bound_addr, handle))
+}
+
+/// gRPC用のTLS設定を作る。**TLS 1.3のみ**(1.2以下は使わない)、ALPNは`h2`。
+/// `client_ca_pem`を渡すと**mTLS**(接続の相互認証)になり、そのCAで署名されたクライアント証明書を
+/// 持たない接続はTLSハンドシェイクの時点で拒否される。呼び出しごとの認可は別途`x-api-key`/セッション
+/// (KeyGuardian)で行うので、mTLSは「誰がつないでよいか」、鍵は「何をしてよいか」の二重になる。
+#[cfg(feature = "tls")]
+pub fn grpc_tls_config(
+    cert_pem: &[u8],
+    key_pem: &[u8],
+    client_ca_pem: Option<&[u8]>,
+) -> std::io::Result<tokio_rustls::rustls::ServerConfig> {
+    use std::io::{Error, ErrorKind};
+    use std::sync::Arc;
+    use tokio_rustls::rustls::server::WebPkiClientVerifier;
+    use tokio_rustls::rustls::{self, RootCertStore, ServerConfig};
+
+    let bad = |m: String| Error::new(ErrorKind::InvalidData, m);
+    let certs = rustls_pemfile::certs(&mut &cert_pem[..])
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| bad(format!("bad certificate pem: {e}")))?;
+    if certs.is_empty() {
+        return Err(bad("no certificates found".into()));
+    }
+    let key = rustls_pemfile::private_key(&mut &key_pem[..])
+        .map_err(|e| bad(format!("bad private key pem: {e}")))?
+        .ok_or_else(|| bad("no private key found".into()))?;
+    // ring を明示(aws-lc-rs も依存に入るため、暗黙の既定に頼らない)。
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let builder = ServerConfig::builder_with_provider(Arc::clone(&provider))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .map_err(|e| bad(e.to_string()))?;
+    let builder = match client_ca_pem {
+        Some(ca) => {
+            let mut roots = RootCertStore::empty();
+            for c in rustls_pemfile::certs(&mut &ca[..]) {
+                roots
+                    .add(c.map_err(|e| bad(format!("bad client CA pem: {e}")))?)
+                    .map_err(|e| bad(format!("bad client CA: {e}")))?;
+            }
+            let verifier = WebPkiClientVerifier::builder_with_provider(Arc::new(roots), provider)
+                .build()
+                .map_err(|e| bad(e.to_string()))?;
+            builder.with_client_cert_verifier(verifier)
+        },
+        None => builder.with_no_client_auth(),
+    };
+    let mut cfg = builder
+        .with_single_cert(certs, key)
+        .map_err(|e| bad(e.to_string()))?;
+    cfg.alpn_protocols = vec![b"h2".to_vec()];
+    Ok(cfg)
+}
+
+/// TLS 1.3(任意でmTLS)でgRPCを提供する。本番の管理系はこちらを使う。
+#[cfg(feature = "tls")]
+pub async fn serve_grpc_tls(
+    addr: std::net::SocketAddr,
+    admin: Option<crate::grpc_admin::AdminGrpc>,
+    tls_config: tokio_rustls::rustls::ServerConfig,
+    opts: GrpcOptions,
+) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    use hyper_util::rt::TokioIo;
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind(addr).await?;
+    let bound_addr = listener.local_addr()?;
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls_config));
+    let handle = tokio::spawn(async move {
+        loop {
+            let (stream, _) = match listener.accept().await {
+                Ok(pair) => pair,
+                Err(_) => continue,
+            };
+            let acceptor = acceptor.clone();
+            let admin = admin.clone();
+            tokio::spawn(async move {
+                // ハンドシェイク失敗(TLS1.2以下、クライアント証明書なし、ポートスキャン等)は切るだけ。
+                let Ok(tls) = acceptor.accept(stream).await else {
+                    return;
+                };
+                let service = grpc_service(admin, opts);
+                let _ = h2_builder()
+                    .serve_connection(TokioIo::new(tls), service)
+                    .await;
+            });
+        }
+    });
     Ok((bound_addr, handle))
 }
 

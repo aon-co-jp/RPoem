@@ -1136,4 +1136,190 @@ mod tests {
             code::INVALID_ARGUMENT
         );
     }
+
+    // ── TLS 1.3 / mTLS(`tls` featureが有効なときだけ) ──
+    #[cfg(feature = "tls")]
+    mod tls_tests {
+        use super::*;
+
+        #[test]
+        fn ca_and_leaf_helpers_are_consistent() {
+            let t = tls_material();
+            assert!(t.ca_pem.contains("BEGIN CERTIFICATE"));
+        }
+
+        struct TlsMaterial {
+            ca_pem: String,
+            server_cert: String,
+            server_key: String,
+            client_cert: String,
+            client_key: String,
+        }
+
+        fn tls_material() -> TlsMaterial {
+            use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
+            let ca_key = KeyPair::generate().unwrap();
+            let mut ca_params = CertificateParams::new(Vec::<String>::new()).unwrap();
+            ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+            let ca_cert = ca_params.self_signed(&ca_key).unwrap();
+            let issuer = Issuer::new(ca_params, ca_key);
+
+            let server_key = KeyPair::generate().unwrap();
+            let server = CertificateParams::new(vec!["localhost".to_string()])
+                .unwrap()
+                .signed_by(&server_key, &issuer)
+                .unwrap();
+            let client_key = KeyPair::generate().unwrap();
+            let client = CertificateParams::new(vec!["admin-client".to_string()])
+                .unwrap()
+                .signed_by(&client_key, &issuer)
+                .unwrap();
+            TlsMaterial {
+                ca_pem: ca_cert.pem(),
+                server_cert: server.pem(),
+                server_key: server_key.serialize_pem(),
+                client_cert: client.pem(),
+                client_key: client_key.serialize_pem(),
+            }
+        }
+
+        async fn serve_tls(mtls: bool) -> (std::net::SocketAddr, TlsMaterial, Arc<AppState>) {
+            let t = tls_material();
+            let (a, state) = admin();
+            let cfg = crate::grpc::grpc_tls_config(
+                t.server_cert.as_bytes(),
+                t.server_key.as_bytes(),
+                mtls.then(|| t.ca_pem.as_bytes()),
+            )
+            .unwrap();
+            let (addr, h) = crate::grpc::serve_grpc_tls(
+                "127.0.0.1:0".parse().unwrap(),
+                Some(a),
+                cfg,
+                crate::grpc::GrpcOptions::default(),
+            )
+            .await
+            .unwrap();
+            std::mem::forget(h);
+            (addr, t, state)
+        }
+
+        fn tls_client(
+            addr: std::net::SocketAddr,
+            t: &TlsMaterial,
+            with_cert: bool,
+            with_ca: bool,
+        ) -> GrpcClient {
+            GrpcClient::new(ClientConfig {
+                endpoint: format!("https://localhost:{}", addr.port()),
+                api_key: Some("dev".into()),
+                ca_pem: with_ca.then(|| t.ca_pem.clone().into_bytes()),
+                client_cert_pem: with_cert.then(|| t.client_cert.clone().into_bytes()),
+                client_key_pem: with_cert.then(|| t.client_key.clone().into_bytes()),
+                ..Default::default()
+            })
+        }
+
+        #[tokio::test]
+        async fn grpc_over_tls13_works_and_untrusted_servers_are_rejected() {
+            let (addr, t, _s) = serve_tls(false).await;
+            let ok: open_runo_proto::prost_types::Struct = tls_client(addr, &t, false, true)
+                .unary("DbStatus", &v1::Empty {})
+                .await
+                .unwrap();
+            assert_eq!(open_runo_proto::struct_to_json(&ok)["status"], "ok");
+            // 自己発行CAを信頼していないクライアント(WebPKIルートのみ)は接続できない。
+            let e = tls_client(addr, &t, false, false)
+                .unary::<_, open_runo_proto::prost_types::Struct>("DbStatus", &v1::Empty {})
+                .await
+                .unwrap_err();
+            assert_eq!(e.code, 14, "{e}");
+        }
+
+        #[tokio::test]
+        async fn tls12_clients_are_refused() {
+            use tokio_rustls::rustls::{self, pki_types::ServerName, RootCertStore};
+            let (addr, t, _s) = serve_tls(false).await;
+            let mut roots = RootCertStore::empty();
+            for c in rustls_pemfile::certs(&mut t.ca_pem.as_bytes()) {
+                roots.add(c.unwrap()).unwrap();
+            }
+            let provider = Arc::new(rustls::crypto::ring::default_provider());
+            let tls12 = rustls::ClientConfig::builder_with_provider(Arc::clone(&provider))
+                .with_protocol_versions(&[&rustls::version::TLS12])
+                .unwrap()
+                .with_root_certificates(roots.clone())
+                .with_no_client_auth();
+            let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let r = tokio_rustls::TlsConnector::from(Arc::new(tls12))
+                .connect(ServerName::try_from("localhost").unwrap(), tcp)
+                .await;
+            assert!(
+                r.is_err(),
+                "a TLS1.2-only client must not complete the handshake"
+            );
+            // 対照: TLS1.3なら同じサーバーにつながる(テスト自体が壊れていないことの確認)。
+            let tls13 = rustls::ClientConfig::builder_with_provider(provider)
+                .with_protocol_versions(&[&rustls::version::TLS13])
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let ok = tokio_rustls::TlsConnector::from(Arc::new(tls13))
+                .connect(ServerName::try_from("localhost").unwrap(), tcp)
+                .await;
+            assert!(ok.is_ok());
+        }
+
+        #[tokio::test]
+        async fn mtls_requires_a_client_certificate_signed_by_the_client_ca() {
+            let (addr, t, _s) = serve_tls(true).await;
+            // クライアント証明書なし → 拒否(TLS 1.3ではハンドシェイク完了後の最初の通信で切られる)。
+            let e = tls_client(addr, &t, false, true)
+                .unary::<_, open_runo_proto::prost_types::Struct>("DbStatus", &v1::Empty {})
+                .await;
+            assert!(e.is_err(), "no client cert must be refused");
+            // 正しいクライアント証明書 → 通る(呼び出しの認可は別途x-api-key)。
+            let ok: open_runo_proto::prost_types::Struct = tls_client(addr, &t, true, true)
+                .unary("DbStatus", &v1::Empty {})
+                .await
+                .unwrap();
+            assert_eq!(open_runo_proto::struct_to_json(&ok)["status"], "ok");
+            // mTLSを通っても、鍵なしの呼び出しは認可されない(二重の守り)。
+            let anon = tls_client(addr, &t, true, true).with_api_key(None);
+            let e = anon
+                .unary::<_, open_runo_proto::prost_types::Struct>("DbStatus", &v1::Empty {})
+                .await
+                .unwrap_err();
+            assert_eq!(e.code, code::UNAUTHENTICATED);
+        }
+    }
+
+    // ── リフレクションの無効化 ──
+    #[tokio::test]
+    async fn reflection_can_be_turned_off_for_production() {
+        let (a, _state) = admin();
+        let (addr, _h) = crate::grpc::serve_grpc_opts(
+            "127.0.0.1:0".parse().unwrap(),
+            Some(a),
+            crate::grpc::GrpcOptions { reflection: false },
+        )
+        .await
+        .unwrap();
+        let c = GrpcClient::new(ClientConfig {
+            endpoint: format!("http://{addr}"),
+            ..Default::default()
+        });
+        let e = c
+            .call_raw_path(
+                "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
+                &[0x3a, 0x01, b'*'],
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, code::UNIMPLEMENTED);
+        // 管理サービス自体は動く。
+        let k: v1::SelfIssued = c.unary("SelfIssueKey", &v1::Empty {}).await.unwrap();
+        assert!(k.api_key.starts_with("orn_"));
+    }
 }
