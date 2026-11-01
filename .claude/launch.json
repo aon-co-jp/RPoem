@@ -6,6 +6,12 @@
       "runtimeExecutable": "cargo",
       "runtimeArgs": ["run", "-p", "open-runo-router"],
       "port": 8080
+    },
+    {
+      "name": "open-runo-gateway",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": ["run", "-p", "open-runo-gateway"],
+      "port": 8080
     }
   ]
 }

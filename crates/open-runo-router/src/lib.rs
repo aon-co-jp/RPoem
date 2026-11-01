@@ -135,41 +135,6 @@ pub async fn build_hyper_app(
         )
         .route(
             Method::GET,
-            "/api/openapi.json",
-            wrap(openapi::openapi_handler()),
-        )
-        .route(
-            Method::GET,
-            "/api/docs",
-            wrap(openapi::swagger_ui_handler()),
-        )
-        .route(Method::GET, "/api/redoc", wrap(openapi::redoc_handler()))
-        .route(
-            Method::GET,
-            "/api/openapi.graphql",
-            wrap(openapi::graphql_sdl_handler()),
-        )
-        .route(
-            Method::GET,
-            "/api/openapi.tauri.json",
-            wrap(openapi::tauri_manifest_handler()),
-        )
-        .route(
-            Method::GET,
-            "/api/client.ts",
-            wrap(openapi::typescript_handler(
-                open_runo_openapi::TsClient::Fetch,
-            )),
-        )
-        .route(
-            Method::GET,
-            "/api/client.tauri.ts",
-            wrap(openapi::typescript_handler(
-                open_runo_openapi::TsClient::TauriInvoke,
-            )),
-        )
-        .route(
-            Method::GET,
             "/.well-known/acme-challenge/:token",
             wrap(acme::challenge_response_handler(Arc::clone(
                 &state.acme_challenges,
@@ -499,31 +464,6 @@ pub async fn build_hyper_app(
                 Arc::clone(&state),
                 Arc::clone(&guardian),
             )),
-        )
-        .route(
-            Method::GET,
-            "/api/events",
-            wrap(handlers_hyper::stream_events_handler(
-                Arc::clone(&state),
-                Arc::clone(&guardian),
-            )),
-        )
-        // Generic WebSocket routes (docs/poem-parity.md 3, "generic
-        // WebSocket support"): NOT wrapped in `wrap(...)` -- `with_compression`
-        // buffers/rewrites the response body, which is harmless for an empty
-        // `101 Switching Protocols` body but pointless overhead for a route
-        // that's never going to have a compressible body; CORS/tracing add
-        // nothing an upgrade response needs either. Auth for `/api/ws-events`
-        // is enforced inside `ws_events_handler` itself instead.
-        .route(
-            Method::GET,
-            "/api/ws-echo",
-            handlers_hyper::ws_echo_handler(),
-        )
-        .route(
-            Method::GET,
-            "/api/ws-events",
-            handlers_hyper::ws_events_handler(Arc::clone(&state), Arc::clone(&guardian)),
         )
         .route(
             Method::POST,

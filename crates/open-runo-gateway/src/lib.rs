@@ -223,11 +223,13 @@ impl SubscriptionRoot {
     async fn schema_events(
         &self,
         ctx: &Context<'_>,
-    ) -> impl futures::Stream<Item = SchemaEventGql> {
+    ) -> async_graphql::Result<impl futures::Stream<Item = SchemaEventGql>> {
+        // RESTの`/api/ws-events`と同じく認証必須(`X-Api-Key`かconnection_initのペイロード)。
+        admin::require_actor(ctx)?;
         let state = ctx.data_unchecked::<Arc<AppState>>();
         let rx = state.events.subscribe();
 
-        futures::stream::unfold(rx, |mut rx| async move {
+        Ok(futures::stream::unfold(rx, |mut rx| async move {
             loop {
                 match rx.recv().await {
                     Ok(ev) => {
@@ -245,8 +247,43 @@ impl SubscriptionRoot {
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
                 }
             }
-        })
+        }))
     }
+
+    /// 変更履歴(`History`)の件数が増えるたびに通知する(RESTの`/api/events`のSSE
+    /// `history`イベントの置き換え。接続維持のハートビートはgraphql-wsのping/pongが担う)。
+    async fn history_events(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<impl futures::Stream<Item = HistoryEventGql>> {
+        admin::require_actor(ctx)?;
+        let state = Arc::clone(ctx.data_unchecked::<Arc<AppState>>());
+        let initial = state.history.lock().map(|h| h.log().len()).unwrap_or(0);
+        Ok(futures::stream::unfold(
+            (state, initial),
+            |(state, mut last)| async move {
+                loop {
+                    tokio::time::sleep(HISTORY_POLL_INTERVAL).await;
+                    let current = state.history.lock().map(|h| h.log().len()).unwrap_or(last);
+                    if current > last {
+                        last = current;
+                        let event = HistoryEventGql {
+                            history_len: i32::try_from(current).unwrap_or(i32::MAX),
+                        };
+                        return Some((event, (state, last)));
+                    }
+                }
+            },
+        ))
+    }
+}
+
+const HISTORY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// `historyEvents`の1件。
+#[derive(SimpleObject)]
+struct HistoryEventGql {
+    history_len: i32,
 }
 
 /// Build the [`OpenRunoSchema`], injecting `state` as query context data.
@@ -661,9 +698,16 @@ mod tests {
         let state = Arc::new(AppState::new());
         let schema = build_schema(Arc::clone(&state));
 
-        let mut stream = schema.execute_stream(async_graphql::Request::new(
-            "subscription { schemaEvents { serviceName stage } }",
-        ));
+        // 購読は認証必須(RESTの`/api/ws-events`と同じ)。HTTP層が渡す`Actor`を模す。
+        let actor = open_runo_router::auth_hyper::Actor {
+            owner: "test".into(),
+            roles: vec![],
+            via_session: false,
+        };
+        let mut stream = schema.execute_stream(
+            async_graphql::Request::new("subscription { schemaEvents { serviceName stage } }")
+                .data(actor),
+        );
 
         // Publish an event once the subscriber is polling.
         let publisher = Arc::clone(&state);
@@ -684,5 +728,25 @@ mod tests {
         let data = response.data.into_json().unwrap();
         assert_eq!(data["schemaEvents"]["serviceName"], "users");
         assert_eq!(data["schemaEvents"]["stage"], "local");
+    }
+
+    #[tokio::test]
+    async fn subscription_requires_authentication() {
+        use futures::StreamExt;
+
+        let state = Arc::new(AppState::new());
+        let schema = build_schema(Arc::clone(&state));
+        let mut stream = schema.execute_stream(async_graphql::Request::new(
+            "subscription { schemaEvents { serviceName } }",
+        ));
+        let response = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+            .await
+            .expect("timed out")
+            .expect("stream ended");
+        assert!(
+            response.errors.iter().any(|e| e.message.contains("authentication required")),
+            "{:?}",
+            response.errors
+        );
     }
 }

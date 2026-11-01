@@ -1,28 +1,24 @@
-//! `open-runo-cli` -- a small command-line client over `open-runo-router`'s
-//! REST API: schema registry register/get/history, federation status, and
-//! an OpenAPI spec dump. This is open-runo's answer to Cosmo's `wgc` CLI
-//! (see `docs/cosmo-parity.md` 4a, "Powerful CLI (`wgc`相当)").
+//! `open-runo-cli` -- a small command-line client over open-runo's GraphQL
+//! endpoint (`POST /graphql`): schema registry register/get/history,
+//! federation status, DB key/value operations, and a GraphQL SDL dump. This is
+//! open-runo's answer to Cosmo's `wgc` CLI (see `docs/cosmo-parity.md` 4a).
+//!
+//! REST全廃(CLAUDE.md「2026-11-01追記」)の第3段階で、`/api/*` のREST呼び出しを
+//! すべてGraphQLに置き換えた。クエリでは`service_name: serviceName`のように
+//! フィールドへ別名を付け、`open_runo_api_types`の型へそのままデコードする。
 //!
 //! If no `--api-key` is given, the CLI transparently self-issues a
-//! short-lived developer key via `POST /api/keys/self-issue` -- the same
-//! "a human never has to manage an API key" flow the WASM frontend uses
-//! (see `crates/open-runo-router/src/handlers_hyper.rs::self_issue_key_handler`).
-//!
-//! Schema and federation responses are decoded through
-//! `open_runo_api_types`, the same shared types `open-runo-router` and the
-//! WASM frontend use -- so a server-side shape change is a compile error
-//! here instead of the silent runtime mismatch that shipped in this CLI's
-//! first version (see CLAUDE.md HANDOFF, 2026-07-11).
+//! short-lived developer key via `mutation { selfIssueKey }` -- the same
+//! "a human never has to manage an API key" flow the WASM frontend uses.
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use open_runo_api_types::{
-    DbDeleteResponse, DbRecordListResponse, DbRecordResponse, DbUpsertRequest,
-    FederationStatusResponse, RateLimitedResponse, RegisterSchemaRequest, SchemaHistoryResponse,
-    SchemaVersion,
+    DbDeleteResponse, DbRecordListResponse, DbRecordResponse, FederationStatusResponse,
+    RateLimitedResponse, SchemaHistoryResponse, SchemaVersion,
 };
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -66,8 +62,8 @@ enum Command {
         #[command(subcommand)]
         action: FederationCommand,
     },
-    /// Fetch the OpenAPI 3.0 spec (`GET /api/openapi.json`).
-    Openapi,
+    /// Print the GraphQL schema as SDL (`GET /graphql/schema.graphql`).
+    Sdl,
     /// Self-issue a fresh developer API key and print it (no other action).
     Login,
     /// DUAL DATABASE key/value operations.
@@ -157,109 +153,156 @@ async fn main() -> Result<()> {
         None => self_issue_key(&client, &cli.base_url).await?,
     };
 
-    // Schema/federation calls decode into the shared open_runo_api_types
-    // structs (typed, so a server-side shape change is a compile error
-    // here); Login/Openapi have no shared type (a bare key string, and an
-    // arbitrary OpenAPI document) so they stay as raw JSON.
+    let (base, key) = (cli.base_url.as_str(), api_key.as_str());
     let body = match &cli.command {
         Command::Login => {
             // Already self-issued above; just confirm it to the user.
             serde_json::json!({ "api_key": api_key })
         },
-        Command::Openapi => {
-            get::<Value>(&client, &cli.base_url, &api_key, "/api/openapi.json").await?
+        Command::Sdl => {
+            let resp = client
+                .get(format!("{base}/graphql/schema.graphql"))
+                .send()
+                .await
+                .with_context(|| format!("GET {base}/graphql/schema.graphql"))?;
+            if !resp.status().is_success() {
+                bail!("request failed ({})", resp.status());
+            }
+            Value::String(resp.text().await.context("reading SDL")?)
         },
         Command::Federation { action } => match action {
             FederationCommand::Status => {
-                let resp: FederationStatusResponse =
-                    get(&client, &cli.base_url, &api_key, "/api/federation/status").await?;
+                let resp: FederationStatusResponse = admin(
+                    &client,
+                    base,
+                    key,
+                    "query",
+                    "",
+                    "federationStatus",
+                    "federationStatus { contributing_services: contributingServices type_count: typeCount field_count: fieldCount }",
+                    json!({}),
+                )
+                .await?;
                 serde_json::to_value(resp)?
             },
         },
-        Command::Schema { action } => match action {
-            SchemaCommand::Register {
-                service,
-                sdl_file,
-                stage,
-            } => {
-                let sdl = std::fs::read_to_string(sdl_file)
-                    .with_context(|| format!("reading SDL file {}", sdl_file.display()))?;
-                let payload = RegisterSchemaRequest {
-                    service_name: service.clone(),
-                    sdl,
-                    stage: stage.clone(),
-                    namespace: None,
-                };
-                let resp: SchemaVersion =
-                    post(&client, &cli.base_url, &api_key, "/api/schemas", &payload).await?;
-                serde_json::to_value(resp)?
-            },
-            SchemaCommand::Get {
-                service,
-                stage,
-                namespace,
-            } => {
-                let path = with_query(
-                    &format!("/api/schemas/{service}"),
-                    &[
-                        ("stage", Some(stage.as_str())),
-                        ("namespace", namespace.as_deref()),
-                    ],
-                );
-                let resp: SchemaVersion = get(&client, &cli.base_url, &api_key, &path).await?;
-                serde_json::to_value(resp)?
-            },
-            SchemaCommand::History { service, namespace } => {
-                let path = with_query(
-                    &format!("/api/schemas/{service}/history"),
-                    &[("namespace", namespace.as_deref())],
-                );
-                let resp: SchemaHistoryResponse =
-                    get(&client, &cli.base_url, &api_key, &path).await?;
-                serde_json::to_value(resp)?
-            },
+        Command::Schema { action } => {
+            match action {
+                SchemaCommand::Register {
+                    service,
+                    sdl_file,
+                    stage,
+                } => {
+                    let sdl = std::fs::read_to_string(sdl_file)
+                        .with_context(|| format!("reading SDL file {}", sdl_file.display()))?;
+                    let resp: SchemaVersion = admin(
+                    &client,
+                    base,
+                    key,
+                    "mutation",
+                    "($n: String!, $s: String!, $st: String)",
+                    "registerSchema",
+                    &format!("registerSchema(serviceName: $n, sdl: $s, stage: $st) {{ {SCHEMA_FIELDS} }}"),
+                    json!({ "n": service, "s": sdl, "st": stage }),
+                )
+                .await?;
+                    serde_json::to_value(resp)?
+                },
+                SchemaCommand::Get {
+                    service,
+                    stage,
+                    namespace,
+                } => {
+                    let resp: SchemaVersion = admin(
+                    &client,
+                    base,
+                    key,
+                    "query",
+                    "($n: String!, $st: String, $ns: String)",
+                    "schema",
+                    &format!("schema(serviceName: $n, stage: $st, namespace: $ns) {{ {SCHEMA_FIELDS} }}"),
+                    json!({ "n": service, "st": stage, "ns": namespace }),
+                )
+                .await?;
+                    serde_json::to_value(resp)?
+                },
+                SchemaCommand::History { service, namespace } => {
+                    let versions: Vec<SchemaVersion> = admin(
+                        &client,
+                        base,
+                        key,
+                        "query",
+                        "($n: String!, $ns: String)",
+                        "schemaHistory",
+                        &format!(
+                            "schemaHistory(serviceName: $n, namespace: $ns) {{ {SCHEMA_FIELDS} }}"
+                        ),
+                        json!({ "n": service, "ns": namespace }),
+                    )
+                    .await?;
+                    serde_json::to_value(SchemaHistoryResponse { versions })?
+                },
+            }
         },
         Command::Db { action } => match action {
             DbCommand::List { table } => {
-                let resp: DbRecordListResponse = get(
+                let resp: DbRecordListResponse = admin(
                     &client,
-                    &cli.base_url,
-                    &api_key,
-                    &format!("/api/db/{table}"),
+                    base,
+                    key,
+                    "query",
+                    "($t: String!)",
+                    "dbList",
+                    "dbList(table: $t)",
+                    json!({ "t": table }),
                 )
                 .await?;
                 serde_json::to_value(resp)?
             },
-            DbCommand::Get { table, key } => {
-                let resp: DbRecordResponse = get(
+            DbCommand::Get { table, key: k } => {
+                let resp: DbRecordResponse = admin(
                     &client,
-                    &cli.base_url,
-                    &api_key,
-                    &format!("/api/db/{table}/{key}"),
+                    base,
+                    key,
+                    "query",
+                    "($t: String!, $k: String!)",
+                    "dbGet",
+                    "dbGet(table: $t, key: $k)",
+                    json!({ "t": table, "k": k }),
                 )
                 .await?;
                 serde_json::to_value(resp)?
             },
-            DbCommand::Put { table, key, value } => {
+            DbCommand::Put {
+                table,
+                key: k,
+                value,
+            } => {
                 let value: Value =
                     serde_json::from_str(value).context("--value must be valid JSON")?;
-                let payload = DbUpsertRequest { value };
-                let resp: DbRecordResponse = put(
+                let resp: DbRecordResponse = admin(
                     &client,
-                    &cli.base_url,
-                    &api_key,
-                    &format!("/api/db/{table}/{key}"),
-                    &payload,
+                    base,
+                    key,
+                    "mutation",
+                    "($t: String!, $k: String!, $v: JSON!)",
+                    "dbPut",
+                    "dbPut(table: $t, key: $k, value: $v)",
+                    json!({ "t": table, "k": k, "v": value }),
                 )
                 .await?;
                 serde_json::to_value(resp)?
             },
-            DbCommand::Delete { table, key } => {
-                let resp: DbDeleteResponse = delete(
+            DbCommand::Delete { table, key: k } => {
+                let resp: DbDeleteResponse = admin(
                     &client,
-                    &cli.base_url,
-                    &api_key,
-                    &format!("/api/db/{table}/{key}"),
+                    base,
+                    key,
+                    "mutation",
+                    "($t: String!, $k: String!)",
+                    "dbDelete",
+                    "dbDelete(table: $t, key: $k)",
+                    json!({ "t": table, "k": k }),
                 )
                 .await?;
                 serde_json::to_value(resp)?
@@ -276,151 +319,89 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn with_query(path: &str, params: &[(&str, Option<&str>)]) -> String {
-    let query: Vec<String> = params
-        .iter()
-        .filter_map(|(k, v)| v.map(|v| format!("{k}={}", urlencode(v))))
-        .collect();
-    if query.is_empty() {
-        path.to_string()
-    } else {
-        format!("{path}?{}", query.join("&"))
+const SCHEMA_FIELDS: &str =
+    "id namespace service_name: serviceName sdl stage created_at: createdAt";
+
+/// `mutation { admin { ... } }` / `query { admin { ... } }` を実行し、
+/// `data.admin.<field>` を`T`へデコードする。
+#[allow(clippy::too_many_arguments)]
+async fn admin<T: DeserializeOwned>(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+    kind: &str,
+    decl: &str,
+    field: &str,
+    selection: &str,
+    vars: Value,
+) -> Result<T> {
+    let doc = format!("{kind} {decl} {{ admin {{ {selection} }} }}");
+    let data = gql(client, base_url, Some(api_key), &doc, vars).await?;
+    serde_json::from_value(data["admin"][field].clone())
+        .context("response JSON did not match the expected shape")
+}
+
+/// `POST /graphql` を1回実行して`data`を返す。HTTPエラー・GraphQLエラーは
+/// リクエストIDと(あれば)`extensions.status`付きで`Err`にする。
+async fn gql(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: Option<&str>,
+    query: &str,
+    vars: Value,
+) -> Result<Value> {
+    let mut req = client
+        .post(format!("{base_url}/graphql"))
+        .json(&json!({ "query": query, "variables": vars }));
+    if let Some(key) = api_key {
+        req = req.header("X-Api-Key", key);
     }
-}
-
-/// Minimal percent-encoding for query values -- these are always simple
-/// identifiers (service/namespace/stage names) in practice, but escaping
-/// keeps the CLI from breaking if one contains `&`, `=`, or a space.
-fn urlencode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            },
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
-async fn self_issue_key(client: &reqwest::Client, base_url: &str) -> Result<String> {
-    let resp = client
-        .post(format!("{base_url}/api/keys/self-issue"))
+    let resp = req
         .send()
         .await
-        .with_context(|| format!("connecting to {base_url}"))?;
-    let body: Value = check_status(resp).await?;
-    body.get("api_key")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .context("self-issue response had no api_key field")
-}
-
-async fn get<T: DeserializeOwned>(
-    client: &reqwest::Client,
-    base_url: &str,
-    api_key: &str,
-    path: &str,
-) -> Result<T> {
-    let resp = client
-        .get(format!("{base_url}{path}"))
-        .header("X-Api-Key", api_key)
-        .send()
-        .await
-        .with_context(|| format!("GET {base_url}{path}"))?;
-    decode(resp).await
-}
-
-async fn post<Req: serde::Serialize, T: DeserializeOwned>(
-    client: &reqwest::Client,
-    base_url: &str,
-    api_key: &str,
-    path: &str,
-    payload: &Req,
-) -> Result<T> {
-    let resp = client
-        .post(format!("{base_url}{path}"))
-        .header("X-Api-Key", api_key)
-        .json(payload)
-        .send()
-        .await
-        .with_context(|| format!("POST {base_url}{path}"))?;
-    decode(resp).await
-}
-
-async fn put<Req: serde::Serialize, T: DeserializeOwned>(
-    client: &reqwest::Client,
-    base_url: &str,
-    api_key: &str,
-    path: &str,
-    payload: &Req,
-) -> Result<T> {
-    let resp = client
-        .put(format!("{base_url}{path}"))
-        .header("X-Api-Key", api_key)
-        .json(payload)
-        .send()
-        .await
-        .with_context(|| format!("PUT {base_url}{path}"))?;
-    decode(resp).await
-}
-
-async fn delete<T: DeserializeOwned>(
-    client: &reqwest::Client,
-    base_url: &str,
-    api_key: &str,
-    path: &str,
-) -> Result<T> {
-    let resp = client
-        .delete(format!("{base_url}{path}"))
-        .header("X-Api-Key", api_key)
-        .send()
-        .await
-        .with_context(|| format!("DELETE {base_url}{path}"))?;
-    decode(resp).await
-}
-
-/// Check a response's status and return its JSON body. Non-2xx errors
-/// include the server's `X-Request-Id` (see
-/// `open_runo_router::middleware_hyper::with_tracing`) so a user can hand
-/// a specific ID to whoever reads the server logs, and `429` responses
-/// get a friendly retry-after message instead of a raw JSON dump. Shared
-/// by [`decode`] and [`self_issue_key`], which both need this same
-/// error-shaping but decode the body differently on success.
-async fn check_status(resp: reqwest::Response) -> Result<Value> {
+        .with_context(|| format!("POST {base_url}/graphql"))?;
     let status = resp.status();
     let request_id = resp
         .headers()
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
+    let suffix = request_id
+        .map(|id| format!(" (request-id: {id})"))
+        .unwrap_or_default();
     let body: Value = resp.json().await.context("decoding response as JSON")?;
-
     if !status.is_success() {
-        let suffix = request_id
-            .map(|id| format!(" (request-id: {id})"))
-            .unwrap_or_default();
         if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            if let Ok(rate_limited) = serde_json::from_value::<RateLimitedResponse>(body.clone()) {
-                bail!(
-                    "rate limited, retry in {}s{suffix}",
-                    rate_limited.retry_after_secs
-                );
+            if let Ok(rl) = serde_json::from_value::<RateLimitedResponse>(body.clone()) {
+                bail!("rate limited, retry in {}s{suffix}", rl.retry_after_secs);
             }
         }
         bail!("request failed ({status}){suffix}: {body}");
     }
-
-    Ok(body)
+    if let Some(err) = body["errors"].get(0) {
+        let msg = err["message"].as_str().unwrap_or("GraphQL error");
+        let code = err["extensions"]["status"]
+            .as_i64()
+            .map(|c| format!("HTTP {c}: "))
+            .unwrap_or_default();
+        bail!("request failed: {code}{msg}{suffix}");
+    }
+    Ok(body["data"].clone())
 }
 
-/// Decode a response as JSON via [`check_status`], then deserialize the
-/// body into `T` -- a confusing deserialize failure on an error body
-/// (which won't match `T`) is caught by `check_status` first.
-async fn decode<T: DeserializeOwned>(resp: reqwest::Response) -> Result<T> {
-    let body = check_status(resp).await?;
-    serde_json::from_value(body).context("response JSON did not match the expected shape")
+async fn self_issue_key(client: &reqwest::Client, base_url: &str) -> Result<String> {
+    let data = gql(
+        client,
+        base_url,
+        None,
+        "mutation { selfIssueKey }",
+        json!({}),
+    )
+    .await?;
+    data["selfIssueKey"]["api_key"]
+        .as_str()
+        .map(str::to_string)
+        .context("self-issue response had no api_key field")
 }
 
 fn print_human(command: &Command, body: &Value) {
@@ -431,8 +412,8 @@ fn print_human(command: &Command, body: &Value) {
                 body.get("api_key").and_then(Value::as_str).unwrap_or("")
             );
         },
-        Command::Openapi => {
-            println!("{}", serde_json::to_string_pretty(body).unwrap_or_default());
+        Command::Sdl => {
+            println!("{}", body.as_str().unwrap_or_default());
         },
         Command::Federation { .. } => {
             let services = body
@@ -524,34 +505,6 @@ fn print_schema_version(v: &Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn with_query_omits_none_params() {
-        assert_eq!(
-            with_query("/api/schemas/users/history", &[("namespace", None)]),
-            "/api/schemas/users/history"
-        );
-    }
-
-    #[test]
-    fn with_query_joins_present_params() {
-        assert_eq!(
-            with_query(
-                "/api/schemas/users",
-                &[("stage", Some("local")), ("namespace", Some("default"))]
-            ),
-            "/api/schemas/users?stage=local&namespace=default"
-        );
-    }
-
-    #[test]
-    fn urlencode_escapes_reserved_characters() {
-        assert_eq!(urlencode("a b&c=d"), "a%20b%26c%3Dd");
-        assert_eq!(
-            urlencode("plain-service_name.v1~"),
-            "plain-service_name.v1~"
-        );
-    }
 
     #[test]
     fn cli_parses_schema_register_args() {

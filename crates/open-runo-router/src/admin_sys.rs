@@ -568,3 +568,105 @@ pub fn ai_route(
         estimated_latency_ms: chosen.estimated_latency_ms,
     })
 }
+
+// ── SCIMユーザー(管理画面用。IdP向けの/scim/v2/*標準プロトコルもこの関数を共有) ──
+
+fn scim_user_store(state: &AppState) -> open_runo_scim::ScimUserStore {
+    open_runo_scim::ScimUserStore::new(Arc::clone(&state.db))
+}
+
+/// `GET /scim/v2/Users`。`filter`はSCIMの`userName eq "..."`形式。
+pub async fn scim_list_users(
+    state: &AppState,
+    filter: Option<&str>,
+) -> AdminResult<open_runo_scim::ListResponse> {
+    let filter = filter.and_then(open_runo_scim::ScimUserStore::parse_user_name_filter);
+    let users = scim_user_store(state)
+        .list(filter.as_deref())
+        .await
+        .map_err(internal)?;
+    Ok(open_runo_scim::ListResponse {
+        schemas: vec!["urn:ietf:params:scim:api:messages:2.0:ListResponse".into()],
+        total_results: users.len(),
+        resources: users,
+    })
+}
+
+/// `POST /scim/v2/Users`。作成後にKeyGuardianが鍵を自動発行し、平文鍵を
+/// `urn:open-runo:params:scim:api-key`に載せて返す(これが唯一の取得機会)。
+pub async fn scim_create_user(
+    state: &AppState,
+    guardian: &KeyGuardian,
+    actor: &str,
+    input: open_runo_scim::UserInput,
+) -> AdminResult<serde_json::Value> {
+    let user = scim_user_store(state)
+        .create(input)
+        .await
+        .map_err(|e| AdminError::new(StatusCode::CONFLICT, e.to_string()))?;
+    crate::audit::record(state, actor, "scim.user.create", user.user_name.clone()).await;
+    let mut body = serde_json::to_value(&user).map_err(internal)?;
+    match guardian
+        .issue(&user.user_name, user.roles.clone(), None)
+        .await
+    {
+        Ok(plaintext) => {
+            body["urn:open-runo:params:scim:api-key"] = serde_json::Value::String(plaintext);
+            crate::audit::record(
+                state,
+                "key-guardian",
+                "key.auto_issue",
+                user.user_name.clone(),
+            )
+            .await;
+        },
+        Err(e) => {
+            tracing::warn!(error = %e, owner = %user.user_name, "auto key issue failed");
+        },
+    }
+    Ok(body)
+}
+
+/// `DELETE /scim/v2/Users/:id`。削除したユーザーの鍵は自動失効させる。
+pub async fn scim_delete_user(
+    state: &AppState,
+    guardian: &KeyGuardian,
+    actor: &str,
+    id: &str,
+) -> AdminResult<()> {
+    let owner = scim_user_store(state)
+        .get(id)
+        .await
+        .map_err(internal)?
+        .map(|u| u.user_name);
+    scim_user_store(state).delete(id).await.map_err(internal)?;
+    crate::audit::record(state, actor, "scim.user.delete", id.to_string()).await;
+    if let Some(owner) = owner {
+        if let Ok(n) = guardian.revoke_owner(&owner).await {
+            if n > 0 {
+                crate::audit::record(
+                    state,
+                    "key-guardian",
+                    "key.auto_revoke",
+                    format!("{owner} ({n} keys, deleted)"),
+                )
+                .await;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 管理画面・GraphQL向けの簡易版(`userName`と`roles`だけで作成)。
+pub async fn scim_create_user_named(
+    state: &AppState,
+    guardian: &KeyGuardian,
+    actor: &str,
+    user_name: &str,
+    roles: Vec<String>,
+) -> AdminResult<serde_json::Value> {
+    let input: open_runo_scim::UserInput =
+        serde_json::from_value(serde_json::json!({ "userName": user_name, "roles": roles }))
+            .map_err(|e| AdminError::new(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+    scim_create_user(state, guardian, actor, input).await
+}

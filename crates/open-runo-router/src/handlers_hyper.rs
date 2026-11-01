@@ -1179,23 +1179,11 @@ pub fn scim_list_users_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>)
                 return empty_status(status);
             }
             let query = query_params(&req);
-            let filter = query
-                .get("filter")
-                .and_then(|f| open_runo_scim::ScimUserStore::parse_user_name_filter(f));
-
-            match scim_user_store(&state).list(filter.as_deref()).await {
-                Ok(users) => json_response(
-                    StatusCode::OK,
-                    &open_runo_scim::ListResponse {
-                        schemas: vec!["urn:ietf:params:scim:api:messages:2.0:ListResponse".into()],
-                        total_results: users.len(),
-                        resources: users,
-                    },
-                ),
-                Err(e) => json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    &serde_json::json!({ "error": e.to_string() }),
-                ),
+            match crate::admin_sys::scim_list_users(&state, query.get("filter").map(String::as_str))
+                .await
+            {
+                Ok(r) => json_response(StatusCode::OK, &r),
+                Err(e) => admin_err(e),
             }
         })
     })
@@ -1225,48 +1213,10 @@ pub fn scim_create_user_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
                 Err(resp) => return resp,
             };
 
-            let user = match scim_user_store(&state).create(input).await {
-                Ok(u) => u,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::CONFLICT,
-                        &serde_json::json!({ "error": e.to_string() }),
-                    )
-                },
-            };
-
-            crate::audit::record(&state, &actor, "scim.user.create", user.user_name.clone()).await;
-
-            let mut body = match serde_json::to_value(&user) {
-                Ok(v) => v,
-                Err(e) => {
-                    return json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &serde_json::json!({ "error": e.to_string() }),
-                    )
-                },
-            };
-            match guardian
-                .issue(&user.user_name, user.roles.clone(), None)
-                .await
-            {
-                Ok(plaintext) => {
-                    body["urn:open-runo:params:scim:api-key"] =
-                        serde_json::Value::String(plaintext);
-                    crate::audit::record(
-                        &state,
-                        "key-guardian",
-                        "key.auto_issue",
-                        user.user_name.clone(),
-                    )
-                    .await;
-                },
-                Err(e) => {
-                    tracing::warn!(error = %e, owner = %user.user_name, "auto key issue failed");
-                },
+            match crate::admin_sys::scim_create_user(&state, &guardian, &actor, input).await {
+                Ok(body) => json_response(StatusCode::CREATED, &body),
+                Err(e) => admin_err(e),
             }
-
-            json_response(StatusCode::CREATED, &body)
         })
     })
 }
@@ -1379,40 +1329,10 @@ pub fn scim_delete_user_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>
                 };
             let id = params.get("id").unwrap_or("").to_string();
 
-            let owner = match scim_user_store(&state).get(&id).await {
-                Ok(u) => u.map(|u| u.user_name),
-                Err(e) => {
-                    return json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        &serde_json::json!({ "error": e.to_string() }),
-                    )
-                },
-            };
-
-            if let Err(e) = scim_user_store(&state).delete(&id).await {
-                return json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    &serde_json::json!({ "error": e.to_string() }),
-                );
+            match crate::admin_sys::scim_delete_user(&state, &guardian, &actor, &id).await {
+                Ok(()) => empty_status(StatusCode::NO_CONTENT),
+                Err(e) => admin_err(e),
             }
-
-            crate::audit::record(&state, &actor, "scim.user.delete", id).await;
-
-            if let Some(owner) = owner {
-                if let Ok(n) = guardian.revoke_owner(&owner).await {
-                    if n > 0 {
-                        crate::audit::record(
-                            &state,
-                            "key-guardian",
-                            "key.auto_revoke",
-                            format!("{owner} ({n} keys, deleted)"),
-                        )
-                        .await;
-                    }
-                }
-            }
-
-            empty_status(StatusCode::NO_CONTENT)
         })
     })
 }

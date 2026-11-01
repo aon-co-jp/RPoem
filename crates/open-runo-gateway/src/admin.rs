@@ -60,6 +60,11 @@ fn js<T: serde::Serialize>(v: &T) -> Json<serde_json::Value> {
     Json(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
 }
 
+/// 認証済みであることだけを確認する(Subscriptionなど`admin`の外から使う)。
+pub fn require_actor(ctx: &Context<'_>) -> async_graphql::Result<()> {
+    actor_label(ctx).map(|_| ())
+}
+
 fn state<'a>(ctx: &'a Context<'_>) -> &'a Arc<AppState> {
     ctx.data_unchecked::<Arc<AppState>>()
 }
@@ -361,6 +366,18 @@ impl AdminQueryFields {
             })
             .collect();
         admin_sys::ai_route(&policy, min_context_length, &candidates)
+            .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `GET /scim/v2/Users`
+    async fn scim_users(
+        &self,
+        ctx: &Context<'_>,
+        filter: Option<String>,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        admin_sys::scim_list_users(state(ctx), filter.as_deref())
+            .await
             .map(|r| js(&r))
             .map_err(to_gql_error)
     }
@@ -673,6 +690,35 @@ impl AdminMutationFields {
         admin_sys::integrity_check(state(ctx), &self.actor)
             .await
             .map(|r| js(&r))
+            .map_err(to_gql_error)
+    }
+
+    /// `POST /scim/v2/Users`(作成と同時に鍵を自動発行し、平文鍵を一度だけ返す)
+    async fn scim_create_user(
+        &self,
+        ctx: &Context<'_>,
+        user_name: String,
+        roles: Option<Vec<String>>,
+    ) -> async_graphql::Result<Json<serde_json::Value>> {
+        let guardian = ctx.data_unchecked::<Arc<KeyGuardian>>();
+        admin_sys::scim_create_user_named(
+            state(ctx),
+            guardian,
+            &self.actor,
+            &user_name,
+            roles.unwrap_or_default(),
+        )
+        .await
+        .map(Json)
+        .map_err(to_gql_error)
+    }
+
+    /// `DELETE /scim/v2/Users/:id`
+    async fn scim_delete_user(&self, ctx: &Context<'_>, id: String) -> async_graphql::Result<bool> {
+        let guardian = ctx.data_unchecked::<Arc<KeyGuardian>>();
+        admin_sys::scim_delete_user(state(ctx), guardian, &self.actor, &id)
+            .await
+            .map(|()| true)
             .map_err(to_gql_error)
     }
 

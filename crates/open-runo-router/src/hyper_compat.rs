@@ -83,6 +83,15 @@ pub fn html_response(status: StatusCode, html: impl Into<String>) -> Response {
         .expect("building a response from a fixed set of valid headers cannot fail")
 }
 
+/// 任意の`content-type`のテキスト応答(GraphQL SDLの配信などに使う)。
+pub fn text_response(status: StatusCode, content_type: &str, body: impl Into<String>) -> Response {
+    HyperResponse::builder()
+        .status(status)
+        .header("content-type", content_type)
+        .body(fixed_body(Bytes::from(body.into())))
+        .expect("building a response from a fixed set of valid headers cannot fail")
+}
+
 /// One Server-Sent Event: an optional `event:` type and its `data:` payload.
 #[derive(Debug, Clone)]
 pub struct SseEvent {
@@ -464,6 +473,18 @@ where
     // only resolves after this handler's response has actually been
     // flushed back to the client, so it's spawned as its own task
     // rather than awaited inline here.
+    // ブラウザはサブプロトコルを提示した場合、サーバーが同じ値を返さないと接続を
+    // 拒否する。GraphQL over WebSocket の2種類だけを返す(それ以外は何も返さない)。
+    let subprotocol = req
+        .headers()
+        .get("sec-websocket-protocol")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            v.split(',')
+                .map(str::trim)
+                .find(|p| *p == "graphql-transport-ws" || *p == "graphql-ws")
+                .map(str::to_string)
+        });
     let upgrade_fut = hyper::upgrade::on(&mut req);
     tokio::spawn(async move {
         match upgrade_fut.await {
@@ -479,11 +500,15 @@ where
         }
     });
 
-    HyperResponse::builder()
+    let mut builder = HyperResponse::builder()
         .status(StatusCode::SWITCHING_PROTOCOLS)
         .header("upgrade", "websocket")
         .header("connection", "Upgrade")
-        .header("sec-websocket-accept", accept)
+        .header("sec-websocket-accept", accept);
+    if let Some(proto) = subprotocol {
+        builder = builder.header("sec-websocket-protocol", proto);
+    }
+    builder
         .body(fixed_body(Bytes::new()))
         .expect("building a response from a fixed set of valid headers cannot fail")
 }

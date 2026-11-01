@@ -34,8 +34,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let state = Arc::new(AppState::new());
+    let request_metrics = Arc::clone(&state.request_metrics);
     let (graphiql, graphql_post) =
         open_runo_gateway::graphql_hyper::graphql_handlers(Arc::clone(&state));
+    let (graphql_sdl, graphql_ws) =
+        open_runo_gateway::graphql_hyper::graphql_extra_handlers(Arc::clone(&state));
     let (demo_playground, demo_graphql) = open_runo_gateway::demo::demo_handlers();
 
     // アプリケーションサーバー層(「第二のTomcat」)の多重テナント管理。
@@ -63,10 +66,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await
     .route(hyper::Method::GET, "/graphql", graphiql)
+    .route(hyper::Method::GET, "/graphql/schema.graphql", graphql_sdl)
+    .route(hyper::Method::GET, "/graphql/ws", graphql_ws)
     .route(
         hyper::Method::POST,
         "/graphql",
-        open_runo_router::middleware_hyper::with_cors(graphql_post),
+        open_runo_router::middleware_hyper::with_metrics(
+            open_runo_router::middleware_hyper::with_cors(graphql_post),
+            request_metrics,
+        ),
     )
     // Fixed, self-contained GraphQL Federation demo (§ see
     // `open_runo_gateway::demo` module doc): composes two sample
