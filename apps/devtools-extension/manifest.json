@@ -1,0 +1,7 @@
+{
+  "manifest_version": 3,
+  "name": "open-runo RPC Inspector",
+  "version": "0.1.0",
+  "description": "開発者ツールに「open-runo RPC」パネルを追加し、管理画面のRPC呼び出し(Connect / gRPC-web)の記録を表示します。",
+  "devtools_page": "devtools.html"
+}

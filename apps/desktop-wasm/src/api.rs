@@ -168,7 +168,30 @@ fn record(entry: LogEntry) {
             let drop = l.len() - LOG_CAPACITY;
             l.drain(..drop);
         }
+        publish_to_devtools(&l);
     });
+}
+
+/// ブラウザ拡張の開発者ツールパネル(`apps/devtools-extension`)が読めるよう、記録をJSON文字列で
+/// `window.__openRunoRpcLog`に置く。
+fn publish_to_devtools(entries: &[LogEntry]) {
+    let rows: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "at": e.at_ms, "method": e.method, "wire": e.wire, "http": e.http_status,
+                "grpc": e.grpc_code, "grpcName": code::name(e.grpc_code), "ms": e.ms,
+                "request": e.request, "response": e.response,
+            })
+        })
+        .collect();
+    if let (Some(w), Ok(text)) = (web_sys::window(), serde_json::to_string(&rows)) {
+        let _ = js_sys::Reflect::set(
+            &w,
+            &wasm_bindgen::JsValue::from_str("__openRunoRpcLog"),
+            &wasm_bindgen::JsValue::from_str(&text),
+        );
+    }
 }
 
 /// `fetch`の結果。

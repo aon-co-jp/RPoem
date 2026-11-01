@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body { font: 12px system-ui, sans-serif; margin: 0; color-scheme: light dark; }
+  header { padding: 6px 8px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #8884; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #8882; white-space: nowrap; }
+  tr.row:hover { background: #8882; cursor: pointer; }
+  .err { color: #d33; }
+  pre { margin: 0; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; background: #8881; }
+</style>
+<header>
+  <button id="clear">クリア</button>
+  <span id="info">管理画面を開くと、RPC呼び出しがここに並びます。</span>
+</header>
+<table><thead><tr><th>時刻</th><th>メソッド</th><th>方式</th><th>HTTP</th><th>gRPC</th><th>ms</th></tr></thead><tbody id="rows"></tbody></table>
+<script src="panel.js"></script>
