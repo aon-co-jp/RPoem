@@ -379,7 +379,7 @@ impl TokenBucketLimiter {
 /// Claims embedded in an open-runo-issued JWT.
 ///
 /// `sub` identifies the caller (service name or user id); `exp` is a Unix
-/// timestamp (seconds) enforced by `jsonwebtoken`'s default validation.
+/// timestamp (seconds) enforced by `open-runo-jwt`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,
@@ -424,29 +424,16 @@ impl JwtCodec {
             exp: (Utc::now() + ttl).timestamp(),
             roles,
         };
-        jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
-            &claims,
-            &jsonwebtoken::EncodingKey::from_secret(&self.secret),
-        )
-        .map_err(|e| AppError::Validation(format!("jwt encode failed: {e}")))
+        open_runo_jwt::encode_hs256(&claims, &self.secret)
+            .map_err(|e| AppError::Validation(format!("jwt encode failed: {e}")))
     }
 
     /// Verify a bearer token's signature and expiry, returning its claims.
     ///
-    /// `leeway` is set to 0 so an expired token is rejected immediately
-    /// (jsonwebtoken defaults to 60 s of clock-skew tolerance, which made
-    /// short-lived tokens outlive their `exp`).
+    /// `leeway` is 0 so an expired token is rejected immediately.
     pub fn decode(&self, token: &str) -> Result<Claims> {
-        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
-        validation.leeway = 0;
-        jsonwebtoken::decode::<Claims>(
-            token,
-            &jsonwebtoken::DecodingKey::from_secret(&self.secret),
-            &validation,
-        )
-        .map(|data| data.claims)
-        .map_err(|e| AppError::Validation(format!("invalid or expired token: {e}")))
+        open_runo_jwt::decode_hs256::<Claims>(token, &self.secret, &open_runo_jwt::Validation::default())
+            .map_err(|e| AppError::Validation(format!("invalid or expired token: {e}")))
     }
 }
 

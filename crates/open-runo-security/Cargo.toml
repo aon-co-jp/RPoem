@@ -16,7 +16,7 @@ sonic-rs = "0.5"
 open-runo-core = { workspace = true }
 serde = { workspace = true }
 chrono = { workspace = true }
-jsonwebtoken = { workspace = true }
+open-runo-jwt = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
 # Distributed rate limiting (docs/deployment-scaling.md's known gap: rate

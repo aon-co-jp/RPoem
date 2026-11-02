@@ -126,7 +126,6 @@ clickhouse = ["open-runo-observability/clickhouse"]
 
 [dev-dependencies]
 open-runo-proto = { workspace = true, features = ["client"] }
-jsonwebtoken = { workspace = true }
 poem = { workspace = true, features = ["test"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "multipart"] }
 # Test-only WebSocket client, purely to independently verify the from-scratch

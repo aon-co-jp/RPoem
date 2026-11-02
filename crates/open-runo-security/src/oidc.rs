@@ -36,7 +36,7 @@ pub struct OidcValidator {
     issuer: String,
     audience: Option<String>,
     /// kid → decoding key. Keys without a kid are stored under `""`.
-    keys: HashMap<String, jsonwebtoken::DecodingKey>,
+    keys: HashMap<String, open_runo_jwt::RsaPublicKey>,
 }
 
 impl std::fmt::Debug for OidcValidator {
@@ -67,7 +67,7 @@ impl OidcValidator {
             let (Some(n), Some(e)) = (&jwk.n, &jwk.e) else {
                 continue;
             };
-            let key = jsonwebtoken::DecodingKey::from_rsa_components(n, e)
+            let key = open_runo_jwt::RsaPublicKey::from_components(n, e)
                 .map_err(|err| AppError::Validation(format!("invalid RSA JWK: {err}")))?;
             keys.insert(jwk.kid.unwrap_or_default(), key);
         }
@@ -109,7 +109,7 @@ impl OidcValidator {
 
     /// Verify an RS256 bearer token, returning its claims.
     pub fn decode(&self, token: &str) -> Result<Claims> {
-        let header = jsonwebtoken::decode_header(token)
+        let header = open_runo_jwt::decode_header(token)
             .map_err(|e| AppError::Validation(format!("invalid token header: {e}")))?;
 
         let key = match header.kid.as_deref() {
@@ -122,16 +122,13 @@ impl OidcValidator {
             AppError::Validation(format!("no JWKS key matches token kid {:?}", header.kid))
         })?;
 
-        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
-        validation.leeway = 0;
-        validation.set_issuer(&[&self.issuer]);
-        match &self.audience {
-            Some(aud) => validation.set_audience(&[aud]),
-            None => validation.validate_aud = false,
-        }
+        let validation = open_runo_jwt::Validation {
+            leeway: 0,
+            issuer: Some(self.issuer.clone()),
+            audience: self.audience.clone(),
+        };
 
-        jsonwebtoken::decode::<Claims>(token, key, &validation)
-            .map(|data| data.claims)
+        open_runo_jwt::decode_rs256::<Claims>(token, key, &validation)
             .map_err(|e| AppError::Validation(format!("OIDC token rejected: {e}")))
     }
 }
@@ -148,14 +145,8 @@ mod tests {
     const ISSUER: &str = "https://idp.example.com/realms/open-runo";
 
     fn sign(claims: &serde_json::Value, kid: Option<&str>) -> String {
-        let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
-        header.kid = kid.map(str::to_string);
-        jsonwebtoken::encode(
-            &header,
-            claims,
-            &jsonwebtoken::EncodingKey::from_rsa_pem(PRIVATE_PEM.as_bytes()).unwrap(),
-        )
-        .unwrap()
+        let der = open_runo_jwt::pem_to_der(PRIVATE_PEM).unwrap();
+        open_runo_jwt::encode_rs256(claims, kid, &der).unwrap()
     }
 
     fn validator() -> OidcValidator {
