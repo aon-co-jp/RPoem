@@ -31,6 +31,6 @@ webpki-roots = { version = "1", optional = true }
 client = ["dep:bytes", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:tokio", "dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile", "dep:webpki-roots"]
 
 [build-dependencies]
-protox = "0.9"
+protox = "0.10"
 prost-build = "0.14"
 prost = "0.14"

@@ -4648,3 +4648,11 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 
 
 多言語要約(10言語)は `docs/i18n/<言語コード>/CLAUDE.md`。
+
+## 依存の更新(2026-11-03)
+`Cargo.lock`を更新し、主要版を上げた: base64 0.23(jwt・connect-core)、protox 0.10、tao 0.37・tray-icon 0.26(`apps/desktop-tray`、Windowsでビルド確認)、
+wgpu 30(`experiments/wgpu-browser-spike`。`request_adapter`が`Result`、`request_device`が引数1つ、`PipelineLayoutDescriptor.immediate_size`、
+`bind_group_layouts`が`Option`、`entry_point: Some(..)`+`cache`、`PollType::wait_indefinitely()`、`get_mapped_range()`が`Result`。native/wasm32とも`cargo check`通過)。
+**テスト**: ワークスペース全体を`--no-fail-fast`で実行。appserver/gatewayの起動系テストは先に`cargo build -p open-runo-appserver --bin open-runo-dummy-http-server`が要る。
+`stop_graceful_falls_back_to_force_kill_after_timeout_for_stubborn_process`だけWSLで失敗(タイミング依存、更新とは無関係の見込み)。
+**未解決**: `rsa`(RUSTSEC-2023-0071、修正版なし)。

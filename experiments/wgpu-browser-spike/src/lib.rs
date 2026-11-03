@@ -17,9 +17,9 @@ pub async fn run_add_one_spike(input: f32) -> Result<f32, JsValue> {
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await
-        .ok_or_else(|| JsValue::from_str("no WebGPU adapter available in this browser"))?;
+        .map_err(|e| JsValue::from_str(&format!("no WebGPU adapter available in this browser: {e}")))?;
     let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor::default(), None)
+        .request_device(&wgpu::DeviceDescriptor::default())
         .await
         .map_err(|e| JsValue::from_str(&format!("request_device failed: {e}")))?;
 
@@ -71,15 +71,16 @@ pub async fn run_add_one_spike(input: f32) -> Result<f32, JsValue> {
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[&bind_group_layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&bind_group_layout)],
+        immediate_size: 0,
     });
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: None,
         layout: Some(&pipeline_layout),
         module: &shader,
-        entry_point: "main",
+        entry_point: Some("main"),
         compilation_options: Default::default(),
+        cache: None,
     });
 
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
@@ -104,11 +105,13 @@ pub async fn run_add_one_spike(input: f32) -> Result<f32, JsValue> {
     slice.map_async(wgpu::MapMode::Read, move |res| {
         let _ = tx.send(res);
     });
-    device.poll(wgpu::Maintain::Wait);
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
     rx.await
         .map_err(|_| JsValue::from_str("map_async channel dropped"))?
         .map_err(|e| JsValue::from_str(&format!("map_async failed: {e:?}")))?;
-    let data = slice.get_mapped_range();
+    let data = slice
+        .get_mapped_range()
+        .map_err(|e| JsValue::from_str(&format!("get_mapped_range failed: {e:?}")))?;
     let result = f32::from_le_bytes(data[0..4].try_into().unwrap());
     Ok(result)
 }
