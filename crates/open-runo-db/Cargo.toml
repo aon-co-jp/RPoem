@@ -28,7 +28,7 @@ sqlx = { workspace = true, optional = true }
 
 # ── NoSQL ────────────────────────────────────────────────────────────────────
 mongodb   = { version = "3",  optional = true }
-surrealdb = { version = "3",  optional = true }
+surrealdb = { version = "4",  optional = true }
 
 # ── キャッシュ / KV ───────────────────────────────────────────────────────────
 redis          = { version = "1.8", features = ["tokio-comp", "connection-manager"], optional = true }

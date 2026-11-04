@@ -13,7 +13,7 @@ workspace = true
 
 [dependencies]
 sonic-rs = "0.5"
-lopdf = "0.46"
+lopdf = "0.47"
 hayro = { version = "0.9", features = ["embed-fonts"] }
 ureq = "3"
 base64 = "0.23"
