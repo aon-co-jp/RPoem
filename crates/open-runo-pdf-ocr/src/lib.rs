@@ -1,6 +1,6 @@
 //! PDF 綴じ方向アプリ(`pdf-r2l-*`)の「OCR・テキストフォント文字化」機能の共有ライブラリ。
 //!
-//! 流れ(`process`): ページを画像にする(純 Rust の `hayro`)→ `aruaru-llm` の `POST /v1/ocr` で
+//! 流れ(`process`): ページを画像にする(純 Rust の `hayro`)→ `aruaru-llm` の `Ocr`(`POST /aruaru_llm.v1.Llm/Ocr`) で
 //! 複数ページをまとめて OCR → 行ごとに書体の系統(ゴシック/明朝)・太字・文字色・背景色を推定 →
 //! 元の書体に合わせた Noto フォントの文字に置き換え、検索できる文字データとして PDF に書き込む。
 //!

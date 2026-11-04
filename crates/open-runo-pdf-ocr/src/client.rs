@@ -1,4 +1,4 @@
-//! `aruaru-llm` の OCR API(`/v1/ocr`・`/v1/ocr/languages`・`/v1/ocr/prepare`・`/v1/ocr/fonts/:name`)の
+//! `aruaru-llm` の OCR API(Connect: `POST /aruaru_llm.v1.Llm/Ocr` ほか。フォントだけ `/v1/ocr/fonts/:name` の静的配信)の
 //! HTTP クライアント。ネットワークに届かないときは、オンライン環境が必要である旨を日英で返す。
 
 use crate::model::{OcrLine, Quality};
@@ -29,7 +29,7 @@ pub struct LanguageEntry {
     pub cached_fast: bool,
 }
 
-/// 字形の照合の結果 1 升ぶん(サーバーの `POST /v1/ocr/glyph-rank`)。
+/// 字形の照合の結果 1 升ぶん(サーバーの `OcrGlyphRank`)。
 #[derive(Debug, Clone, Deserialize)]
 pub struct GlyphRank {
     /// 類似度の高い上位の文字(文字, 類似度)。
@@ -139,7 +139,7 @@ impl OcrClient {
 
     /// 選べる言語の一覧(日英名・取得済みか・説明)。
     pub fn languages(&self) -> Result<LanguageList, String> {
-        let bytes = self.get_bytes("/v1/ocr/languages", Duration::from_secs(30))?;
+        let bytes = self.post_json("/aruaru_llm.v1.Llm/OcrLanguages", "{}", Duration::from_secs(30))?.into_bytes();
         sonic_rs::from_slice(&bytes).map_err(|e| format!("invalid response: {e}"))
     }
 
@@ -147,7 +147,7 @@ impl OcrClient {
     pub fn prepare(&self, languages: &[String], quality: Quality) -> Result<(), String> {
         let body =
             serde_json::json!({ "languages": languages, "quality": quality.as_str() }).to_string();
-        self.post_json("/v1/ocr/prepare", &body, Duration::from_secs(1800))
+        self.post_json("/aruaru_llm.v1.Llm/OcrPrepare", &body, Duration::from_secs(1800))
             .map(|_| ())
     }
 
@@ -162,7 +162,7 @@ impl OcrClient {
         let engine = base64::engine::general_purpose::STANDARD;
         let images: Vec<String> = pngs.iter().map(|p| engine.encode(p)).collect();
         let body = serde_json::json!({ "images_base64": images, "languages": languages, "quality": quality.as_str() }).to_string();
-        let text = self.post_json("/v1/ocr", &body, Duration::from_secs(1800))?;
+        let text = self.post_json("/aruaru_llm.v1.Llm/Ocr", &body, Duration::from_secs(1800))?;
         let resp: OcrResp =
             sonic_rs::from_str(&text).map_err(|e| format!("invalid OCR response: {e}"))?;
         if resp.pages.len() != pngs.len() {
@@ -175,7 +175,7 @@ impl OcrClient {
         Ok(resp.pages.into_iter().map(|p| p.lines).collect())
     }
 
-    /// AI 文脈補完(`POST /v1/ocr/fill`)。疑わしい箇所ごとの結果を返す。`return_all` なら採点した全候補も返す(字形の照合と合わせて選び直す用)。
+    /// AI 文脈補完(`Ocr Fill`)。疑わしい箇所ごとの結果を返す。`return_all` なら採点した全候補も返す(字形の照合と合わせて選び直す用)。
     /// サーバーに言語モデルが無いときは `Err`。
     pub fn fill(
         &self,
@@ -189,13 +189,13 @@ impl OcrClient {
             results: Vec<crate::complete::FillResult>,
         }
         let body = serde_json::json!({ "items": items, "return_all": return_all, "use_web": use_web, "lm_candidates": lm_free }).to_string();
-        let text = self.post_json("/v1/ocr/fill", &body, Duration::from_secs(1800))?;
+        let text = self.post_json("/aruaru_llm.v1.Llm/OcrFill", &body, Duration::from_secs(1800))?;
         let r: Resp =
             sonic_rs::from_str(&text).map_err(|e| format!("invalid fill response: {e}"))?;
         Ok(r.results)
     }
 
-    /// 疑わしい箇所ごとに、入り得る 1 文字の候補を広く挙げさせる(`POST /v1/ocr/propose`。字形で絞り込む前提)。
+    /// 疑わしい箇所ごとに、入り得る 1 文字の候補を広く挙げさせる(`OcrPropose`。字形で絞り込む前提)。
     pub fn propose(
         &self,
         items: &[crate::complete::FillItem],
@@ -206,13 +206,13 @@ impl OcrClient {
             results: Vec<crate::complete::ProposeResult>,
         }
         let body = serde_json::json!({ "items": items, "k": k }).to_string();
-        let text = self.post_json("/v1/ocr/propose", &body, Duration::from_secs(900))?;
+        let text = self.post_json("/aruaru_llm.v1.Llm/OcrPropose", &body, Duration::from_secs(900))?;
         let r: Resp =
             sonic_rs::from_str(&text).map_err(|e| format!("invalid propose response: {e}"))?;
         Ok(r.results)
     }
 
-    /// 字形の照合をサーバーに任せる(`POST /v1/ocr/glyph-rank`、`open-cuda` の `sgemm`)。升目(`N`×`N` の濃淡)ごとに、
+    /// 字形の照合をサーバーに任せる(`OcrGlyphRank`、`open-cuda` の `sgemm`)。升目(`N`×`N` の濃淡)ごとに、
     /// 類似度の高い上位の文字と、`query[i]` の各文字の類似度を返す。サーバーが対応していない・失敗のときは `Err`(アプリ内の計算に切り替える)。
     pub fn glyph_rank(
         &self,
@@ -230,25 +230,25 @@ impl OcrClient {
             .map(|m| serde_json::json!({ "map": m }))
             .collect();
         let body = serde_json::json!({ "cells": cells_json, "query": query, "extra_chars": extra_chars, "top": top }).to_string();
-        let text = self.post_json("/v1/ocr/glyph-rank", &body, Duration::from_secs(300))?;
+        let text = self.post_json("/aruaru_llm.v1.Llm/OcrGlyphRank", &body, Duration::from_secs(300))?;
         let r: Resp =
             sonic_rs::from_str(&text).map_err(|e| format!("invalid glyph-rank response: {e}"))?;
         Ok(r.results)
     }
 
-    /// 頻出順の漢字・かな(`GET /v1/ocr/charset`)。字形で候補を探すときの母集団。モデルが無いときは `Err`。
+    /// 頻出順の漢字・かな(`OcrCharset`)。字形で候補を探すときの母集団。モデルが無いときは `Err`。
     pub fn charset(&self, n: usize) -> Result<Vec<char>, String> {
         #[derive(Deserialize)]
         struct Resp {
             chars: String,
         }
-        let bytes = self.get_bytes(&format!("/v1/ocr/charset?n={n}"), Duration::from_secs(300))?;
+        let bytes = self.post_json("/aruaru_llm.v1.Llm/OcrCharset", &format!("{{\"n\":{n}}}"), Duration::from_secs(300))?.into_bytes();
         let r: Resp =
             sonic_rs::from_slice(&bytes).map_err(|e| format!("invalid charset response: {e}"))?;
         Ok(r.chars.chars().collect())
     }
 
-    /// 言語モデルによる走査(`POST /v1/ocr/scan`): 各行の中の、文脈にとって不自然な箇所。サーバーに言語モデルが無いときは `Err`。
+    /// 言語モデルによる走査(`OcrScan`): 各行の中の、文脈にとって不自然な箇所。サーバーに言語モデルが無いときは `Err`。
     pub fn scan(
         &self,
         items: &[crate::complete::ScanItem],
@@ -259,7 +259,7 @@ impl OcrClient {
         }
         let body =
             serde_json::json!({ "items": items, "threshold": -8.0, "max_spots": 4 }).to_string();
-        let text = self.post_json("/v1/ocr/scan", &body, Duration::from_secs(900))?;
+        let text = self.post_json("/aruaru_llm.v1.Llm/OcrScan", &body, Duration::from_secs(900))?;
         let r: Resp =
             sonic_rs::from_str(&text).map_err(|e| format!("invalid scan response: {e}"))?;
         Ok(r.results)
