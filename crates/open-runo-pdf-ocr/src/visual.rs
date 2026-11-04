@@ -3,7 +3,7 @@
 //! 言語モデルは「文脈にふさわしい字」を挙げるが、ページ上の実際のインクを見ていない。ここでは、疑わしい文字の升目を切り出して
 //! 濃淡の格子にし、インクがあるという証拠の強さ `evidence` を求める(まるごと消えた升目は `evidence` が小さく、視覚の重みは自動的に下がる)。
 //! 升目と候補の字形の照合(升目の中で字形をずらした正規化相互相関)は、共有クレート `open-runo-glyph` が行う
-//! (アプリ内の CPU 参照実装 または サーバー `aruaru-llm` の `POST /v1/ocr/glyph-rank` = `open-cuda` の `sgemm`)。
+//! (アプリ内の CPU 参照実装 または サーバー `aruaru-llm` の `OcrGlyphRank` = `open-cuda` の `sgemm`)。
 
 use crate::render::PageRaster;
 pub use open_runo_glyph::{G, N};
