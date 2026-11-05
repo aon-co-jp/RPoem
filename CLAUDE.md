@@ -52,6 +52,8 @@
 >   `crates/open-runo-connect-{core,server,client}` へ汎用化済み(旧リポジトリ gRPC-web-Connect は 2026-11-01 にRPoem内へ統合して削除。説明は docs/connect-hybrid.md。RPoem 側の置き換えは次の一手)。
 > - **ブラウザの静的ファイル**: `Cache-Control: no-cache`+ETag 再検証(更新したら自動で新しい WASM が配られる。30日 immutable のせいで古い WASM が残った実害の解消)。
 >
+> - **JSON の読み込み(2026-11-05)**: `open-runo-connect-server` の JSON 入口は、proto3-JSON へ変換する前に RS-JSON の `parse_secure`(8 MiB・深さ64・**重複キー拒否**)で検査する(重複キーは 400 `invalid_argument`)。open-cosmo で先に実装した変更を同期した。
+>
 > **実装方式の判断と理由(tonic を使わず手書き+prost にした)**
 > 1. 既存の `grpc.rs`(Health/Reflection)が `hyper`+手書きで一貫しており、そこに管理サービス・gRPC-web・Connect を**同じ土台**で足す方が、
 >    tonic/axum の二重スタックより依存・保守が小さい。

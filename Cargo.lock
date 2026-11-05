@@ -4091,6 +4091,7 @@ dependencies = [
  "prost-reflect",
  "prost-types",
  "reqwest 0.13.5",
+ "rust-json",
  "serde_json",
  "tokio",
 ]
@@ -5977,6 +5978,16 @@ dependencies = [
  "num-traits",
  "serde",
  "smallvec",
+]
+
+[[package]]
+name = "rust-json"
+version = "0.1.0"
+source = "git+https://github.com/aon-co-jp/RS-JSON#37490a3e1f4e86e40450291fc03e603be3173bda"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
