@@ -46,7 +46,7 @@ Tauri・Poem・WunderGraph Cosmo はいずれもパッケージとして直接�
 それぞれの機能・API 形状には互換性を保ちながら Rust 標準ライブラリ +
 tokio/hyper で自前実装しています。
 
-**RPoem は、REST API を不要にするための WunderGraph Cosmo 互換です。** 管理用を含む `/api/` の REST は**2026-11-01 に削除済み**です。アプリの問い合わせは GraphQL(`POST /graphql`、Federation)、**管理操作は gRPC**(`open_runo.admin.v1.Admin`。同じ定義を gRPC-web・Connect でも受けるので、ブラウザ・`curl`・CLI から同じポートで使えます)。管理画面は Connect と gRPC-web のハイブリッド通信で、通信の記録・切替は「RPC Inspector」ページ。ハイブリッドの汎用ライブラリは [`gRPC-web-Connect`](https://github.com/aon-co-jp/gRPC-web-Connect)。残る HTTP は `/health`・ACME・`/mcp`・SCIM(`/scim/v2/*`)・`/internal/db/mutate`・静的配信のみです。
+**RPoem は、REST API を不要にするための WunderGraph Cosmo 互換です。** 管理用を含む `/api/` の REST は**2026-11-01 に削除済み**です。アプリの問い合わせは GraphQL(`POST /graphql`、Federation)、**管理操作は gRPC**(`open_runo.admin.v1.Admin`。同じ定義を gRPC-web・Connect でも受けるので、ブラウザ・`curl`・CLI から同じポートで使えます)。管理画面は Connect と gRPC-web のハイブリッド通信で、通信の記録・切替は「RPC Inspector」ページ。サーバーからの通知・進捗はサーバーストリーミング(`WatchEvents`。Connect の`connect+json`/gRPC-web/gRPC、上限・エラー終端つき、`docs/connect-hybrid.md`)。ハイブリッドの汎用ライブラリは [`gRPC-web-Connect`](https://github.com/aon-co-jp/gRPC-web-Connect)。残る HTTP は `/health`・ACME・`/mcp`・SCIM(`/scim/v2/*`)・`/internal/db/mutate`・静的配信のみです。
 
 ```
    open-e-gov     OpenRedmine     OpenWordPress     aruaru-llm

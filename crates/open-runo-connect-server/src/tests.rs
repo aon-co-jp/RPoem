@@ -38,7 +38,7 @@ fn pool() -> DescriptorPool {
         }],
         service: vec![ServiceDescriptorProto {
             name: Some("Demo".into()),
-            method: vec![m("Echo", false), m("Fail", false), m("Ticks", true)],
+            method: vec![m("Echo", false), m("Fail", false), m("Ticks", true), m("FailMid", true), m("Forever", true)],
             ..Default::default()
         }],
         ..Default::default()
@@ -101,8 +101,35 @@ impl Service for Demo {
                     .encode_to_vec()
                 }),
             )))),
+            "FailMid" => Ok(Output {
+                reply: Reply::TryStream(Box::pin(futures::stream::iter(vec![
+                    Ok(echo("a")),
+                    Ok(echo("b")),
+                    Err(Status::new(code::ABORTED, "途中で失敗")),
+                    Ok(echo("never")),
+                ]))),
+                headers: Vec::new(),
+            }),
+            "Forever" => {
+                let guard = DropFlag;
+                Ok(Output::stream(Box::pin(futures::stream::unfold(
+                    guard,
+                    |g| async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                        Some((echo("t"), g))
+                    },
+                ))))
+            }
             _ => Err(Status::new(code::UNIMPLEMENTED, "no such method")),
         }
+    }
+}
+
+static DROPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+struct DropFlag;
+impl Drop for DropFlag {
+    fn drop(&mut self) {
+        DROPPED.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -433,4 +460,122 @@ fn method_of_parses_only_this_service() {
     assert_eq!(method_of(SVC, "/demo.v1.Demo/"), None);
     assert_eq!(method_of(SVC, "/other/Echo"), None);
     assert_eq!(method_of(SVC, "/demo.v1.Demo/a/b"), None);
+}
+
+/// 本文をフレームに分け、(メッセージ数, 終端の状態)を返す。終端が無ければ`None`。
+fn frames(proto: Protocol, body: &[u8]) -> (usize, Option<Status>) {
+    let mut rest = body;
+    let mut n = 0;
+    let mut end = None;
+    while let Some((flag, b, tail)) = core::split_frame(rest) {
+        match (proto, flag) {
+            (_, 0) => n += 1,
+            (Protocol::GrpcWeb, 0x80) => {
+                let (c, m) = core::parse_web_trailers(b);
+                end = Some(Status::new(c, m));
+            }
+            (_, 0x02) => {
+                end = Some(
+                    core::parse_connect_end(b).unwrap_or_else(|| Status::new(code::OK, "")),
+                )
+            }
+            _ => {}
+        }
+        rest = tail;
+    }
+    (n, end)
+}
+
+#[tokio::test]
+async fn mid_stream_error_closes_with_an_end_frame_in_every_protocol() {
+    // Connect: 先の2件は届き、その後`error`つき終端フレーム(HTTPは200のまま)。
+    let o = run(request(
+        "FailMid",
+        "application/connect+json",
+        Some("secret"),
+        core::encode_frame(br#"{}"#),
+    ))
+    .await;
+    assert_eq!(o.status, 200);
+    let (n, end) = frames(Protocol::ConnectStream(Codec::Json), &o.body);
+    assert_eq!(n, 2);
+    assert_eq!(end.unwrap().code, code::ABORTED);
+    // gRPC-web: `0x80`フレームのgrpc-status。
+    let o = run(request(
+        "FailMid",
+        "application/grpc-web+proto",
+        Some("secret"),
+        core::encode_frame(&echo("x")),
+    ))
+    .await;
+    let (n, end) = frames(Protocol::GrpcWeb, &o.body);
+    assert_eq!(n, 2);
+    assert_eq!(end.unwrap().code, code::ABORTED);
+    // gRPC: HTTP/2トレーラー。
+    let o = run(request(
+        "FailMid",
+        "application/grpc",
+        Some("secret"),
+        core::encode_frame(&echo("x")),
+    ))
+    .await;
+    assert_eq!(o.trailers.unwrap()["grpc-status"], code::ABORTED.to_string());
+}
+
+async fn forever(limits: StreamLimits) -> (usize, Status) {
+    let resp = handle_with(
+        &svc(),
+        request(
+            "Forever",
+            "application/connect+proto",
+            Some("secret"),
+            core::encode_frame(&echo("x")),
+        ),
+        limits,
+    )
+    .await;
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let (n, end) = frames(Protocol::ConnectStream(Codec::Proto), &body);
+    (n, end.expect("limit must end with an end frame"))
+}
+
+#[tokio::test]
+async fn stream_limits_end_the_stream_with_a_status() {
+    let (n, st) = forever(StreamLimits {
+        max_messages: Some(4),
+        max_duration: None,
+    })
+    .await;
+    assert_eq!((n, st.code), (4, code::RESOURCE_EXHAUSTED));
+    let (n, st) = forever(StreamLimits {
+        max_messages: None,
+        max_duration: Some(std::time::Duration::from_millis(100)),
+    })
+    .await;
+    assert!(n >= 1 && n < 100, "n={n}");
+    assert_eq!(st.code, code::DEADLINE_EXCEEDED);
+}
+
+#[tokio::test]
+async fn dropping_the_response_body_stops_the_stream() {
+    DROPPED.store(false, std::sync::atomic::Ordering::SeqCst);
+    let resp = handle(
+        &svc(),
+        request(
+            "Forever",
+            "application/connect+json",
+            Some("secret"),
+            core::encode_frame(b"{}"),
+        ),
+    )
+    .await;
+    let mut body = resp.into_body();
+    // 1メッセージ受け取ってから、クライアントが切断したことにする(本文を捨てる)。
+    let first = body.frame().await.unwrap().unwrap();
+    assert!(first.is_data());
+    drop(body);
+    assert!(
+        DROPPED.load(std::sync::atomic::Ordering::SeqCst),
+        "切断でストリーム(とその資源)が解放される"
+    );
 }

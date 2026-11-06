@@ -36,10 +36,34 @@ pub type Body = BoxBody<Bytes, Infallible>;
 /// サーバーストリーミングの応答(各要素は1メッセージのprotoバイト列)。
 pub type MessageStream = Pin<Box<dyn Stream<Item = Vec<u8>> + Send + Sync>>;
 
+/// 途中でエラーを返せるサーバーストリーミングの応答。`Err`が来た時点でそのエラーを終端フレーム
+/// (gRPC=トレーラー、gRPC-web=`0x80`、Connect=`0x02`の`error`)にして閉じる。
+pub type TryMessageStream = Pin<Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send + Sync>>;
+
+/// ストリーム1本あたりの上限。超えたら終端フレームで閉じる(切りっぱなしの接続でサーバーを塞がせない)。
+#[derive(Clone, Copy, Debug)]
+pub struct StreamLimits {
+    /// 送るメッセージ数の上限(超過=RESOURCE_EXHAUSTED)。`None`=無制限。
+    pub max_messages: Option<u64>,
+    /// ストリームの最長時間(超過=DEADLINE_EXCEEDED)。`None`=無制限。
+    pub max_duration: Option<std::time::Duration>,
+}
+
+impl Default for StreamLimits {
+    fn default() -> Self {
+        Self {
+            max_messages: Some(1_000_000),
+            max_duration: Some(std::time::Duration::from_secs(3600)),
+        }
+    }
+}
+
 /// 応答本体。
 pub enum Reply {
     Unary(Vec<u8>),
     Stream(MessageStream),
+    /// 途中でエラーを返せるストリーム。
+    TryStream(TryMessageStream),
 }
 
 /// 呼び出し結果(本体 + 応答ヘッダ。`set-cookie`など)。
@@ -305,8 +329,23 @@ fn encode_body(codec: Codec, info: &MethodInfo, bytes: &[u8]) -> Result<Vec<u8>,
 
 // ── 本体 ─────────────────────────────────────────────────────────────────
 
-/// 1要求を処理する。`B`はhyperの要求本文(`Incoming`など)。
+/// 1要求を処理する(ストリーム上限は既定値)。`B`はhyperの要求本文(`Incoming`など)。
 pub async fn handle<S, B>(service: &S, req: hyper::Request<B>) -> Response<Body>
+where
+    S: Service + ?Sized,
+    B: HttpBody + Send + 'static,
+    B::Data: Send,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    handle_with(service, req, StreamLimits::default()).await
+}
+
+/// ストリーム上限を指定して処理する。
+pub async fn handle_with<S, B>(
+    service: &S,
+    req: hyper::Request<B>,
+    limits: StreamLimits,
+) -> Response<Body>
 where
     S: Service + ?Sized,
     B: HttpBody + Send + 'static,
@@ -466,24 +505,80 @@ where
                     .expect("fixed headers are valid")
             }
         },
-        Ok(Output {
-            reply: Reply::Stream(s),
-            headers,
-        }) => {
-            let info2 = info.clone();
-            let data = s.filter_map(move |m| {
-                let r = encode_body(codec, &info2, &m)
-                    .ok()
-                    .map(|b| data_frame(protocol, &b));
-                futures::future::ready(r)
-            });
-            let end =
-                futures::stream::once(async move { finish(protocol, &Status::new(code::OK, "")) });
+        Ok(Output { reply, headers }) => {
+            let items: TryMessageStream = match reply {
+                Reply::Stream(s) => Box::pin(s.map(Ok)),
+                Reply::TryStream(s) => s,
+                Reply::Unary(_) => unreachable!("handled above"),
+            };
             builder(protocol, 200, &headers)
-                .body(stream_body(data.chain(end)))
+                .body(stream_body(limited_frames(
+                    protocol, codec, info, items, limits,
+                )))
                 .expect("fixed headers are valid")
         }
     }
+}
+
+/// ストリームを通信方式のフレーム列にする。正常終了・エラー・上限超過のいずれも終端フレームで閉じる。
+/// 呼び出し側が切断するとボディが捨てられ、元のストリームも止まる。
+fn limited_frames(
+    protocol: Protocol,
+    codec: Codec,
+    info: MethodInfo,
+    items: TryMessageStream,
+    limits: StreamLimits,
+) -> impl Stream<Item = Frame<Bytes>> + Send + Sync + 'static {
+    struct St {
+        items: TryMessageStream,
+        sleep: Option<Pin<Box<tokio::time::Sleep>>>,
+        count: u64,
+    }
+    let st = St {
+        items,
+        sleep: limits.max_duration.map(|d| Box::pin(tokio::time::sleep(d))),
+        count: 0,
+    };
+    futures::stream::unfold(Some(st), move |st| {
+        let info = info.clone();
+        async move {
+            let mut st = st?;
+            let next = async { st.items.next().await };
+            let got = match st.sleep.as_mut() {
+                Some(sl) => {
+                    futures::pin_mut!(next);
+                    match futures::future::select(sl, next).await {
+                        futures::future::Either::Left(_) => Some(Err(Status::new(
+                            code::DEADLINE_EXCEEDED,
+                            "stream duration limit reached",
+                        ))),
+                        futures::future::Either::Right((it, _)) => it,
+                    }
+                }
+                None => next.await,
+            };
+            let fin = |s: Status| Some((finish(protocol, &s), None));
+            match got {
+                None => fin(Status::new(code::OK, "")),
+                Some(Err(e)) => fin(e),
+                Some(Ok(m)) => {
+                    if limits.max_messages.is_some_and(|max| st.count >= max) {
+                        return fin(Status::new(
+                            code::RESOURCE_EXHAUSTED,
+                            "stream message limit reached",
+                        ));
+                    }
+                    match encode_body(codec, &info, &m) {
+                        Ok(b) => {
+                            st.count += 1;
+                            Some((data_frame(protocol, &b), Some(st)))
+                        }
+                        Err(e) => fin(e),
+                    }
+                }
+            }
+        }
+    })
 }
 
 /// HTTPステータスだけ返したいとき用(OPTIONSなど)。

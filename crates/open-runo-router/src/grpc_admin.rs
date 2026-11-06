@@ -894,6 +894,91 @@ mod tests {
         assert!(decode_text_body(b"@@@@").is_none());
     }
 
+    /// 実TCPのConnectサーバーストリーム(`curl`と同じ線上の形)。認証なし=終端フレームのエラー、
+    /// 鍵あり=イベントがエンベロープで届き、クライアント切断後もサーバーは健全。
+    #[tokio::test]
+    async fn connect_json_watch_events_over_real_http() {
+        use crate::hyper_compat::{serve, Router};
+        let (a, state) = admin();
+        let app = Router::new().route(
+            Method::POST,
+            "/open_runo.admin.v1.Admin/:method",
+            browser_handler(a),
+        );
+        let (addr, _h) = serve(app, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+        let url = |m: &str| format!("http://{addr}/open_runo.admin.v1.Admin/{m}");
+        let env = open_runo_proto::encode_frame(b"{}");
+        let watch = |key: Option<String>| {
+            let mut r = reqwest::Client::new()
+                .post(url("WatchEvents"))
+                .header("content-type", "application/connect+json")
+                .body(env.clone());
+            if let Some(k) = key {
+                r = r.header("x-api-key", k);
+            }
+            async move { r.send().await.unwrap() }
+        };
+        // 認証なし: HTTP 200 + 終端フレームの error(UNAUTHENTICATED)。
+        let resp = watch(None).await;
+        assert_eq!(resp.status(), 200);
+        let body = resp.bytes().await.unwrap();
+        let (flag, b, _) = open_runo_proto::split_frame(&body).unwrap();
+        assert_eq!(flag, 0x02);
+        assert_eq!(
+            open_runo_connect_core::parse_connect_end(b).unwrap().code,
+            code::UNAUTHENTICATED
+        );
+        // 鍵あり: イベントが`connect+json`のエンベロープで届く。
+        let issued = {
+            let r = reqwest::Client::new()
+                .post(url("SelfIssueKey"))
+                .header("content-type", "application/json")
+                .body("{}")
+                .send()
+                .await
+                .unwrap();
+            r.json::<serde_json::Value>().await.unwrap()["apiKey"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let tx = state.events.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            let _ = tx.send(crate::state::SchemaEvent {
+                service_name: "evt".into(),
+                stage: "local".into(),
+                at: "t".into(),
+            });
+        });
+        let resp = watch(Some(issued)).await;
+        assert_eq!(resp.headers()["content-type"], "application/connect+json");
+        let mut resp = resp;
+        let mut buf = Vec::new();
+        let got = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while let Some(chunk) = resp.chunk().await.unwrap() {
+                buf.extend_from_slice(&chunk);
+                if let Some((0, b, _)) = open_runo_proto::split_frame(&buf) {
+                    return serde_json::from_slice::<serde_json::Value>(b).unwrap();
+                }
+            }
+            panic!("stream ended without an event");
+        })
+        .await
+        .unwrap();
+        assert_eq!(got["schema"]["serviceName"], "evt");
+        drop(resp); // クライアント切断。
+        // 切断後も別の呼び出しは通る(サーバーは健全)。
+        let ok = reqwest::Client::new()
+            .post(url("SelfIssueKey"))
+            .header("content-type", "application/json")
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(ok.status(), 200);
+    }
+
     #[tokio::test]
     async fn grpc_web_text_round_trips_like_binary() {
         use crate::hyper_compat::{serve, Router};
