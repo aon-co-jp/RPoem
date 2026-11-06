@@ -747,7 +747,7 @@ impl<In: DeserializeOwned, Out: Serialize> WsSession<In, Out> {
     pub async fn recv(&mut self) -> Option<Result<In, WsDecodeError>> {
         match self.conn.recv().await? {
             hyper_compat::WsMessage::Text(t) => Some(
-                serde_json::from_str(&t)
+                open_runo_router::secure_json::from_str(&t)
                     .map_err(|e| WsDecodeError(format!("invalid message: {e}"))),
             ),
             hyper_compat::WsMessage::Binary(_) => Some(Err(WsDecodeError(
@@ -759,7 +759,7 @@ impl<In: DeserializeOwned, Out: Serialize> WsSession<In, Out> {
     /// `ApiHandler::binary` で宣言する)。接続が閉じたら `None`。
     pub async fn recv_any(&mut self) -> Option<WsIncoming<In>> {
         Some(match self.conn.recv().await? {
-            hyper_compat::WsMessage::Text(t) => match serde_json::from_str(&t) {
+            hyper_compat::WsMessage::Text(t) => match open_runo_router::secure_json::from_str(&t) {
                 Ok(v) => WsIncoming::Message(v),
                 Err(e) => WsIncoming::Invalid(WsDecodeError(format!("invalid message: {e}"))),
             },
@@ -895,7 +895,7 @@ impl Ctx {
 /// 上限つきでJSON本文を読む。超過は413、不正なJSONは400(1行のメッセージ)。
 async fn read_json_limited<T: DeserializeOwned>(req: Request, limit: usize) -> Result<T, Response> {
     let bytes = crate::body_limit::read_body_limited(req, limit).await?;
-    serde_json::from_slice::<T>(&bytes).map_err(|e| {
+    open_runo_router::secure_json::from_slice::<T>(&bytes).map_err(|e| {
         hyper_compat::json_response(
             StatusCode::BAD_REQUEST,
             &ApiErrorBody {
