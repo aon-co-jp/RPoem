@@ -1386,4 +1386,4 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 - **切断**: クライアントが切ると応答ボディが捨てられ、元のストリームとその資源も解放される(試験済み)。
 - **使い分け**: 一回で済む操作=単項。サーバーから**変化を押し出したい**(イベント通知・長い処理の進捗・トークン逐次生成)ときだけストリーム。ポーリング・SSE・WebSocketの置き換え先。
 - 試験: `open-runo-connect-server`(途中エラー3方式・上限2種・切断解放)、`open-runo-router`の`connect_json_watch_events_over_real_http`(実TCP、認証なし=終端エラー、鍵あり=イベント受信、切断後も健全)と`real_http2_server_streaming_delivers_events`(実HTTP/2)。
-- `curl`の例: `curl -N -X POST $URL/open_runo.admin.v1.Admin/WatchEvents -H 'content-type: application/connect+json' -H "x-api-key: $KEY" --data-binary $'    {}'`(先頭5バイトがエンベロープ)。
+- `curl`の例: `curl -N -X POST $URL/open_runo.admin.v1.Admin/WatchEvents -H 'content-type: application/connect+json' -H "x-api-key: $KEY" --data-binary $'\x00\x00\x00\x00\x02{}'`(先頭5バイトがエンベロープ)。
