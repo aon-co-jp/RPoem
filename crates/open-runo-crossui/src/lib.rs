@@ -55,7 +55,7 @@ pub struct Bridge {
 impl Default for Bridge {
     fn default() -> Self {
         Self {
-            key_path: "/key".into(),
+            key_path: "/aruaru_ime.v1.Ime/Key".into(),
             health_path: "/health".into(),
             input_id: "t".into(),
             preedit_id: "pre".into(),
@@ -194,7 +194,7 @@ t.addEventListener("compositionend",async e=>{{
 // 候補をタップ・クリックで選んで確定する(スマホ・タブレット向け)
 c.addEventListener("click",async ev=>{{
   const d=ev.target.closest&&ev.target.closest("[data-i]"); if(!d)return;
-  const r=await post(KEY.replace(/\/key$/,"/session"),{{sid,op:"choose",idx:+d.dataset.i}});
+  const r=await post(KEY.replace(/\/Key$/,"/Session"),{{sid,op:"choose",idx:+d.dataset.i}});
   if(r.commit){{t.setRangeText(r.commit,t.selectionStart,t.selectionEnd,"end");}}
   composing=!!r.composing;
   pre.textContent=r.preedit||"";
