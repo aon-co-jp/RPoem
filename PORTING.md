@@ -1387,3 +1387,11 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 - **使い分け**: 一回で済む操作=単項。サーバーから**変化を押し出したい**(イベント通知・長い処理の進捗・トークン逐次生成)ときだけストリーム。ポーリング・SSE・WebSocketの置き換え先。
 - 試験: `open-runo-connect-server`(途中エラー3方式・上限2種・切断解放)、`open-runo-router`の`connect_json_watch_events_over_real_http`(実TCP、認証なし=終端エラー、鍵あり=イベント受信、切断後も健全)と`real_http2_server_streaming_delivers_events`(実HTTP/2)。
 - `curl`の例: `curl -N -X POST $URL/open_runo.admin.v1.Admin/WatchEvents -H 'content-type: application/connect+json' -H "x-api-key: $KEY" --data-binary $'\x00\x00\x00\x00\x02{}'`(先頭5バイトがエンベロープ)。
+
+## 2026-11-08 appserver系RESTをConnect/gRPCへ(REST全廃の続き)
+- `/admin/appserver-processes`(+`/stop-all`・`/:host`・`/:host/stop`・`/:host/stop-graceful`・`/:host/restart`)と `/admin/appserver-tenants`(+`/:host`)の**計10本を削除**し、`open_runo.admin.v1.Admin` のRPC `AppServerRegisterProcess`/`ListProcesses`/`ProcessStatus`/`StopProcess`/`StopProcessGraceful`/`RestartProcess`/`StopAll`/`UpsertTenant`/`ListTenants`/`RemoveTenant` に移した(gRPC・gRPC-web・Connect共通。要求・応答は `google.protobuf.Struct`=旧RESTと同じJSON形、認証は他のAdminと同じ `x-api-key`/セッション)。
+- 実装: ルーターに拡張フック `grpc_admin::AdminExt`(`AdminGrpc::with_ext`)を追加し、ゲートウェイの `appserver_admin.rs`(`AppServerAdmin`)が `SupervisedTenantRegistry` を操作する。旧 `appserver_processes.rs`/`appserver_tenants.rs` は削除。
+- 呼び出し元: `open-easy-web`(`server/src/appserver_registration.rs`、PoemCosmoTauri登録)を `AppServerUpsertTenant` に変更。それ以外に旧パスの呼び出しは無い(`open-web-server/CLAUDE.md` の記述は過去の記録)。
+- 例: `curl -X POST -H 'x-api-key: KEY' -H 'content-type: application/json' -d '{"host":"a.example.jp","backend_addr":"127.0.0.1:9001"}' http://HOST/open_runo.admin.v1.Admin/AppServerUpsertTenant`
+- 試験: WSLで `cargo test -p open-runo-router --lib`(180件成功)・`-p open-runo-gateway --lib appserver_admin`(3件成功)。実プロセスを起動する旧E2E(ダミーHTTPサーバー起動)は、レジストリ自体のテスト(`open-runo-appserver`)で担保しており、Connect経由の実起動の通しは未実施。
+- 本番(VPS)へは未反映(RPoemゲートウェイはVPSで未稼働)。
