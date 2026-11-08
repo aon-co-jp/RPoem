@@ -1395,3 +1395,6 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 - 例: `curl -X POST -H 'x-api-key: KEY' -H 'content-type: application/json' -d '{"host":"a.example.jp","backend_addr":"127.0.0.1:9001"}' http://HOST/open_runo.admin.v1.Admin/AppServerUpsertTenant`
 - 試験: WSLで `cargo test -p open-runo-router --lib`(180件成功)・`-p open-runo-gateway --lib appserver_admin`(3件成功)。実プロセスを起動する旧E2E(ダミーHTTPサーバー起動)は、レジストリ自体のテスト(`open-runo-appserver`)で担保しており、Connect経由の実起動の通しは未実施。
 - 本番(VPS)へは未反映(RPoemゲートウェイはVPSで未稼働)。
+
+## 2026-11-08 VPS反映の見送り
+- `781c824` の `Admin/DbMutate` 等は、VPSにRPoem/open-cosmoゲートウェイの稼働が無い(systemd unit・プロセスとも無し、`rpoem-web` は静的紹介ページのみ)ため反映対象なし。呼び出し元 open-web-server `Ledger`(`OPEN_RUNO_API_KEY`)と同時に、ゲートウェイを稼働させる時点で反映する。
