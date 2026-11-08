@@ -13,7 +13,7 @@
 //! 実例だった。
 //!
 //! **設計方針**: UDPはあくまで「即時通知」であり、正式なコミット確定は
-//! TCP経由の`/internal/db/mutate`(`handlers_hyper::db_mutate_handler`)が
+//! TCP経由の`/internal/db/mutate`(`handlers_hyper::db_mutate_core`)が
 //! 引き続き単独で担う。本リスナーは受信した通知を検証・デデュープした
 //! 上で観測用カウンタ(`NoticeStats`)に記録するのみ——advance notice を
 //! 受け取ったからといってここでデータを書き込む・コミットする、という

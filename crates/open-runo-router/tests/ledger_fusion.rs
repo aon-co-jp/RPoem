@@ -126,7 +126,23 @@ async fn ledger_commit_against_a_real_rpoem_server_actually_persists_the_mutatio
     // 「配線が本当に繋がっているか」であり、コミットIDの実発行は
     // aruaru-db側の別テストの担当)。
     let state = Arc::new(AppState::with_db(Arc::new(FakeVersionedBackend::new())));
-    let router = build_hyper_app(Arc::clone(&state), 10_000, 60).await;
+    // REST全廃後、Ledgerの書き込み先は管理用の`Admin/DbMutate`(Connect、x-api-key認証)。
+    // ゲートウェイ本体と同じく`AdminGrpc`をブラウザ向け入口(Connect/gRPC-web)に載せる。
+    let guardian = Arc::new(open_runo_router::keyring::KeyGuardian::new(
+        Arc::clone(&state.db),
+        open_runo_router::keyring::GuardianConfig::from_env(),
+    ));
+    let api_key = guardian
+        .issue("ledger", vec!["admin".to_string()], None)
+        .await
+        .expect("issue key");
+    let admin = open_runo_router::grpc_admin::AdminGrpc::new(Arc::clone(&state), guardian);
+    let router = build_hyper_app(Arc::clone(&state), 10_000, 60).await.route(
+        hyper::Method::POST,
+        "/open_runo.admin.v1.Admin/:method",
+        open_runo_router::grpc_admin::browser_handler(admin),
+    );
+    std::env::set_var("OPEN_RUNO_API_KEY", &api_key);
     let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
         .await
         .expect("bind ephemeral port");
