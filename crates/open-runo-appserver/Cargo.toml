@@ -15,6 +15,12 @@ autoexamples = false
 sonic-rs = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# 分身の術ホスティング段階2(2026-11-09): 全サイトを1つのtokioタスクで監督する
+# `fleet`モジュール専用。既定ビルドは従来どおりstdのみ。
+tokio = { workspace = true, optional = true }
+
+[features]
+fleet = ["dep:tokio"]
 
 # 既存の`examples/dummy_http_server.rs`(Supervisor検証用の最小HTTPサーバー、
 # `/health`で200・`/crash`で自己`process::exit(1)`)を、統合テストから

@@ -10,6 +10,8 @@
 //! Phase 1 は同期 `std::process` ベース。Poem/4層トランスポート統合は
 //! 後続フェーズで `Dispatcher` 実装として追加する(§0.9.3)。
 
+#[cfg(feature = "fleet")]
+pub mod fleet;
 pub mod process_lifecycle;
 pub mod proxy;
 pub mod server;

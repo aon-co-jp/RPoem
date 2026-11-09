@@ -3802,6 +3802,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sonic-rs 0.5.10",
+ "tokio",
 ]
 
 [[package]]
