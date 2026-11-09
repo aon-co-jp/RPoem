@@ -1403,3 +1403,9 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 - `open-runo-gateway`(`9c7a127`時点、WSL Ubuntu-24.04でリリースビルド、glibc 2.39)を `/opt/open-runo-gateway/` に配置し、systemdユニット `open-runo-gateway.service`(enable済み、`127.0.0.1:8140` のみ、`OPEN_RUNO_ENV=production`、状態は `/var/lib/open-runo-gateway`)で起動。
 - 実測: active、`/healthz`=200、`Admin/DbMutate` 鍵なし=401、旧 `/internal/db/mutate`=404。鍵つきの200は2026-11-08のdevビルド実測のみで、本番ユニットでは未実施。
 - **未了**: open-web-server の `OPEN_RUNO_ENDPOINT`・`OPEN_RUNO_API_KEY` は未設定(現状 Ledger は本番で使われていない)。設定すると前面サーバーの再起動が要るため見送り。鍵の発行・配線は別途。
+
+## 2026-11-09 ゲートウェイの鍵を本物にした / Service key made real
+- **発見**: 鍵の登録簿が空だと `check_api_key` は何でも通す(開発モード)。常駐直後のゲートウェイは `x-api-key: zzz` でも認証を通った=`Admin/DbMutate` の「x-api-key必須」は実質空だった。
+- **修正**: `KeyGuardian::seed_service_key`(平文は保存せずSHA-256のみ、32文字未満は拒否、期限なし)と、ゲートウェイ起動時の環境変数 `OPEN_RUNO_SERVICE_API_KEY` での登録を追加。テスト `seeded_service_key_ends_permissive_mode` を追加(keyring 6件成功)。
+- **VPS**: 鍵は `/etc/open-runo-gateway.env`(600)、ユニットは `EnvironmentFile` で読む。実測: 鍵なし401・誤った鍵401・正しい鍵で書き込み200(`committed:true`)。旧バイナリは `.before-key-20261109`。
+- **未了(接続を見送った理由)**: 正しい鍵で書き込んでも、ゲートウェイの DB が InMemory のため `db_commit_id` が `null` で、open-web-server の `Ledger::forward_once` は「db_commit_id が無い」を失敗として扱う。つなぐには、ゲートウェイを aruaru-db バックエンド(コミットID付き)で動かす設計と、`OPEN_RUNO_ENDPOINT`/`OPEN_RUNO_API_KEY` の設定+前面サーバー再起動が要る。現状は接続しても全書き込みが失敗するため、前面サーバーは再起動していない。

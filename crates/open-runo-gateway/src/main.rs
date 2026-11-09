@@ -42,6 +42,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&state.db),
         GuardianConfig::from_env(),
     ));
+    // サービス間の固定の鍵(`OPEN_RUNO_SERVICE_API_KEY`、32文字以上)。設定すると登録簿が空でなくなり、
+    // 未登録の鍵は401になる(未設定だと「登録簿が空=何でも通す」開発モードのまま)。
+    if let Ok(k) = std::env::var("OPEN_RUNO_SERVICE_API_KEY") {
+        grpc_guardian
+            .seed_service_key(k.trim(), "service")
+            .await
+            .map_err(|e| format!("OPEN_RUNO_SERVICE_API_KEY: {e}"))?;
+        tracing::info!("service API key registered (registry no longer permissive)");
+    } else if config.environment.to_string() == "production" {
+        tracing::warn!("OPEN_RUNO_SERVICE_API_KEY unset: key registry is empty, any x-api-key is accepted");
+    }
     // アプリケーションサーバー層(多重テナントの登録・プロセス管理)のレジストリ。管理操作は
     // 管理用gRPCの`AppServer*`(旧REST `/admin/appserver-*`は2026-11-07に全廃)。
     let appserver_registry = Arc::new(SupervisedTenantRegistry::new());

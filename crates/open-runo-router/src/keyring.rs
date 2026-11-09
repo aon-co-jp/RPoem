@@ -170,6 +170,31 @@ impl KeyGuardian {
         Ok(plaintext)
     }
 
+    /// サービス間(open-web-server の Ledger 等)用の固定の鍵を登録する。
+    /// 平文は保存せず SHA-256 だけを保存する。期限なし。登録簿が空でなくなるため、
+    /// 「登録簿が空なら何でも通す」開発モードは終わる(未登録の鍵は 401)。
+    /// 短すぎる鍵(32文字未満)は拒否する。
+    pub async fn seed_service_key(&self, plaintext: &str, owner: &str) -> Result<()> {
+        if plaintext.len() < 32 {
+            return Err(AppError::Internal(
+                "service api key must be at least 32 characters".to_string(),
+            ));
+        }
+        let record = KeyRecord {
+            owner: owner.to_string(),
+            roles: vec!["service".to_string()],
+            created_at: Utc::now(),
+            expires_at: None,
+            revoked: false,
+        };
+        let json = serde_json::to_string(&record)
+            .map_err(|e| AppError::Internal(format!("serialize key record: {e}")))?;
+        self.db.put(TABLE, &hash_key(plaintext), &json).await?;
+        self.known_nonempty
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
     /// Auto-revoke every key belonging to `owner` (user deactivated/deleted).
     /// Returns how many keys were revoked.
     pub async fn revoke_owner(&self, owner: &str) -> Result<usize> {
@@ -295,6 +320,22 @@ mod tests {
             g.verify("anything", Utc::now()).await,
             KeyDecision::RegistryEmpty
         );
+    }
+
+    #[tokio::test]
+    async fn seeded_service_key_ends_permissive_mode() {
+        let g = guardian();
+        let key = "svc_0123456789abcdef0123456789abcdef";
+        g.seed_service_key(key, "open-web-server").await.unwrap();
+        assert!(matches!(
+            g.verify(key, Utc::now()).await,
+            KeyDecision::Ok { .. }
+        ));
+        assert_eq!(
+            g.verify("anything", Utc::now()).await,
+            KeyDecision::Rejected
+        );
+        assert!(g.seed_service_key("short", "x").await.is_err());
     }
 
     #[tokio::test]
