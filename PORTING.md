@@ -1409,3 +1409,9 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 - **修正**: `KeyGuardian::seed_service_key`(平文は保存せずSHA-256のみ、32文字未満は拒否、期限なし)と、ゲートウェイ起動時の環境変数 `OPEN_RUNO_SERVICE_API_KEY` での登録を追加。テスト `seeded_service_key_ends_permissive_mode` を追加(keyring 6件成功)。
 - **VPS**: 鍵は `/etc/open-runo-gateway.env`(600)、ユニットは `EnvironmentFile` で読む。実測: 鍵なし401・誤った鍵401・正しい鍵で書き込み200(`committed:true`)。旧バイナリは `.before-key-20261109`。
 - **未了(接続を見送った理由)**: 正しい鍵で書き込んでも、ゲートウェイの DB が InMemory のため `db_commit_id` が `null` で、open-web-server の `Ledger::forward_once` は「db_commit_id が無い」を失敗として扱う。つなぐには、ゲートウェイを aruaru-db バックエンド(コミットID付き)で動かす設計と、`OPEN_RUNO_ENDPOINT`/`OPEN_RUNO_API_KEY` の設定+前面サーバー再起動が要る。現状は接続しても全書き込みが失敗するため、前面サーバーは再起動していない。
+
+## 2026-11-09 ゲートウェイのaruaru-dbバックエンド(作業途中の記録)
+- `OPEN_RUNO_DB_URL`(aruaru-dbのpgwire)を指定するとゲートウェイが永続DBで動く(未設定はメモリ上)。`open-runo-gateway` に `open-runo-db`(feature `aruaru`)を追加。
+- VPSに専用の `open-runo-aruaru-db.service`(pg 15434・gql 14002、`ARUARU_USERS` は `/etc/open-runo-aruaru-db.env`)を新設済み。ゲートウェイの `/etc/open-runo-gateway.env` には**今は `OPEN_RUNO_DB_URL` を入れていない**(旧メモリ版で稼働中、ロールバック済み)。
+- **原因を特定**: aruaru-db のSQLパーサー(`aruaru-query/src/parser.rs` の `parse_insert`)が値を単純に `,` で割り `)` を探すため、JSONの値(`,` や `)` を含む)で「4 columns but 8 values」になる。引用符を考慮した分割へ直す修正と単体テストを作成(WSLの `~/aruaru-db-src`、未コミット/未push、aruaru-query の parser テスト17件成功)。
+- **次の手**: 修正版 `aruaru-server` をビルド→専用インスタンスだけに入れ替え→`OPEN_RUNO_DB_URL` を設定してゲートウェイ再起動→書き込みで `db_commit_id` が返ることを確認→(希望があれば)open-web-server と接続。

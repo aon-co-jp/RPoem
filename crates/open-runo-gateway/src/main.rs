@@ -33,7 +33,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "starting open-runo-gateway (GraphQL + SCIM/MCP + admin UI)"
     );
 
-    let state = Arc::new(AppState::new());
+    // `OPEN_RUNO_DB_URL`(例 `postgres://127.0.0.1:15434/aruaru`)があれば aruaru-db を永続バックエンドにする
+    // (鍵の登録簿・書き込みが再起動後も残り、`Admin/DbMutate` がコミットIDを返す)。未設定ならメモリ上(開発用)。
+    let state = match std::env::var("OPEN_RUNO_DB_URL") {
+        Ok(url) if !url.trim().is_empty() => {
+            let backend = open_runo_db::aruaru::AruaruDbBackend::connect(url.trim())
+                .await
+                .map_err(|e| format!("OPEN_RUNO_DB_URL: {e}"))?;
+            open_runo_db::migration::aruaru::run(backend.pool())
+                .await
+                .map_err(|e| format!("aruaru-db migration: {e}"))?;
+            Arc::new(AppState::with_db(Arc::new(backend)))
+        }
+        _ => {
+            tracing::warn!("OPEN_RUNO_DB_URL unset: in-memory database (no commit ids, nothing persisted)");
+            Arc::new(AppState::new())
+        }
+    };
     let request_metrics = Arc::clone(&state.request_metrics);
     // 管理用 gRPC(`open_runo.admin.v1.Admin`)。通信路は2つ: 素のgRPC(HTTP/2、
     // `OPEN_RUNO_GRPC_BIND_ADDR`で別ポート)と、ブラウザ(管理画面WASM)向けのgRPC-web
