@@ -1398,3 +1398,8 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 
 ## 2026-11-08 VPS反映の見送り
 - `781c824` の `Admin/DbMutate` 等は、VPSにRPoem/open-cosmoゲートウェイの稼働が無い(systemd unit・プロセスとも無し、`rpoem-web` は静的紹介ページのみ)ため反映対象なし。呼び出し元 open-web-server `Ledger`(`OPEN_RUNO_API_KEY`)と同時に、ゲートウェイを稼働させる時点で反映する。
+
+## 2026-11-09 VPSでゲートウェイを常駐化
+- `open-runo-gateway`(`9c7a127`時点、WSL Ubuntu-24.04でリリースビルド、glibc 2.39)を `/opt/open-runo-gateway/` に配置し、systemdユニット `open-runo-gateway.service`(enable済み、`127.0.0.1:8140` のみ、`OPEN_RUNO_ENV=production`、状態は `/var/lib/open-runo-gateway`)で起動。
+- 実測: active、`/healthz`=200、`Admin/DbMutate` 鍵なし=401、旧 `/internal/db/mutate`=404。鍵つきの200は2026-11-08のdevビルド実測のみで、本番ユニットでは未実施。
+- **未了**: open-web-server の `OPEN_RUNO_ENDPOINT`・`OPEN_RUNO_API_KEY` は未設定(現状 Ledger は本番で使われていない)。設定すると前面サーバーの再起動が要るため見送り。鍵の発行・配線は別途。
