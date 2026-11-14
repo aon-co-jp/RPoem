@@ -122,7 +122,8 @@ pub fn render_with_recipe(pcm: &Pcm, r: Recipe, harmony: bool, pitch_mul: f64, m
     let x = high_pass(&pcm.samples, sr, 70.0);
     // `ratio`: この声に掛ける音程倍率、`formant`: この声の目標の声の太さ倍率
     // 人らしい揺れは、高い声(メイド)だけに付ける。低い男性の声は、包絡の測定が乱れるうえ、揺らすと不安定に聞こえる
-    let human = r.pitch_ratio > 1.0;
+    // 2026-11: ビブラート・音量の揺れは「変な声」に聞こえるため止めた(関数`humanize`は残す)
+    let human = false;
     // `vib`: (揺れの速さHz, 音程の揺れの深さ(比), 位相)。人の声は完全には一定の音程で出ないので、ゆるい揺れを付けて機械っぽさを消す
     let voice = |ratio: f64, formant: f64, vib: (f64, f64, f64)| -> Vec<f32> {
         let mut v = if mode == Mode::FormantIndependent {
