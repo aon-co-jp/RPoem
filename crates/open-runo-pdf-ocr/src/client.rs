@@ -313,12 +313,37 @@ fn tenant_name() -> String {
 
 #[cfg(test)]
 mod tenant_tests {
-    use super::tenant_name;
+    use super::{tenant_name, OcrClient};
 
     #[test]
     fn tenant_name_is_never_empty_and_is_header_safe() {
         let t = tenant_name();
         assert!(!t.is_empty() && t.len() <= 64);
         assert!(t.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '_')));
+    }
+
+    #[test]
+    fn languages_call_sends_x_tenant_header() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let h = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let n = sock.read(&mut buf).unwrap();
+            let req = String::from_utf8_lossy(&buf[..n]).to_ascii_lowercase();
+            let body = "{\"languages\":[]}";
+            let _ = write!(sock, "HTTP/1.1 200 OK
+content-type: application/json
+content-length: {}
+connection: close
+
+{body}", body.len());
+            req
+        });
+        let c = OcrClient::new(&format!("http://{addr}"));
+        let _ = c.languages();
+        let req = h.join().unwrap();
+        assert!(req.contains("x-tenant: "), "request was: {req}");
     }
 }
