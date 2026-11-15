@@ -9581,3 +9581,11 @@ wgpu 30(`experiments/wgpu-browser-spike`。`request_adapter`が`Result`、`reque
 ## 再開メモ / Resume note (2026-11-15)
 RPoemゲートウェイのVPS稼働・aruaru-db永続化・再開用メッセージは `PORTING.md` 末尾「2026-11-15 別アカウントでの再開用メモ」(日英)を参照。
 The VPS gateway status, aruaru-db persistence and the resume message (JA/EN) are at the end of `PORTING.md` ("2026-11-15 resume notes").
+
+## 2026-11-15 RPoem「分身の術」ホスティング(別アカウントでの再開用) / Bunshin hosting (resume on another account)
+
+### 日本語
+RPoem「分身の術」ホスティング(1VPSに1回入れ、全サイトを分身で非同期・マルチスレッド収容)の仕様・到達点・未了・**再開用メッセージ**は、正本の `open-easy-web/CLAUDE.md` と `open-easy-web/PORTING.md` 末尾の同名節、および `open-easy-web/docs/RPOEM_BUNSHIN_HOSTING_SPEC.md` にある。このリポジトリの該当部分: `crates/open-runo-appserver/src/fleet.rs`(`SiteFleet`、feature `fleet`、コミット `2b50b3e`、push済み)と `tests/fleet.rs`。
+
+### English
+The spec, status, open items and the **resume message** for RPoem "bunshin" hosting (install once per VPS, host every site with shadow-clone workers, async and multi-threaded) live in the same-named section at the end of `open-easy-web/CLAUDE.md` and `open-easy-web/PORTING.md`, and in `open-easy-web/docs/RPOEM_BUNSHIN_HOSTING_SPEC.md`. This repository's part: `crates/open-runo-appserver/src/fleet.rs` (`SiteFleet`, feature `fleet`, commit `2b50b3e`, pushed) and `tests/fleet.rs`.
