@@ -456,3 +456,7 @@ Contribution は [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください�
 - **WASM по-прежнему остаётся технологией для интерфейса.** Изменилось лишь то, что вызываемый им API теперь построен на Connect.
 - Интерфейсы, форма которых задана внешним стандартом (ACME, обратные вызовы OAuth, вебхуки сторонних сервисов, проверки работоспособности, статические файлы, OTLP), остаются обычным HTTP.
 - **Если есть сомнения — выбирайте Connect.**
+
+## 再開メモ / Resume note (2026-11-15)
+RPoemゲートウェイのVPS稼働・aruaru-db永続化・再開用メッセージは `PORTING.md` 末尾「2026-11-15 別アカウントでの再開用メモ」(日英)を参照。
+The VPS gateway status, aruaru-db persistence and the resume message (JA/EN) are at the end of `PORTING.md` ("2026-11-15 resume notes").
