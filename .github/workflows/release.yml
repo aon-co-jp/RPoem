@@ -37,10 +37,12 @@ jobs:
       # では解決できないため、同じ相対位置(リポジトリルートの1つ上)へ
       # 両siblingリポジトリをcheckoutする(open-web-server側のv0.1.0
       # リリースで発覚した問題と同種、2026-07-23)。
-      - name: Checkout sibling path dependencies (open-web-server, RS-SmartTCP)
+      - name: Checkout sibling path dependencies (Cargo.toml uses ../<repo>)
+        shell: bash
         run: |
-          git clone --depth=1 https://github.com/aon-co-jp/open-web-server.git ../open-web-server
-          git clone --depth=1 https://github.com/aon-co-jp/RS-SmartTCP.git ../RS-SmartTCP
+          for r in open-web-server RS-SmartTCP RS-JSON open-raid-z open-cpu; do
+            git clone --depth=1 https://github.com/aon-co-jp/$r.git ../$r
+          done
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -69,10 +71,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout sibling path dependencies (open-web-server, RS-SmartTCP)
+      - name: Checkout sibling path dependencies (Cargo.toml uses ../<repo>)
+        shell: bash
         run: |
-          git clone --depth=1 https://github.com/aon-co-jp/open-web-server.git ../open-web-server
-          git clone --depth=1 https://github.com/aon-co-jp/RS-SmartTCP.git ../RS-SmartTCP
+          for r in open-web-server RS-SmartTCP RS-JSON open-raid-z open-cpu; do
+            git clone --depth=1 https://github.com/aon-co-jp/$r.git ../$r
+          done
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
@@ -97,10 +101,12 @@ jobs:
     continue-on-error: true  # Snapdragon (Windows on ARM64); never blocks the release
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout sibling path dependencies (open-web-server, RS-SmartTCP)
+      - name: Checkout sibling path dependencies (Cargo.toml uses ../<repo>)
+        shell: bash
         run: |
-          git clone --depth=1 https://github.com/aon-co-jp/open-web-server.git ../open-web-server
-          git clone --depth=1 https://github.com/aon-co-jp/RS-SmartTCP.git ../RS-SmartTCP
+          for r in open-web-server RS-SmartTCP RS-JSON open-raid-z open-cpu; do
+            git clone --depth=1 https://github.com/aon-co-jp/$r.git ../$r
+          done
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-pc-windows-msvc
