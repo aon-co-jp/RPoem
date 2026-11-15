@@ -124,6 +124,8 @@ impl OcrClient {
         let mut resp = Self::agent(timeout)
             .post(&url)
             .header("content-type", "application/json")
+            // aruaru-llm の受付制御がサイト(呼び出し元)ごとに公平に順番を回すための識別。
+            .header("x-tenant", &tenant_name())
             .send(body.as_bytes())
             .map_err(|e| offline_message(&self.base, &e.to_string()))?;
         let status = resp.status().as_u16();
@@ -288,5 +290,35 @@ impl OcrClient {
             let _ = std::fs::rename(&tmp, &path);
         }
         Ok(bytes)
+    }
+}
+
+
+/// `x-tenant` に入れる呼び出し元の名前。環境変数 `ARUARU_TENANT` を優先し、無ければ実行ファイル名。
+/// aruaru-llm 側が英数字と `.-:_` だけを使うため、それ以外はここで落とす。
+fn tenant_name() -> String {
+    let raw = std::env::var("ARUARU_TENANT").ok().filter(|v| !v.trim().is_empty()).unwrap_or_else(|| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+            .unwrap_or_default()
+    });
+    let s: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '_'))
+        .take(64)
+        .collect();
+    if s.is_empty() { "anonymous".to_string() } else { s }
+}
+
+#[cfg(test)]
+mod tenant_tests {
+    use super::tenant_name;
+
+    #[test]
+    fn tenant_name_is_never_empty_and_is_header_safe() {
+        let t = tenant_name();
+        assert!(!t.is_empty() && t.len() <= 64);
+        assert!(t.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '_')));
     }
 }
