@@ -1416,3 +1416,8 @@ Reading into `serde_json::Value` gives almost no speed-up even with SIMD (188 ms
 - **原因を特定**: aruaru-db のSQLパーサー(`aruaru-query/src/parser.rs` の `parse_insert`)が値を単純に `,` で割り `)` を探すため、JSONの値(`,` や `)` を含む)で「4 columns but 8 values」になる。引用符を考慮した分割へ直す修正と単体テストを作成(WSLの `~/aruaru-db-src`、未コミット/未push、aruaru-query の parser テスト17件成功)。
 - **2026-11-14 結果(完了)**: 修正版 `aruaru-server` を `/opt/open-runo-aruaru-db/aruaru-server` に入れ(専用インスタンスのみ。本番 `aruaru-server`(5433)は無変更)、ゲートウェイの `/etc/open-runo-gateway.env` に `OPEN_RUNO_DB_URL` を設定して再起動。実測: 誤キー401、正キーの書き込み200で `db_commit_id` が非null、`api_keys` が永続化されゲートウェイ再起動後も鍵が有効、JSONの値(`,` `)` `'` を含む)が欠落なく保存されることを読み戻しで確認。3サービスとも稼働。
 - **未了**: (1) aruaru-db の修正はブランチ `fix/insert-quoted-values`(`1590750`)のみで main 未マージ・本番 aruaru-server には未適用。(2) open-web-server は未接続(`OPEN_RUNO_ENDPOINT=http://127.0.0.1:8140` と `OPEN_RUNO_API_KEY` を設定して前面を再起動する必要があり、全サイトに影響するため要承認)。
+
+## 2026-11-15 実プロセスE2E再確認(open-web-server → RPoem appserver)
+`open-web-server`(Connect版)から`e2e_stub_app`(RPoem)へHostルーティングで3回連続 HTTP 200 + `X-Served-By: RPoem-appserver` を確認。
+注意: スタブが登録するテナントは`e2e-rpoem.test`のみ。`domains.toml`のhostを別名(例 shop.test)にするとHost不一致でスタブが接続を閉じ502になる(不具合ではなく試験設定ミス)。`domains.toml`には`db_uri`が必須。
+*Re-verified: 3/3 requests returned 200 with X-Served-By; a 502 appears only if the Host does not match the stub's tenant `e2e-rpoem.test`.*
