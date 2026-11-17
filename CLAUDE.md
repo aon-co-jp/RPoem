@@ -9589,3 +9589,11 @@ RPoem「分身の術」ホスティング(1VPSに1回入れ、全サイトを分
 
 ### English
 The spec, status, open items and the **resume message** for RPoem "bunshin" hosting (install once per VPS, host every site with shadow-clone workers, async and multi-threaded) live in the same-named section at the end of `open-easy-web/CLAUDE.md` and `open-easy-web/PORTING.md`, and in `open-easy-web/docs/RPOEM_BUNSHIN_HOSTING_SPEC.md`. This repository's part: `crates/open-runo-appserver/src/fleet.rs` (`SiteFleet`, feature `fleet`, commit `2b50b3e`, pushed) and `tests/fleet.rs`.
+
+## 2026-11-17 追記: 実プロセス通し確認の完了・再開用メッセージ更新(別アカウントでの再開用) / Real-process E2E done, resume message updated (resume on another account)
+
+### 日本語
+実プロセス通し確認(起動・転送・503上限・crash復帰)は完了。詳細・限界・次にやること・**最新の再開用メッセージ**は、正本の `open-easy-web/CLAUDE.md` と `open-easy-web/PORTING.md` 末尾の同名節にある。このリポジトリの該当部分: `open-runo-appserver` の `SiteFleet`(`fleet.rs`)は、上記の通し確認で実プロセスの起動・crash復帰を確認済み。未了は hyper 転送(`proxy.rs`)と段階3。
+
+### English
+The real-process E2E (start, forward, 503 limit, crash recovery) is done. Details, limits, next steps and the **latest resume message** are in the same-named section at the end of `open-easy-web/CLAUDE.md` and `open-easy-web/PORTING.md`. This repository's part: `SiteFleet` (`fleet.rs`) in `open-runo-appserver` was exercised by the E2E above (real process start, crash recovery). Open: hyper forwarding (`proxy.rs`) and stage 3.
