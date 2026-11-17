@@ -157,12 +157,6 @@ async fn connect_member(member: &MemberConfig) -> Result<Arc<dyn DbBackend>> {
                 crate::mysql::MySqlBackend::connect(&member.url).await?,
             ));
         },
-        #[cfg(feature = "sqlite")]
-        "sqlite" => {
-            return Ok(Arc::new(
-                crate::sqlite::SqliteBackend::connect(&member.url).await?,
-            ));
-        },
         #[cfg(feature = "aruaru")]
         "aruaru-db" | "aruaru" => {
             return Ok(Arc::new(

@@ -13,7 +13,6 @@
 //! | (常時)        | `InMemoryBackend`   | メモリ (テスト / ローカル)           |
 //! | `postgres`   | `PostgresBackend`   | PostgreSQL :5432                   |
 //! | `mysql`      | `MySqlBackend`      | MySQL 8 / MariaDB 11 :3306         |
-//! | `sqlite`     | `SqliteBackend`     | SQLite (file or :memory:)          |
 //! | `aruaru`     | `AruaruDbBackend`   | aruaru-db :5433 (pgwire)           |
 //! | `cockroach`  | `CockroachBackend`  | CockroachDB :26257 (pgwire 互換)   |
 //! | `yugabyte`   | `YugabyteBackend`   | YugabyteDB (pgwire 互換)           |
@@ -28,7 +27,7 @@
 //! | `dual`      | `postgres` + `aruaru` — 標準 DUAL DATABASE    |
 //! | `single-pg` | `postgres` のみ                               |
 //! | `single-my` | `mysql` のみ — WordPress / Redmine 向け       |
-//! | `dev`       | `sqlite` のみ — CI・ローカル開発               |
+//! | `dev`       | (空: ローカル開発は `InMemoryBackend` を使う。SQLiteはCの依存を避けるため廃止、2026-11-18) |
 //! | `full`      | `dual` + `redis` + `clickhouse` — 本番         |
 //! | `cluster`   | `cockroach` + `aruaru` — 分散クラスタ          |
 
@@ -510,82 +509,6 @@ pub mod mysql {
             .fetch_all(&self.pool)
             .await
             .map_err(|e| AppError::Internal(format!("MySQL list: {e}")))?;
-            Ok(rows
-                .into_iter()
-                .map(|(key, value)| Record { key, value })
-                .collect())
-        }
-    }
-}
-
-// ── SQLite ─────────────────────────────────────────────────────────────────────
-
-#[cfg(feature = "sqlite")]
-pub mod sqlite {
-    use super::{AppError, DbBackend, Record, Result};
-    use async_trait::async_trait;
-    use sqlx::SqlitePool;
-
-    #[derive(Debug, Clone)]
-    pub struct SqliteBackend {
-        pool: SqlitePool,
-    }
-    impl SqliteBackend {
-        pub async fn connect(url: &str) -> Result<Self> {
-            let pool = SqlitePool::connect(url)
-                .await
-                .map_err(|e| AppError::Internal(format!("SQLite connect: {e}")))?;
-            tracing::info!(url, "connected to SQLite");
-            Ok(Self { pool })
-        }
-        pub fn pool(&self) -> &SqlitePool {
-            &self.pool
-        }
-    }
-    #[async_trait]
-    impl DbBackend for SqliteBackend {
-        fn backend_name(&self) -> &'static str {
-            "sqlite"
-        }
-        async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
-            sqlx::query(
-                "INSERT INTO kv_store (table_name,key,value) VALUES (?,?,?)
-                 ON CONFLICT(table_name,key) DO UPDATE SET value=excluded.value",
-            )
-            .bind(table)
-            .bind(key)
-            .bind(value)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::Internal(format!("SQLite put: {e}")))?;
-            Ok(())
-        }
-        async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
-            let row: Option<(String,)> =
-                sqlx::query_as("SELECT value FROM kv_store WHERE table_name=? AND key=?")
-                    .bind(table)
-                    .bind(key)
-                    .fetch_optional(&self.pool)
-                    .await
-                    .map_err(|e| AppError::Internal(format!("SQLite get: {e}")))?;
-            Ok(row.map(|(v,)| v))
-        }
-        async fn delete(&self, table: &str, key: &str) -> Result<()> {
-            sqlx::query("DELETE FROM kv_store WHERE table_name=? AND key=?")
-                .bind(table)
-                .bind(key)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| AppError::Internal(format!("SQLite delete: {e}")))?;
-            Ok(())
-        }
-        async fn list(&self, table: &str) -> Result<Vec<Record>> {
-            let rows: Vec<(String, String)> =
-                sqlx::query_as("SELECT key,value FROM kv_store WHERE table_name=? ORDER BY key")
-                    .bind(table)
-                    .fetch_all(&self.pool)
-                    .await
-                    .map_err(|e| AppError::Internal(format!("SQLite list: {e}")))?;
             Ok(rows
                 .into_iter()
                 .map(|(key, value)| Record { key, value })

@@ -43,7 +43,6 @@ default = []
 # ── 個別バックエンド ──────────────────────────────────────────────────────────
 postgres   = ["dep:sqlx", "sqlx/postgres"]  # PostgreSQL :5432
 mysql      = ["dep:sqlx", "sqlx/mysql"]     # MySQL 8 / MariaDB 11 :3306
-sqlite     = ["dep:sqlx", "sqlx/sqlite"]    # SQLite (file or :memory:)
 aruaru     = ["dep:sqlx", "sqlx/postgres"]  # aruaru-db :5433 (pgwire)
 cockroach  = ["dep:sqlx", "sqlx/postgres"]  # CockroachDB (pgwire 互換)
 yugabyte   = ["dep:sqlx", "sqlx/postgres"]  # YugabyteDB (pgwire 互換)
@@ -65,7 +64,7 @@ single-pg  = ["postgres"]
 # シングル MySQL のみ (OpenWordPress / OpenRedmine)
 single-my  = ["mysql"]
 # ローカル開発 / CI
-dev        = ["sqlite"]
+dev        = []
 # 本番フルスタック (DUAL + Redis + ClickHouse)
 full       = ["dual", "redis", "clickhouse"]
 # 分散クラスタ (CockroachDB + aruaru-db)

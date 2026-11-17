@@ -56,7 +56,7 @@ poem-derive = "3.1"
 indexmap = "2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "chrono", "uuid"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "chrono", "uuid"] }
 anyhow = "1.0"
 thiserror = "2.0"
 tracing = "0.1"
