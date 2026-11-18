@@ -119,6 +119,9 @@ impl OcrClient {
         let status = resp.status().as_u16();
         let text = resp
             .body_mut()
+            // フォント(base64で約13MB)を返す OcrFont があるため、ureq 3 の既定(10MB)より上げる。
+            .with_config()
+            .limit(256 * 1024 * 1024)
             .read_to_string()
             .map_err(|e| e.to_string())?;
         if status != 200 {
