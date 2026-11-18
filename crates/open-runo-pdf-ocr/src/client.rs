@@ -1,4 +1,4 @@
-//! `aruaru-llm` の OCR API(Connect: `POST /aruaru_llm.v1.Llm/Ocr` ほか。フォントだけ `/v1/ocr/fonts/:name` の静的配信)の
+//! `aruaru-llm` の OCR API(Connect: `POST /aruaru_llm.v1.Llm/Ocr` ほか。フォントも `OcrFont`)の
 //! HTTP クライアント。ネットワークに届かないときは、オンライン環境が必要である旨を日英で返す。
 
 use crate::model::{OcrLine, Quality};
@@ -58,6 +58,12 @@ struct OcrPageResp {
     lines: Vec<OcrLine>,
 }
 
+#[derive(serde::Deserialize)]
+struct FontResp {
+    sha256: String,
+    data_base64: String,
+}
+
 #[derive(Deserialize)]
 struct OcrResp {
     pages: Vec<OcrPageResp>,
@@ -99,24 +105,6 @@ impl OcrClient {
             ),
             Err(_) => format!("サーバーエラー({status}) / Server error ({status})"),
         }
-    }
-
-    fn get_bytes(&self, path: &str, timeout: Duration) -> Result<Vec<u8>, String> {
-        let url = format!("{}{path}", self.base);
-        let mut resp = Self::agent(timeout)
-            .get(&url)
-            .call()
-            .map_err(|e| offline_message(&self.base, &e.to_string()))?;
-        let status = resp.status().as_u16();
-        let mut buf = Vec::new();
-        resp.body_mut()
-            .as_reader()
-            .read_to_end(&mut buf)
-            .map_err(|e| e.to_string())?;
-        if status != 200 {
-            return Err(Self::read_error(status, &String::from_utf8_lossy(&buf)));
-        }
-        Ok(buf)
     }
 
     fn post_json(&self, path: &str, body: &str, timeout: Duration) -> Result<String, String> {
@@ -278,7 +266,19 @@ impl OcrClient {
                 return Ok(bytes);
             }
         }
-        let bytes = self.get_bytes(&format!("/v1/ocr/fonts/{name}"), Duration::from_secs(1800))?;
+        let body = serde_json::json!({ "name": name }).to_string();
+        let text = self.post_json("/aruaru_llm.v1.Llm/OcrFont", &body, Duration::from_secs(1800))?;
+        let resp: FontResp = sonic_rs::from_str(&text).map_err(|e| format!("invalid font response: {e}"))?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(resp.data_base64.as_bytes())
+            .map_err(|e| format!("invalid font data: {e}"))?;
+        {
+            use sha2::Digest as _;
+            let got: String = sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+            if !got.eq_ignore_ascii_case(&resp.sha256) {
+                return Err(format!("font {name}: sha256 mismatch"));
+            }
+        }
         if bytes.len() < 100_000 {
             return Err(format!("font {name} is unexpectedly small"));
         }
