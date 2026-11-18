@@ -478,3 +478,6 @@ The spec, status, open items and the **resume message** for RPoem "bunshin" host
 The real-process E2E (start, forward, 503 limit, crash recovery) is done. Details, limits, next steps and the **latest resume message** are in the same-named section at the end of `open-easy-web/CLAUDE.md` and `open-easy-web/PORTING.md`. This repository's part: `SiteFleet` (`fleet.rs`) in `open-runo-appserver` was exercised by the E2E above (real process start, crash recovery). Open: hyper forwarding (`proxy.rs`) and stage 3.
 
 > 2026-11-17: 再開用メモは`PORTING.md`末尾を参照 / Resume memo: see the end of `PORTING.md`.
+
+## 2026-11-18 OCRフォント配信のConnect化 / OCR font delivery moved to Connect
+`GET /v1/ocr/fonts/:name` → `POST /aruaru_llm.v1.Llm/OcrFont`。本番未反映・mainへ未マージ。詳細は`PORTING.md`末尾(日英)。 / Production not updated, not merged to main; see the end of `PORTING.md` (JA/EN).
