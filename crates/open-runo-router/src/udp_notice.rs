@@ -8,12 +8,12 @@
 //! のdocコメントが「本番実装ではWriteAheadLog::is_already_processedと
 //! 突き合わせる(今回は未接続 = open-runo側の受信実装スコープ)」と、
 //! まさに本モジュールが埋めるべき場所を名指ししていた。「TCP経路
-//! (`/internal/db/mutate`)だけ実際に繋がっていて、UDP経路は送信側だけ
+//! (`Admin/DbMutate`)だけ実際に繋がっていて、UDP経路は送信側だけ
 //! ある」という、このエコシステムで繰り返し見つかる未接続パターンの
 //! 実例だった。
 //!
 //! **設計方針**: UDPはあくまで「即時通知」であり、正式なコミット確定は
-//! TCP経由の`/internal/db/mutate`(`handlers_hyper::db_mutate_core`)が
+//! TCP経由の`Admin/DbMutate`(`handlers_hyper::db_mutate_core`)が
 //! 引き続き単独で担う。本リスナーは受信した通知を検証・デデュープした
 //! 上で観測用カウンタ(`NoticeStats`)に記録するのみ——advance notice を
 //! 受け取ったからといってここでデータを書き込む・コミットする、という
@@ -71,7 +71,7 @@ pub async fn spawn_listener(
                     tracing::info!(
                         key = %req.idempotency_key.0,
                         target = %req.target,
-                        "udp advance notice received (authoritative commit still via TCP /internal/db/mutate)"
+                        "udp advance notice received (authoritative commit still via TCP Admin/DbMutate)"
                     );
                 },
                 Ok(None) => {
