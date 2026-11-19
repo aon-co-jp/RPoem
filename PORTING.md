@@ -1490,3 +1490,25 @@ The real-process E2E (start, forward, 503 limit, crash recovery) is done. Detail
 
 **2026-11-18 追記(完了)**: aruaru-llm は `ocr-font-deploy`(`b42fc8c`)のビルドで本番へ差し替え済み(旧バイナリ `/root/aruaru-llm/target/release/aruaru-llm.before-font-20261118`)。本番で `OcrFont` 200・旧経路404・`Runtime` 200・3サービスactiveを実測。上の「本番は未反映」「mainへ未マージ」は解消済み(両リポジトリとも`main`へ取り込み、`version-control`の例外追記も戻した)。残りは古い版のPDF変換クライアントへの告知のみ。
 **Update (done)**: aruaru-llm was swapped on the VPS with the `ocr-font-deploy` build (`b42fc8c`; old binary `aruaru-llm.before-font-20261118`). Verified in production: `OcrFont` 200, old route 404, `Runtime` 200, 3 services active. The 'production not updated' / 'not merged' notes above are resolved (both repos merged to `main`, the `version-control` exception entry reverted). Only the notice to old PDF-converter clients remains.
+
+## 2026-11-19 追記: 4姉妹プロジェクト(`open-cosmo`・`RPoem`・`Reaxt`・`RPoRea`)を同時に開発 / The four sister projects are developed together
+
+### 日本語
+これまでの「3姉妹」(`Reaxt`・`RPoRea`・`open-cosmo`)に、土台である **`RPoem`** を加えた **4姉妹**を、常に同時に開発します(ユーザー指示)。役割は次のとおりです。
+
+- **`RPoem`**: 土台(アプリケーションサーバー、Tomcat 相当。管理 API は Connect / gRPC)。
+- **`Reaxt`**: Rust で書く画面とサーバーアクション。Cosmo 向けのサブグラフ入口 `POST /_reaxt/graphql` を持つ。
+- **`RPoRea`**: `RPoem` と `Reaxt` を合わせた土台。Rust 以外からは C ABI(`rporea-ffi`)で使う。
+- **`open-cosmo`**: 複数のサブグラフをまとめるゲートウェイ(WunderGraph Cosmo 相当)。
+
+**決まり**: どれかの接点(Cosmo のサブグラフ形式・manifest・Connect・`x-reaxt`・管理 API)を変えたら、4つの README・CLAUDE・PORTING・POLICY を同じ日に、日本語とネイティブに近い英語で更新する。最新の到達点: ゲートウェイの複数サブグラフ分割、`@key` 結合(入れ子の段にも対応)、Reaxt の `input:` リテラル対応(いずれも push 済み)。未了: `@requires` / `@provides`、変更系の後の再取得、読み取りフィールドを持つ実際の Reaxt サンプルでの通し確認。
+
+### English
+The former "three sisters" (`Reaxt`, `RPoRea`, `open-cosmo`) now include their foundation, **`RPoem`**, making **four sister projects** that are always developed together (user instruction). Their roles:
+
+- **`RPoem`**: the foundation (an application server, comparable to Tomcat; its admin API uses Connect / gRPC).
+- **`Reaxt`**: UI and server actions written in Rust, with a Cosmo-compatible subgraph entry, `POST /_reaxt/graphql`.
+- **`RPoRea`**: the base that joins `RPoem` and `Reaxt`; callers other than Rust use its C ABI (`rporea-ffi`).
+- **`open-cosmo`**: the gateway that combines several subgraphs (comparable to WunderGraph Cosmo).
+
+**Rule**: when an interface between them changes (the Cosmo subgraph format, the manifest, Connect, `x-reaxt`, the admin API), update the README, CLAUDE, PORTING and POLICY of all four on the same day, in Japanese and natural English. Latest state: the gateway splits queries across subgraphs and supports `@key` joins (including nested levels), and Reaxt accepts `input:` literals (all pushed). Open: `@requires` / `@provides`, re-fetching after a mutation, and a real run with a Reaxt example that has read fields.
