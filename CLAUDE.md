@@ -9619,3 +9619,9 @@ The real-process E2E (start, forward, 503 limit, crash recovery) is done. Detail
 - **Production is not updated.** The VPS clone is at `c4c94d0` (before the `28007df` translate-worker change), so do not deploy `origin/main` as is; a branch `ocr-font-deploy` (`b42fc8c`, local worktree `F:\_work\llm-deploy`, unpushed) carries only the font fix on top of `c4c94d0` and was being release-built in WSL (`F:\_workb4.sh`, output `F:\_workb4.out`).
 - Open: (1) swap the build into `/root/aruaru-llm/target/release/aruaru-llm` on the VPS with a backup (keep the old one as `*.before-*`), restart, check `/healthz`, `OcrFont` 200 and old route 404; (2) merge to `main` in aruaru-llm and RPoem; (3) revert the exception entry for `/v1/ocr/fonts/:name` added to `version-control`'s `exceptions.toml` (`879f619`); (4) tell users that old PDF-converter clients can no longer fetch fonts.
 - Notes: never build on the VPS (WSL build, then swap); never print secrets; no new REST (Connect only).
+
+## 2026-11-19 前提(ユーザー指示): 開発中の Rust 版 HTML5+CSS3+TypeScript と一緒に使う想定
+- RPoem・Reaxt・RPoRea は基本 **Rust から**使い、Web サイト・Web アプリ・アプリを作る。開発中の **Rust 版 HTML5+CSS3+TypeScript**(`rhtml5`・`rcss3`・`RS-TypeScript`、JS 実行エンジン `RS-JavaScript` は雛形)と一緒に使う想定で設計・実装する。
+- 方針: HTML5/CSS3 の使用量は極力少なく / tokio と WASM は適材適所 / REST は使わない(Connect・gRPC) / JavaScript の Rust 版も進めるが **TypeScript の Rust 版を優先**。
+- 部品ごとの現状とつなぎ方の想定は `RPoRea/docs/WEB-STACK.md`(2026-11-19 調査: `RS-TypeScript` は本日拡張し Node で実行確認、`rhtml5` はトークナイザのみ、`rcss3` はパーサー+カスケード、`RS-JavaScript` は雛形)。
+- README/CLAUDE/PORTING は更新のたびに 10 か国語で(ネイティブに近い自然さ、IT・Web に詳しい人が一般の人にも親切に)。この追記の10言語版は `RPoRea` の各文書にある。
