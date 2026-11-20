@@ -4007,6 +4007,7 @@ dependencies = [
  "open-runo-sr",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sonic-rs 0.5.10",
  "subsetter",
  "ttf-parser",
