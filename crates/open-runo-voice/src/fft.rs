@@ -37,8 +37,8 @@ impl Fft {
 
     fn run(&self, re: &mut [f64], im: &mut [f64], sign: f64) {
         assert!(re.len() == self.n && im.len() == self.n);
-        for i in 0..self.n {
-            let j = self.rev[i];
+        // `rev`の長さは`n`(コンストラクタで`0..n`から作る)。
+        for (i, &j) in self.rev.iter().enumerate() {
             if j > i {
                 re.swap(i, j);
                 im.swap(i, j);
