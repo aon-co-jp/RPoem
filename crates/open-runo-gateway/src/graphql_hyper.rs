@@ -102,15 +102,16 @@ pub fn graphql_post_handler(
                     "batched requests are not supported; send one operation per request",
                 );
             }
-            let mut request: async_graphql::Request = match open_runo_router::secure_json::from_slice(&body) {
-                Ok(v) => v,
-                Err(e) => {
-                    return gql_error(
-                        hyper::StatusCode::BAD_REQUEST,
-                        format!("invalid request: {e}"),
-                    )
-                },
-            };
+            let mut request: async_graphql::Request =
+                match open_runo_router::secure_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return gql_error(
+                            hyper::StatusCode::BAD_REQUEST,
+                            format!("invalid request: {e}"),
+                        )
+                    },
+                };
 
             let hash = persisted_query_hash(&request);
             let raw = if request.query.trim().is_empty() {

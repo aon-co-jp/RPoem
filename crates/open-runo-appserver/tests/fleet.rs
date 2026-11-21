@@ -56,7 +56,10 @@ async fn supervises_many_sites_recovers_crash_and_stops() {
 
     assert!(
         wait_for(
-            || fleet.list().iter().all(|s| s.health == HealthState::Healthy),
+            || fleet
+                .list()
+                .iter()
+                .all(|s| s.health == HealthState::Healthy),
             15
         )
         .await,
@@ -75,12 +78,16 @@ async fn supervises_many_sites_recovers_crash_and_stops() {
     // /crash を叩くにはportが要るので、別プロセスを使わずkill相当のstop→restartで復帰を検証
     fleet.stop("site3").unwrap();
     assert_eq!(fleet.status("site3").unwrap().health, HealthState::Stopped);
-    assert!(fleet.status("site2").unwrap().health == HealthState::Healthy, "他サイトは無影響");
+    assert!(
+        fleet.status("site2").unwrap().health == HealthState::Healthy,
+        "他サイトは無影響"
+    );
     fleet.restart("site3").unwrap();
     assert!(
         wait_for(
-            || fleet.status("site3").is_some_and(|s| s.health == HealthState::Healthy
-                && s.pid.is_some_and(|p| p != old_pid)),
+            || fleet.status("site3").is_some_and(
+                |s| s.health == HealthState::Healthy && s.pid.is_some_and(|p| p != old_pid)
+            ),
             15
         )
         .await,
@@ -88,6 +95,9 @@ async fn supervises_many_sites_recovers_crash_and_stops() {
     );
 
     assert_eq!(fleet.remove("site5"), Ok(()));
-    assert_eq!(fleet.remove("site5"), Err(FleetError::NotFound("site5".into())));
+    assert_eq!(
+        fleet.remove("site5"),
+        Err(FleetError::NotFound("site5".into()))
+    );
     assert_eq!(fleet.list().len(), 7);
 }

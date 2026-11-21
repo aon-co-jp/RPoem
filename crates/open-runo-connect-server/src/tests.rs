@@ -38,7 +38,13 @@ fn pool() -> DescriptorPool {
         }],
         service: vec![ServiceDescriptorProto {
             name: Some("Demo".into()),
-            method: vec![m("Echo", false), m("Fail", false), m("Ticks", true), m("FailMid", true), m("Forever", true)],
+            method: vec![
+                m("Echo", false),
+                m("Fail", false),
+                m("Ticks", true),
+                m("FailMid", true),
+                m("Forever", true),
+            ],
             ..Default::default()
         }],
         ..Default::default()
@@ -91,7 +97,7 @@ impl Service for Demo {
                 );
                 out.headers.push(("x-served-by".into(), "demo".into()));
                 Ok(out)
-            }
+            },
             "Fail" => Err(Status::new(code::NOT_FOUND, "見つかりません")),
             "Ticks" => Ok(Output::stream(Box::pin(futures::stream::iter(
                 (1..=3).map(|i| {
@@ -119,7 +125,7 @@ impl Service for Demo {
                         Some((echo("t"), g))
                     },
                 ))))
-            }
+            },
             _ => Err(Status::new(code::UNIMPLEMENTED, "no such method")),
         }
     }
@@ -473,13 +479,11 @@ fn frames(proto: Protocol, body: &[u8]) -> (usize, Option<Status>) {
             (Protocol::GrpcWeb, 0x80) => {
                 let (c, m) = core::parse_web_trailers(b);
                 end = Some(Status::new(c, m));
-            }
+            },
             (_, 0x02) => {
-                end = Some(
-                    core::parse_connect_end(b).unwrap_or_else(|| Status::new(code::OK, "")),
-                )
-            }
-            _ => {}
+                end = Some(core::parse_connect_end(b).unwrap_or_else(|| Status::new(code::OK, "")))
+            },
+            _ => {},
         }
         rest = tail;
     }
@@ -519,7 +523,10 @@ async fn mid_stream_error_closes_with_an_end_frame_in_every_protocol() {
         core::encode_frame(&echo("x")),
     ))
     .await;
-    assert_eq!(o.trailers.unwrap()["grpc-status"], code::ABORTED.to_string());
+    assert_eq!(
+        o.trailers.unwrap()["grpc-status"],
+        code::ABORTED.to_string()
+    );
 }
 
 async fn forever(limits: StreamLimits) -> (usize, Status) {
@@ -552,7 +559,7 @@ async fn stream_limits_end_the_stream_with_a_status() {
         max_duration: Some(std::time::Duration::from_millis(100)),
     })
     .await;
-    assert!(n >= 1 && n < 100, "n={n}");
+    assert!((1..100).contains(&n), "n={n}");
     assert_eq!(st.code, code::DEADLINE_EXCEEDED);
 }
 

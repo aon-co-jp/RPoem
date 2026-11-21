@@ -4,7 +4,6 @@
 use crate::model::{OcrLine, Quality};
 use base64::Engine;
 use serde::Deserialize;
-use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
@@ -132,7 +131,13 @@ impl OcrClient {
 
     /// 選べる言語の一覧(日英名・取得済みか・説明)。
     pub fn languages(&self) -> Result<LanguageList, String> {
-        let bytes = self.post_json("/aruaru_llm.v1.Llm/OcrLanguages", "{}", Duration::from_secs(30))?.into_bytes();
+        let bytes = self
+            .post_json(
+                "/aruaru_llm.v1.Llm/OcrLanguages",
+                "{}",
+                Duration::from_secs(30),
+            )?
+            .into_bytes();
         sonic_rs::from_slice(&bytes).map_err(|e| format!("invalid response: {e}"))
     }
 
@@ -140,8 +145,12 @@ impl OcrClient {
     pub fn prepare(&self, languages: &[String], quality: Quality) -> Result<(), String> {
         let body =
             serde_json::json!({ "languages": languages, "quality": quality.as_str() }).to_string();
-        self.post_json("/aruaru_llm.v1.Llm/OcrPrepare", &body, Duration::from_secs(1800))
-            .map(|_| ())
+        self.post_json(
+            "/aruaru_llm.v1.Llm/OcrPrepare",
+            &body,
+            Duration::from_secs(1800),
+        )
+        .map(|_| ())
     }
 
     /// 複数ページの PNG をまとめて OCR する(1回の要求 = サーバーで tesseract 1回起動)。
@@ -182,7 +191,11 @@ impl OcrClient {
             results: Vec<crate::complete::FillResult>,
         }
         let body = serde_json::json!({ "items": items, "return_all": return_all, "use_web": use_web, "lm_candidates": lm_free }).to_string();
-        let text = self.post_json("/aruaru_llm.v1.Llm/OcrFill", &body, Duration::from_secs(1800))?;
+        let text = self.post_json(
+            "/aruaru_llm.v1.Llm/OcrFill",
+            &body,
+            Duration::from_secs(1800),
+        )?;
         let r: Resp =
             sonic_rs::from_str(&text).map_err(|e| format!("invalid fill response: {e}"))?;
         Ok(r.results)
@@ -199,7 +212,11 @@ impl OcrClient {
             results: Vec<crate::complete::ProposeResult>,
         }
         let body = serde_json::json!({ "items": items, "k": k }).to_string();
-        let text = self.post_json("/aruaru_llm.v1.Llm/OcrPropose", &body, Duration::from_secs(900))?;
+        let text = self.post_json(
+            "/aruaru_llm.v1.Llm/OcrPropose",
+            &body,
+            Duration::from_secs(900),
+        )?;
         let r: Resp =
             sonic_rs::from_str(&text).map_err(|e| format!("invalid propose response: {e}"))?;
         Ok(r.results)
@@ -223,7 +240,11 @@ impl OcrClient {
             .map(|m| serde_json::json!({ "map": m }))
             .collect();
         let body = serde_json::json!({ "cells": cells_json, "query": query, "extra_chars": extra_chars, "top": top }).to_string();
-        let text = self.post_json("/aruaru_llm.v1.Llm/OcrGlyphRank", &body, Duration::from_secs(300))?;
+        let text = self.post_json(
+            "/aruaru_llm.v1.Llm/OcrGlyphRank",
+            &body,
+            Duration::from_secs(300),
+        )?;
         let r: Resp =
             sonic_rs::from_str(&text).map_err(|e| format!("invalid glyph-rank response: {e}"))?;
         Ok(r.results)
@@ -235,7 +256,13 @@ impl OcrClient {
         struct Resp {
             chars: String,
         }
-        let bytes = self.post_json("/aruaru_llm.v1.Llm/OcrCharset", &format!("{{\"n\":{n}}}"), Duration::from_secs(300))?.into_bytes();
+        let bytes = self
+            .post_json(
+                "/aruaru_llm.v1.Llm/OcrCharset",
+                &format!("{{\"n\":{n}}}"),
+                Duration::from_secs(300),
+            )?
+            .into_bytes();
         let r: Resp =
             sonic_rs::from_slice(&bytes).map_err(|e| format!("invalid charset response: {e}"))?;
         Ok(r.chars.chars().collect())
@@ -252,7 +279,11 @@ impl OcrClient {
         }
         let body =
             serde_json::json!({ "items": items, "threshold": -8.0, "max_spots": 4 }).to_string();
-        let text = self.post_json("/aruaru_llm.v1.Llm/OcrScan", &body, Duration::from_secs(900))?;
+        let text = self.post_json(
+            "/aruaru_llm.v1.Llm/OcrScan",
+            &body,
+            Duration::from_secs(900),
+        )?;
         let r: Resp =
             sonic_rs::from_str(&text).map_err(|e| format!("invalid scan response: {e}"))?;
         Ok(r.results)
@@ -270,14 +301,22 @@ impl OcrClient {
             }
         }
         let body = serde_json::json!({ "name": name }).to_string();
-        let text = self.post_json("/aruaru_llm.v1.Llm/OcrFont", &body, Duration::from_secs(1800))?;
-        let resp: FontResp = sonic_rs::from_str(&text).map_err(|e| format!("invalid font response: {e}"))?;
+        let text = self.post_json(
+            "/aruaru_llm.v1.Llm/OcrFont",
+            &body,
+            Duration::from_secs(1800),
+        )?;
+        let resp: FontResp =
+            sonic_rs::from_str(&text).map_err(|e| format!("invalid font response: {e}"))?;
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(resp.data_base64.as_bytes())
             .map_err(|e| format!("invalid font data: {e}"))?;
         {
             use sha2::Digest as _;
-            let got: String = sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+            let got: String = sha2::Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
             if !got.eq_ignore_ascii_case(&resp.sha256) {
                 return Err(format!("font {name}: sha256 mismatch"));
             }
@@ -296,22 +335,28 @@ impl OcrClient {
     }
 }
 
-
 /// `x-tenant` に入れる呼び出し元の名前。環境変数 `ARUARU_TENANT` を優先し、無ければ実行ファイル名。
 /// aruaru-llm 側が英数字と `.-:_` だけを使うため、それ以外はここで落とす。
 fn tenant_name() -> String {
-    let raw = std::env::var("ARUARU_TENANT").ok().filter(|v| !v.trim().is_empty()).unwrap_or_else(|| {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
-            .unwrap_or_default()
-    });
+    let raw = std::env::var("ARUARU_TENANT")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+                .unwrap_or_default()
+        });
     let s: String = raw
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '_'))
         .take(64)
         .collect();
-    if s.is_empty() { "anonymous".to_string() } else { s }
+    if s.is_empty() {
+        "anonymous".to_string()
+    } else {
+        s
+    }
 }
 
 #[cfg(test)]
@@ -322,7 +367,9 @@ mod tenant_tests {
     fn tenant_name_is_never_empty_and_is_header_safe() {
         let t = tenant_name();
         assert!(!t.is_empty() && t.len() <= 64);
-        assert!(t.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '_')));
+        assert!(t
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '_')));
     }
 
     #[test]
@@ -336,12 +383,16 @@ mod tenant_tests {
             let n = sock.read(&mut buf).unwrap();
             let req = String::from_utf8_lossy(&buf[..n]).to_ascii_lowercase();
             let body = "{\"languages\":[]}";
-            let _ = write!(sock, "HTTP/1.1 200 OK
+            let _ = write!(
+                sock,
+                "HTTP/1.1 200 OK
 content-type: application/json
 content-length: {}
 connection: close
 
-{body}", body.len());
+{body}",
+                body.len()
+            );
             req
         });
         let c = OcrClient::new(&format!("http://{addr}"));

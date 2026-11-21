@@ -44,11 +44,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await
                 .map_err(|e| format!("aruaru-db migration: {e}"))?;
             Arc::new(AppState::with_db(Arc::new(backend)))
-        }
+        },
         _ => {
-            tracing::warn!("OPEN_RUNO_DB_URL unset: in-memory database (no commit ids, nothing persisted)");
+            tracing::warn!(
+                "OPEN_RUNO_DB_URL unset: in-memory database (no commit ids, nothing persisted)"
+            );
             Arc::new(AppState::new())
-        }
+        },
     };
     let request_metrics = Arc::clone(&state.request_metrics);
     // 管理用 gRPC(`open_runo.admin.v1.Admin`)。通信路は2つ: 素のgRPC(HTTP/2、
@@ -67,7 +69,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| format!("OPEN_RUNO_SERVICE_API_KEY: {e}"))?;
         tracing::info!("service API key registered (registry no longer permissive)");
     } else if config.environment.to_string() == "production" {
-        tracing::warn!("OPEN_RUNO_SERVICE_API_KEY unset: key registry is empty, any x-api-key is accepted");
+        tracing::warn!(
+            "OPEN_RUNO_SERVICE_API_KEY unset: key registry is empty, any x-api-key is accepted"
+        );
     }
     // アプリケーションサーバー層(多重テナントの登録・プロセス管理)のレジストリ。管理操作は
     // 管理用gRPCの`AppServer*`(旧REST `/admin/appserver-*`は2026-11-07に全廃)。
@@ -76,9 +80,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&state),
         Arc::clone(&grpc_guardian),
     )
-    .with_ext(Arc::new(open_runo_gateway::appserver_admin::AppServerAdmin::new(
-        Arc::clone(&appserver_registry),
-    )));
+    .with_ext(Arc::new(
+        open_runo_gateway::appserver_admin::AppServerAdmin::new(Arc::clone(&appserver_registry)),
+    ));
     // GraphQL(Federationの問い合わせ)の本番向け防御(登録済みクエリのみ・深さ/複雑さ上限・
     // イントロスペクション停止・エイリアス/バッチ対策)。`OPEN_RUNO_ENV=production`で既定オン。
     let graphql_sec =

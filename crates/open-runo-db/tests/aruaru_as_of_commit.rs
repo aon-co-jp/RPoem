@@ -14,6 +14,8 @@
 //! a fresh checkout can assume. Run explicitly with:
 //! `cargo test -p open-runo-db --features aruaru --test aruaru_as_of_commit -- --ignored --nocapture`
 
+// 試験の補助関数でも`expect`で失敗を知らせる(clippy.tomlの「テスト内は許可」は#[test]関数の中だけに効くため)。
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 #![cfg(feature = "aruaru")]
 
 use open_runo_db::{migration, DbBackend};

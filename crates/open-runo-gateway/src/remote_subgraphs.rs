@@ -188,11 +188,13 @@ impl RemoteSubgraphs {
         let body = serde_json::json!({ "query": query, "variables": variables, "operationName": operation_name });
         match self.client.post(&url).json(&body).send().await {
             Ok(r) => match r.bytes().await {
-                Ok(bytes) => match open_runo_router::secure_json::from_slice::<serde_json::Value>(&bytes) {
-                    Ok(v) => Routed::Forwarded(v),
-                    Err(e) => Routed::Rejected(format!(
-                        "subgraph `{name}` returned an invalid response: {e}"
-                    )),
+                Ok(bytes) => {
+                    match open_runo_router::secure_json::from_slice::<serde_json::Value>(&bytes) {
+                        Ok(v) => Routed::Forwarded(v),
+                        Err(e) => Routed::Rejected(format!(
+                            "subgraph `{name}` returned an invalid response: {e}"
+                        )),
+                    }
                 },
                 Err(e) => Routed::Rejected(format!(
                     "subgraph `{name}` returned an invalid response: {e}"

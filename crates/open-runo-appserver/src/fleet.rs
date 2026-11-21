@@ -92,7 +92,9 @@ impl SiteFleet {
 
     pub fn stop(&self, id: &str) -> Result<(), FleetError> {
         let mut g = self.sites.lock().expect("fleet lock poisoned");
-        let e = g.get_mut(id).ok_or_else(|| FleetError::NotFound(id.into()))?;
+        let e = g
+            .get_mut(id)
+            .ok_or_else(|| FleetError::NotFound(id.into()))?;
         e.stopped = true;
         e.supervisor.stop();
         e.health = HealthState::Stopped;
@@ -102,7 +104,9 @@ impl SiteFleet {
     /// 停止・GaveUpからの再挑戦。
     pub fn restart(&self, id: &str) -> Result<(), FleetError> {
         let mut g = self.sites.lock().expect("fleet lock poisoned");
-        let e = g.get_mut(id).ok_or_else(|| FleetError::NotFound(id.into()))?;
+        let e = g
+            .get_mut(id)
+            .ok_or_else(|| FleetError::NotFound(id.into()))?;
         e.supervisor.reset();
         e.stopped = false;
         e.health = HealthState::Starting;
@@ -160,14 +164,23 @@ async fn run(sites: Arc<Mutex<HashMap<String, Entry>>>, poll: Duration) {
         // 2) ヘルスチェックを全サイト並行に実行(遅いサイトが他を止めない)。
         let mut set = tokio::task::JoinSet::new();
         for (id, port, path) in to_check {
-            set.spawn(async move { (id, http_health_check(port, &path, Duration::from_secs(2)).await) });
+            set.spawn(async move {
+                (
+                    id,
+                    http_health_check(port, &path, Duration::from_secs(2)).await,
+                )
+            });
         }
         while let Some(Ok((id, ok))) = set.join_next().await {
             let mut g = sites.lock().expect("fleet lock poisoned");
             if let Some(e) = g.get_mut(&id) {
                 // 検査中にstop/restartされていたら上書きしない。
                 if !e.stopped {
-                    e.health = if ok { HealthState::Healthy } else { HealthState::Unhealthy };
+                    e.health = if ok {
+                        HealthState::Healthy
+                    } else {
+                        HealthState::Unhealthy
+                    };
                 }
             }
         }
@@ -180,7 +193,8 @@ async fn run(sites: Arc<Mutex<HashMap<String, Entry>>>, poll: Duration) {
 async fn http_health_check(port: u16, path: &str, timeout: Duration) -> bool {
     let fut = async {
         let mut s = TcpStream::connect(("127.0.0.1", port)).await.ok()?;
-        let req = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+        let req =
+            format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
         s.write_all(req.as_bytes()).await.ok()?;
         let mut buf = [0u8; 64];
         let n = s.read(&mut buf).await.ok()?;
