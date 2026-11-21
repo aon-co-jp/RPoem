@@ -1,3 +1,3 @@
 source: aon-co-jp/RPoem
-commit: 0a3a6276fa6be58ffd70d692dc33d2f71105e881
-updated: 2026-11-20T23:16:46Z
+commit: e557f2090f81ccc7c25f16b5c8812ed747d21c0d
+updated: 2026-11-21T01:59:46Z
