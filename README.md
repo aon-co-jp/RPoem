@@ -1179,3 +1179,55 @@ A execução agendada do `docs-latest` (evento `schedule`) teve sucesso às 21:0
 - 2026-11-23 追記: security-audit が RUSTSEC-2026-0592(`url` 2.5.8 の `blob:` URL でのスタック溢れ)で失敗していたため、`url` を 2.5.9 へ更新しました(`cargo check --locked --workspace` 成功)。`atomic-polyfill` の警告(RUSTSEC-2023-0089、メンテナンス終了。上流の推奨は `portable-atomic`)は、`rstar` 0.9.3 → `heapless` 0.7.17 経由で `Cargo.lock` にだけ載っており(`cargo tree` には出ない=現在のビルドでは使われない)、警告のみで失敗にはなりません。親の更新待ちで未対応です。
 
 - 2026-11-23 update: security-audit was failing on RUSTSEC-2026-0592 (stack overflow in `url` 2.5.8 on nested `blob:` URLs), so `url` was updated to 2.5.9 (`cargo check --locked --workspace` passes). The `atomic-polyfill` warning (RUSTSEC-2023-0089, unmaintained; upstream recommends `portable-atomic`) appears only in `Cargo.lock`, through `rstar` 0.9.3 -> `heapless` 0.7.17 (it does not show in `cargo tree`, so the current build does not use it); it is a warning, not a failure, and waits on an update of the parent crate.
+
+## 2026-11-25 現況・未了 / Status and open items
+
+*日本語・English が基本、ほかの言語は AI 翻訳(ネイティブ確認前)。 / Japanese and English are the base; other languages are AI-translated, not native-checked.*
+
+### 日本語
+
+現状: Rust 製の GraphQL Federation の基盤(Tomcat 相当のアプリサーバー側)。最近は url を 2.5.9 へ上げて脆弱性(RUSTSEC-2026-0592)を直し、atomic-polyfill の警告の経路と扱いを記録した。CI の品質ゲートは通っている。残り: Mac・iPhone の実機での確認(ここには実機がありません)。翻訳: AI 翻訳(ja/en 以外)、ネイティブの確認はまだです。
+
+### English
+
+Status: the Rust GraphQL Federation foundation (the application-server side, Tomcat-like). Recently url was raised to 2.5.9 to fix RUSTSEC-2026-0592, and the path and handling of the atomic-polyfill warning were documented. The CI quality gate passes. Open: checks on a real Mac and iPhone (no such devices here). Translations: AI-translated (other than ja/en), not yet checked by native speakers.
+
+### 简体中文
+
+现状:基于 Rust 的 GraphQL Federation 基础平台(相当于 Tomcat 的应用服务器一侧)。最近把 url 升级到 2.5.9 以修复 RUSTSEC-2026-0592,并记录了 atomic-polyfill 警告的来源与处理方式。CI 质量检查已通过。待办:在真实的 Mac 和 iPhone 上验证(这里没有这些设备)。翻译:由 AI 翻译,尚未经母语者确认。
+
+### 繁體中文
+
+現況:基於 Rust 的 GraphQL Federation 基礎平台(相當於 Tomcat 的應用伺服器一側)。最近把 url 升級到 2.5.9 以修補 RUSTSEC-2026-0592,並記錄了 atomic-polyfill 警告的來源與處理方式。CI 品質檢查已通過。待辦:在實體 Mac 和 iPhone 上驗證(這裡沒有這些裝置)。翻譯:由 AI 翻譯,尚未經母語人士確認。
+
+### 한국어
+
+현황: Rust로 만든 GraphQL Federation 기반(Tomcat에 해당하는 애플리케이션 서버 쪽)입니다. 최근 url을 2.5.9로 올려 RUSTSEC-2026-0592를 고쳤고, atomic-polyfill 경고의 경로와 처리 방침을 기록했습니다. CI 품질 검사는 통과합니다. 남은 일: 실제 Mac과 iPhone에서의 확인(여기에는 해당 기기가 없습니다). 번역: AI 번역이며 원어민의 확인은 아직 받지 않았습니다.
+
+### Deutsch
+
+Stand: die Rust-Grundlage für GraphQL Federation (die Anwendungsserver-Seite, vergleichbar mit Tomcat). Zuletzt wurde url auf 2.5.9 angehoben (RUSTSEC-2026-0592) und der Weg samt Umgang mit der atomic-polyfill-Warnung dokumentiert. Das CI-Qualitätstor besteht. Offen: Prüfung auf einem echten Mac und iPhone (solche Geräte haben wir hier nicht). Übersetzungen: KI-übersetzt, noch nicht von Muttersprachlern geprüft.
+
+### Français
+
+État : la base Rust de GraphQL Federation (côté serveur d'applications, comparable à Tomcat). Récemment, url est passé en 2.5.9 pour corriger RUSTSEC-2026-0592, et l'origine ainsi que le traitement de l'avertissement atomic-polyfill ont été documentés. Le contrôle qualité de la CI passe. Reste à faire : vérifier sur un vrai Mac et un vrai iPhone (nous n'avons pas ces appareils ici). Traductions : faites par IA, pas encore relues par des locuteurs natifs.
+
+### Español
+
+Estado: la base en Rust de GraphQL Federation (el lado del servidor de aplicaciones, similar a Tomcat). Hace poco se subió url a 2.5.9 para corregir RUSTSEC-2026-0592 y se documentó el origen y el tratamiento de la advertencia de atomic-polyfill. La puerta de calidad de la CI pasa. Pendiente: comprobar en un Mac y un iPhone reales (aquí no tenemos esos dispositivos). Traducciones: hechas por IA, aún sin revisión de hablantes nativos.
+
+### Português
+
+Situação: a base em Rust do GraphQL Federation (o lado do servidor de aplicações, semelhante ao Tomcat). Recentemente o url foi atualizado para 2.5.9 para corrigir o RUSTSEC-2026-0592, e a origem e o tratamento do aviso do atomic-polyfill foram documentados. O controle de qualidade da CI passa. Pendente: verificar em um Mac e um iPhone de verdade (não temos esses aparelhos aqui). Traduções: feitas por IA, ainda não revisadas por falantes nativos.
+
+### Русский
+
+Состояние: основа GraphQL Federation на Rust (сторона сервера приложений, аналог Tomcat). Недавно url обновлён до 2.5.9 (исправление RUSTSEC-2026-0592), а путь и обработка предупреждения atomic-polyfill задокументированы. Проверка качества в CI проходит. Осталось: проверка на настоящих Mac и iPhone (таких устройств у нас здесь нет). Переводы: выполнены ИИ, носители языка их пока не проверяли.
+
+### العربية
+
+الوضع: الأساس المبني بلغة Rust لـ GraphQL Federation (جانب خادم التطبيقات، شبيه بـ Tomcat). رُفع مؤخرًا url إلى 2.5.9 لإصلاح RUSTSEC-2026-0592، ووُثّق مصدر تحذير atomic-polyfill وطريقة التعامل معه. تجتاز بوابة الجودة في CI. المتبقي: التحقق على جهازَي Mac وiPhone حقيقيين (لا تتوفر لدينا هذه الأجهزة هنا). الترجمات: أنجزها الذكاء الاصطناعي ولم يراجعها بعدُ متحدثون أصليون.
+
+### فارسی
+
+وضعیت: بنیان GraphQL Federation به زبان Rust (سمت سرور برنامه، شبیه Tomcat). اخیراً url به ۲٫۵٫۹ ارتقا یافت تا RUSTSEC-2026-0592 رفع شود و مسیر و نحوهٔ برخورد با هشدار atomic-polyfill مستند شد. دروازهٔ کیفیت CI با موفقیت عبور می‌کند. باقی‌مانده: بررسی روی Mac و iPhone واقعی (این دستگاه‌ها را اینجا نداریم). ترجمه‌ها: با هوش مصنوعی انجام شده و هنوز گویشوران بومی آن‌ها را بررسی نکرده‌اند.
