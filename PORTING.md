@@ -2192,3 +2192,13 @@ A execução agendada do `docs-latest` (evento `schedule`) teve sucesso às 21:0
 - 2026-11-23 追記: security-audit が RUSTSEC-2026-0592(`url` 2.5.8 の `blob:` URL でのスタック溢れ)で失敗していたため、`url` を 2.5.9 へ更新しました(`cargo check --locked --workspace` 成功)。`atomic-polyfill` の警告(RUSTSEC-2023-0089、メンテナンス終了。上流の推奨は `portable-atomic`)は、`rstar` 0.9.3 → `heapless` 0.7.17 経由で `Cargo.lock` にだけ載っており(`cargo tree` には出ない=現在のビルドでは使われない)、警告のみで失敗にはなりません。親の更新待ちで未対応です。
 
 - 2026-11-23 update: security-audit was failing on RUSTSEC-2026-0592 (stack overflow in `url` 2.5.8 on nested `blob:` URLs), so `url` was updated to 2.5.9 (`cargo check --locked --workspace` passes). The `atomic-polyfill` warning (RUSTSEC-2023-0089, unmaintained; upstream recommends `portable-atomic`) appears only in `Cargo.lock`, through `rstar` 0.9.3 -> `heapless` 0.7.17 (it does not show in `cargo tree`, so the current build does not use it); it is a warning, not a failure, and waits on an update of the parent crate.
+
+## 2026-11-25 現況・未了 / Status and open items
+
+### 日本語
+
+現状: Rust 製の GraphQL Federation の基盤(Tomcat 相当のアプリサーバー側)。最近は url を 2.5.9 へ上げて脆弱性(RUSTSEC-2026-0592)を直し、atomic-polyfill の警告の経路と扱いを記録した。CI の品質ゲートは通っている。残り: Mac・iPhone の実機での確認(ここには実機がありません)。翻訳: AI 翻訳(ja/en 以外)、ネイティブの確認はまだです。
+
+### English
+
+Status: the Rust GraphQL Federation foundation (the application-server side, Tomcat-like). Recently url was raised to 2.5.9 to fix RUSTSEC-2026-0592, and the path and handling of the atomic-polyfill warning were documented. The CI quality gate passes. Open: checks on a real Mac and iPhone (no such devices here). Translations: AI-translated (other than ja/en), not yet checked by native speakers.
