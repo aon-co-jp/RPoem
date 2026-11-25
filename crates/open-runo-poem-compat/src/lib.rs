@@ -317,6 +317,11 @@ impl MethodRouter {
         self.handlers.push((Method::DELETE, handler));
         self
     }
+    /// 2026-11-25新設(2RPoReaのPHP/Perl変換でPATCHルートを出すため)。
+    pub fn patch(mut self, handler: Handler) -> Self {
+        self.handlers.push((Method::PATCH, handler));
+        self
+    }
     /// 2026-08-24新設(open-english側の実用性向上要望——多くのHTTP
     /// クライアント/ヘルスチェックツールが`HEAD`を使うが、従来この
     /// シムには`HEAD`を登録する手段が無かった)。poemの
@@ -340,6 +345,10 @@ pub fn put(handler: Handler) -> MethodRouter {
 }
 pub fn delete(handler: Handler) -> MethodRouter {
     MethodRouter::single(Method::DELETE, handler)
+}
+/// poemの`patch(handler)`相当(2026-11-25新設)。
+pub fn patch(handler: Handler) -> MethodRouter {
+    MethodRouter::single(Method::PATCH, handler)
 }
 /// poemの`head(handler)`相当(2026-08-24新設、`MethodRouter::head`参照)。
 pub fn head(handler: Handler) -> MethodRouter {
@@ -569,6 +578,31 @@ mod tests {
         assert_eq!(get_resp.status(), SC::OK);
         let get_body = get_resp.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(&get_body[..], b"body");
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn patch_method_dispatches_over_real_tcp() {
+        let app = Route::new()
+            .at(
+                "/p",
+                get(handler_fn(|_req, _p| async {
+                    hyper_compat::empty_status(SC::OK)
+                }))
+                .patch(handler_fn(|_req, _p| async {
+                    hyper_compat::empty_status(SC::ACCEPTED)
+                })),
+            )
+            .at(
+                "/q",
+                patch(handler_fn(|_req, _p| async {
+                    hyper_compat::empty_status(SC::CREATED)
+                })),
+            );
+        let (addr, handle) = spawn(app).await;
+        assert_eq!(send(addr, Method::PATCH, "/p").await.status(), SC::ACCEPTED);
+        assert_eq!(send(addr, Method::GET, "/p").await.status(), SC::OK);
+        assert_eq!(send(addr, Method::PATCH, "/q").await.status(), SC::CREATED);
         handle.abort();
     }
 
