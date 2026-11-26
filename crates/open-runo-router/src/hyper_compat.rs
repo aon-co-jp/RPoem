@@ -1122,7 +1122,7 @@ pub async fn shutdown_signal() {
 // for why it's tracked as a distinct follow-up rather than bundled here.
 #[cfg(feature = "tls")]
 pub mod tls {
-    use super::{Request, Response, Router};
+    use super::{PeerAddr, Request, Response, Router};
     use std::io;
     use std::path::Path;
     use std::sync::Arc;
