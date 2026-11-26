@@ -100,7 +100,7 @@ fn js_err(e: JsValue) -> Status {
 }
 
 impl Client {
-    /// `service`は完全修飾名(例: `open_runo.admin.v1.Admin`)。同一オリジンのパスに対して呼ぶ。
+    /// `service`は完全修飾名(例: `open_runo.admin.Admin`)。同一オリジンのパスに対して呼ぶ。
     pub fn new(service: &str) -> Self {
         Self::with_base(service, "")
     }

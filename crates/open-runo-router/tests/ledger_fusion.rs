@@ -139,7 +139,7 @@ async fn ledger_commit_against_a_real_rpoem_server_actually_persists_the_mutatio
     let admin = open_runo_router::grpc_admin::AdminGrpc::new(Arc::clone(&state), guardian);
     let router = build_hyper_app(Arc::clone(&state), 10_000, 60).await.route(
         hyper::Method::POST,
-        "/open_runo.admin.v1.Admin/:method",
+        "/open_runo.admin.Admin/:method",
         open_runo_router::grpc_admin::browser_handler(admin),
     );
     std::env::set_var("OPEN_RUNO_API_KEY", &api_key);

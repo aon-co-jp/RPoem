@@ -1,4 +1,4 @@
-//! connect-rust のブラウザ(WASM)クライアントで、RPoem の `open_runo.admin.v1.Admin` を
+//! connect-rust のブラウザ(WASM)クライアントで、RPoem の `open_runo.admin.Admin` を
 //! Connect プロトコルで呼ぶ実機確認用プローブ。`transport.rs` は connect-rust の
 //! `examples/wasm-client` のものをそのまま使う(fetch ベース、本文は一括読み込み)。
 

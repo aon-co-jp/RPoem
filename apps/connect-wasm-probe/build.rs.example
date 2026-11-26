@@ -3,7 +3,7 @@
 fn main() {
     connectrpc_build::Config::new()
         .descriptor_set("admin.fds")
-        .files(&["open_runo/admin/v1/admin.proto"])
+        .files(&["open_runo/admin/admin.proto"])
         .include_file("_connectrpc.rs")
         .compile()
         .expect("failed to compile protos");
