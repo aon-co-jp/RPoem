@@ -35,6 +35,11 @@ use std::sync::Arc;
 /// (`sse_response`) can share a single `Response` type.
 pub type Body = BoxBody<Bytes, Infallible>;
 pub type Request = HyperRequest<Incoming>;
+
+/// 接続元(TCPの相手)のアドレス。`serve` 系が各要求の `extensions` に入れる。
+/// 逆プロキシの背後では、これはプロキシ自身のアドレスになる。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PeerAddr(pub std::net::SocketAddr);
 pub type Response = HyperResponse<Body>;
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub type Handler = Arc<dyn Fn(Request, Params) -> BoxFuture<Response> + Send + Sync>;
@@ -1021,13 +1026,14 @@ pub async fn serve_with_shutdown(
                 _ = &mut shutdown => break,
                 res = listener.accept() => res,
             };
-            let (stream, _) = match accept_result {
+            let (stream, peer) = match accept_result {
                 Ok(pair) => pair,
                 Err(_) => continue,
             };
             let io = TokioIo::new(stream);
             let router = Arc::clone(&router);
-            let service = hyper::service::service_fn(move |req: Request| {
+            let service = hyper::service::service_fn(move |mut req: Request| {
+                req.extensions_mut().insert(PeerAddr(peer));
                 let router = Arc::clone(&router);
                 async move { Ok::<_, std::convert::Infallible>(router.dispatch(req).await) }
             });
@@ -1181,7 +1187,7 @@ pub mod tls {
 
         let handle = tokio::spawn(async move {
             loop {
-                let (stream, _) = match listener.accept().await {
+                let (stream, peer) = match listener.accept().await {
                     Ok(pair) => pair,
                     Err(_) => continue,
                 };
@@ -1196,7 +1202,8 @@ pub mod tls {
                         Err(_) => return,
                     };
                     let io = TokioIo::new(tls_stream);
-                    let service = hyper::service::service_fn(move |req: Request| {
+                    let service = hyper::service::service_fn(move |mut req: Request| {
+                        req.extensions_mut().insert(PeerAddr(peer));
                         let router = Arc::clone(&router);
                         async move {
                             Ok::<Response, std::convert::Infallible>(router.dispatch(req).await)

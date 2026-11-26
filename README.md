@@ -1231,3 +1231,7 @@ Situação: a base em Rust do GraphQL Federation (o lado do servidor de aplicaç
 ### فارسی
 
 وضعیت: بنیان GraphQL Federation به زبان Rust (سمت سرور برنامه، شبیه Tomcat). اخیراً url به ۲٫۵٫۹ ارتقا یافت تا RUSTSEC-2026-0592 رفع شود و مسیر و نحوهٔ برخورد با هشدار atomic-polyfill مستند شد. دروازهٔ کیفیت CI با موفقیت عبور می‌کند. باقی‌مانده: بررسی روی Mac و iPhone واقعی (این دستگاه‌ها را اینجا نداریم). ترجمه‌ها: با هوش مصنوعی انجام شده و هنوز گویشوران بومی آن‌ها را بررسی نکرده‌اند.
+
+## 2026-11-26 追記: `hyper_compat::PeerAddr` / `PeerAddr` in requests
+- **日本語**: `hyper_compat::serve`(平文・TLS)が、接続元の TCP アドレスを各要求の `extensions` に `PeerAddr` として入れるようにしました。RPoRea の `behind_proxy`(信頼プロキシの判定)がこれを使います。`open-runo-router` 試験176件成功。
+- **English**: `hyper_compat::serve` (plain and TLS) now puts the TCP peer address into each request's `extensions` as `PeerAddr`. RPoRea's `behind_proxy` (trusted-proxy resolution) uses it. `open-runo-router` tests: 176 pass.
