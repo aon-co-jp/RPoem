@@ -683,3 +683,7 @@ A execução agendada do `docs-latest` (evento `schedule`) teve sucesso às 21:0
 ### فارسی
 **کاری که انجام دادیم:** CI (بررسی‌های خودکار GitHub) در RPoem و open-cosmo در بیش از ۶۰ اجرای پیاپی شکست خورده بود. علت، خطا در برنامه نبود؛ بخش‌هایی از کد قواعد نگارش (قالب‌بندی `rustfmt` و هشدارهای `clippy`) را رعایت نمی‌کردند. کد را قالب‌بندی کردیم، هشدارها را یکی‌یکی رفع کردیم و مطمئن شدیم که CI اکنون موفق است. همهٔ آزمون‌ها موفق‌اند: ۵۸۹ آزمون در RPoem و ۴۹۵ آزمون در open-cosmo. رفتار برنامه تغییری نکرده است. CI از نسخهٔ جدیدتری از Rust (۱.۱۰۰) نسبت به این رایانه (۱.۹۸) استفاده می‌کند و به همین دلیل یک هشدار تازه نشان داد؛ برای بررسی، همان نسخه را روی رایانهٔ خودمان نصب کردیم. همچنین گامی به CI افزودیم که پیش از اجرای آزمون‌ها، سرورهای آزمایشیِ موردنیاز آن‌ها را می‌سازد. فایل `clippy.toml` در open-cosmo اکنون با RPoem یکسان است: نسخهٔ پشتیبانی‌شدهٔ Rust (۱.۸۸) و تنظیمی که استفاده از `unwrap` را درون آزمون‌ها مجاز می‌کند.
 **آنچه مانده است:** فقط بررسی روی Mac و iPhone واقعی (این دستگاه‌ها را اینجا نداریم).
+
+## 2026-11-26 追記: `hyper_compat::PeerAddr` / `PeerAddr` in requests
+- **日本語**: `hyper_compat::serve`(平文・TLS)が、接続元の TCP アドレスを各要求の `extensions` に `PeerAddr` として入れるようにしました。RPoRea の `behind_proxy`(信頼プロキシの判定)がこれを使います。`open-runo-router` 試験176件成功。
+- **English**: `hyper_compat::serve` (plain and TLS) now puts the TCP peer address into each request's `extensions` as `PeerAddr`. RPoRea's `behind_proxy` (trusted-proxy resolution) uses it. `open-runo-router` tests: 176 pass.

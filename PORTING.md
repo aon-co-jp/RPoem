@@ -2206,3 +2206,7 @@ Status: the Rust GraphQL Federation foundation (the application-server side, Tom
 ## 2026-11-25 url 2.5.9・jsonschema 0.63(version-control通知)
 - 日本語: `apps/desktop-tray` の `url` を 2.5.9 へ(RUSTSEC-2026-0592)、`jsonschema` を 0.63 へ更新し、`cargo test --workspace` 成功。**tao 0.38 は見送り**: 最新の tray-icon 0.26.1 が gtk 0.18 系(libappindicator)を使い、tao 0.38 の gtk 0.19 と同じネイティブライブラリ `gtk-3` を二重にリンクするため解決できない。tray-icon が tao 0.38 に追従したら上げる。
 - English: bumped `url` in `apps/desktop-tray` to 2.5.9 (RUSTSEC-2026-0592) and `jsonschema` to 0.63; `cargo test --workspace` passes. **tao 0.38 is deferred**: the latest tray-icon 0.26.1 uses gtk 0.18 (libappindicator) while tao 0.38 uses gtk 0.19, and both link the native `gtk-3` library, so cargo cannot resolve them together. Bump once tray-icon follows tao 0.38.
+
+## 2026-11-26 追記: `hyper_compat::PeerAddr` / `PeerAddr` in requests
+- **日本語**: `hyper_compat::serve`(平文・TLS)が、接続元の TCP アドレスを各要求の `extensions` に `PeerAddr` として入れるようにしました。RPoRea の `behind_proxy`(信頼プロキシの判定)がこれを使います。`open-runo-router` 試験176件成功。
+- **English**: `hyper_compat::serve` (plain and TLS) now puts the TCP peer address into each request's `extensions` as `PeerAddr`. RPoRea's `behind_proxy` (trusted-proxy resolution) uses it. `open-runo-router` tests: 176 pass.
