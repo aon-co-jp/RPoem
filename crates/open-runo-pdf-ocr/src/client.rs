@@ -1,4 +1,4 @@
-//! `aruaru-llm` の OCR API(Connect: `POST /aruaru_llm.v1.Llm/Ocr` ほか。フォントも `OcrFont`)の
+//! `aruaru-llm` の OCR API(Connect: `POST /aruaru_llm.Llm/Ocr` ほか。フォントも `OcrFont`)の
 //! HTTP クライアント。ネットワークに届かないときは、オンライン環境が必要である旨を日英で返す。
 
 use crate::model::{OcrLine, Quality};
@@ -133,7 +133,7 @@ impl OcrClient {
     pub fn languages(&self) -> Result<LanguageList, String> {
         let bytes = self
             .post_json(
-                "/aruaru_llm.v1.Llm/OcrLanguages",
+                "/aruaru_llm.Llm/OcrLanguages",
                 "{}",
                 Duration::from_secs(30),
             )?
@@ -146,7 +146,7 @@ impl OcrClient {
         let body =
             serde_json::json!({ "languages": languages, "quality": quality.as_str() }).to_string();
         self.post_json(
-            "/aruaru_llm.v1.Llm/OcrPrepare",
+            "/aruaru_llm.Llm/OcrPrepare",
             &body,
             Duration::from_secs(1800),
         )
@@ -164,7 +164,7 @@ impl OcrClient {
         let engine = base64::engine::general_purpose::STANDARD;
         let images: Vec<String> = pngs.iter().map(|p| engine.encode(p)).collect();
         let body = serde_json::json!({ "images_base64": images, "languages": languages, "quality": quality.as_str() }).to_string();
-        let text = self.post_json("/aruaru_llm.v1.Llm/Ocr", &body, Duration::from_secs(1800))?;
+        let text = self.post_json("/aruaru_llm.Llm/Ocr", &body, Duration::from_secs(1800))?;
         let resp: OcrResp =
             sonic_rs::from_str(&text).map_err(|e| format!("invalid OCR response: {e}"))?;
         if resp.pages.len() != pngs.len() {
@@ -192,7 +192,7 @@ impl OcrClient {
         }
         let body = serde_json::json!({ "items": items, "return_all": return_all, "use_web": use_web, "lm_candidates": lm_free }).to_string();
         let text = self.post_json(
-            "/aruaru_llm.v1.Llm/OcrFill",
+            "/aruaru_llm.Llm/OcrFill",
             &body,
             Duration::from_secs(1800),
         )?;
@@ -213,7 +213,7 @@ impl OcrClient {
         }
         let body = serde_json::json!({ "items": items, "k": k }).to_string();
         let text = self.post_json(
-            "/aruaru_llm.v1.Llm/OcrPropose",
+            "/aruaru_llm.Llm/OcrPropose",
             &body,
             Duration::from_secs(900),
         )?;
@@ -241,7 +241,7 @@ impl OcrClient {
             .collect();
         let body = serde_json::json!({ "cells": cells_json, "query": query, "extra_chars": extra_chars, "top": top }).to_string();
         let text = self.post_json(
-            "/aruaru_llm.v1.Llm/OcrGlyphRank",
+            "/aruaru_llm.Llm/OcrGlyphRank",
             &body,
             Duration::from_secs(300),
         )?;
@@ -258,7 +258,7 @@ impl OcrClient {
         }
         let bytes = self
             .post_json(
-                "/aruaru_llm.v1.Llm/OcrCharset",
+                "/aruaru_llm.Llm/OcrCharset",
                 &format!("{{\"n\":{n}}}"),
                 Duration::from_secs(300),
             )?
@@ -280,7 +280,7 @@ impl OcrClient {
         let body =
             serde_json::json!({ "items": items, "threshold": -8.0, "max_spots": 4 }).to_string();
         let text = self.post_json(
-            "/aruaru_llm.v1.Llm/OcrScan",
+            "/aruaru_llm.Llm/OcrScan",
             &body,
             Duration::from_secs(900),
         )?;
@@ -302,7 +302,7 @@ impl OcrClient {
         }
         let body = serde_json::json!({ "name": name }).to_string();
         let text = self.post_json(
-            "/aruaru_llm.v1.Llm/OcrFont",
+            "/aruaru_llm.Llm/OcrFont",
             &body,
             Duration::from_secs(1800),
         )?;
