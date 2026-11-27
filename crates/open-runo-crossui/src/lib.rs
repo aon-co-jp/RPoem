@@ -55,7 +55,7 @@ pub struct Bridge {
 impl Default for Bridge {
     fn default() -> Self {
         Self {
-            key_path: "/aruaru_ime.v1.Ime/Key".into(),
+            key_path: "/aruaru_ime.Ime/Key".into(),
             health_path: "/health".into(),
             input_id: "t".into(),
             preedit_id: "pre".into(),
