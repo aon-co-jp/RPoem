@@ -1392,14 +1392,29 @@ fn parse_pattern(pattern: &str) -> Vec<Segment> {
 
 /// Minimal method+path router. Not a general-purpose crate replacement —
 /// just enough to dispatch open-runo-router's fixed endpoint set.
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone)]
 pub struct Router {
     routes: Vec<Route>,
+    /// Handler for `GET`/`HEAD` requests that no route matched (static files, catch-all pages).
+    fallback: Option<Handler>,
+}
+
+impl std::fmt::Debug for Router {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Router").field("routes", &self.routes).field("fallback", &self.fallback.is_some()).finish()
+    }
 }
 
 impl Router {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Register a handler for `GET`/`HEAD` requests that match no route (for example static
+    /// files or a catch-all page). Other methods still get the router's own 404/405.
+    pub fn fallback(mut self, handler: Handler) -> Self {
+        self.fallback = Some(handler);
+        self
     }
 
     pub fn route(mut self, method: Method, pattern: &str, handler: Handler) -> Self {
@@ -1501,6 +1516,13 @@ impl Router {
             }
         }
 
+        if let Some(fb) = &self.fallback {
+            if method == Method::GET || method == Method::HEAD {
+                let handler = Arc::clone(fb);
+                return handler(req, Params(HashMap::new()));
+            }
+        }
+
         // Path matched by a different method → 405; otherwise 404.
         let path_exists = self
             .routes
@@ -1523,6 +1545,19 @@ mod tests {
 
     fn h(status: StatusCode) -> Handler {
         Arc::new(move |_req, _params| Box::pin(async move { empty_status(status) }))
+    }
+
+    #[tokio::test]
+    async fn fallback_handles_unmatched_get_only() {
+        let r = Router::new()
+            .route(Method::GET, "/a", h(StatusCode::OK))
+            .fallback(h(StatusCode::IM_A_TEAPOT));
+        let (addr, _handle) = serve(r, "127.0.0.1:0".parse().unwrap()).await.expect("bind");
+        let c = reqwest::Client::new();
+        let st = |m: reqwest::Method, p: &str| c.request(m, format!("http://{addr}{p}")).send();
+        assert_eq!(st(reqwest::Method::GET, "/a").await.unwrap().status(), 200);
+        assert_eq!(st(reqwest::Method::GET, "/x/y/z").await.unwrap().status(), 418);
+        assert_eq!(st(reqwest::Method::POST, "/x").await.unwrap().status(), 404);
     }
 
     #[test]
